@@ -1,0 +1,257 @@
+package Test_Complete_pkg;
+
+    localparam int ADDR_WIDTH        = 32;
+    localparam int DATA_WIDTH        = 32;
+    localparam int MAX_TEST_REQUESTS = 1000;
+
+    // CPU-visible IDs are reusable slots, not unique request numbers.
+    // The DUT interface is 4 bits wide, while this testbench intentionally
+    // limits itself to 8 live slots.
+    localparam int CPU_ID_WIDTH      = 4;
+    localparam int CPU_SLOT_COUNT    = 8;
+
+    localparam int MSHR_ID_WIDTH     = 2;
+
+    localparam int LINE_BYTES        = 16;
+    localparam int NUM_ASSOC_CONFIGS = 5;
+
+    localparam int ASSOC_IDX_1       = 0;
+    localparam int ASSOC_IDX_2       = 1;
+    localparam int ASSOC_IDX_4       = 2;
+    localparam int ASSOC_IDX_8       = 3;
+    localparam int ASSOC_IDX_16      = 4;
+
+    localparam int WORDS_PER_LINE    = LINE_BYTES / (DATA_WIDTH / 8);
+
+    localparam int RAM_DEPTH_WORDS   = 1024;
+    localparam int RAM_READ_LATENCY  = 20;
+
+    localparam string RAM_INIT_FILE  = "downstream_init.hex";
+
+    localparam int TEST1_NUM_WRITES  = 300;
+    localparam int TEST1_NUM_READS   = 300;
+
+    localparam int TEST2_NUM_WRITES  = 200;
+    localparam int TEST2_NUM_READS   = 200;
+
+    // Test3 is burst based. Only TEST3_BURSTS is meant to be changed.
+    // Each burst sends exactly burst size random read/write requests, then reseeds.
+    localparam int TEST3_BURSTS      = 10;
+    localparam int TEST3_BURST_SIZE  = 8;
+    localparam int TEST3_BASE_SEED   = 32'h1234_5678;
+
+    localparam int TEST4_NUM_READS1  = 100;
+    localparam int TEST4_NUM_WRITES  = 100;
+    localparam int TEST4_NUM_READS2  = 100;
+
+    localparam int TEST5_REPEAT_COUNT = 10;
+    localparam int TEST5_NUM_LINES    = 10;
+
+    localparam int TEST6_REPEAT_COUNT = 10;
+    localparam int TEST6_NUM_LINES    = 20;
+
+    localparam int TEST7_NUM_CYCLES   = 100;
+    localparam int TEST8_NUM_CYCLES   = 100;
+    localparam int TEST9_NUM_CYCLES   = 100;
+    localparam int TEST10_NUM_CYCLES  = 100;
+
+    localparam int TEST1 = 1;
+    localparam int TEST2 = 2;
+    localparam int TEST3 = 3;
+    localparam int TEST4 = 4;
+    localparam int TEST5 = 5;
+    localparam int TEST6 = 6;
+    localparam int TEST7 = 7;
+    localparam int TEST8 = 8;
+    localparam int TEST9 = 9;
+    localparam int TEST10 = 10;
+    localparam int TEST_LAST = TEST10;
+
+    localparam bit TEST1_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST1_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST1_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST1_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST1_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST1_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST2_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST2_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST2_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST2_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST2_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST2_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST3_PRINT_CPU_REQS   = 1'b1;
+    localparam bit TEST3_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST3_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST3_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST3_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST3_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST4_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST4_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST4_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST4_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST4_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST4_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST5_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST5_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST5_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST5_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST5_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST5_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST6_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST6_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST6_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST6_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST6_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST6_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST7_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST7_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST7_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST7_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST7_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST7_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST8_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST8_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST8_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST8_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST8_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST8_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST9_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST9_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST9_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST9_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST9_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST9_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST10_PRINT_CPU_REQS  = 1'b0;
+    localparam bit TEST10_PRINT_CPU_RESPS = 1'b0;
+    localparam bit TEST10_PRINT_MEM_REQS  = 1'b0;
+    localparam bit TEST10_PRINT_MEM_RESPS = 1'b0;
+    localparam bit TEST10_PRINT_CHECKS    = 1'b0;
+    localparam bit TEST10_PRINT_REPORT    = 1'b1;
+
+    function automatic string resolve_ram_init_file;
+        int fd;
+        string candidates [0:5];
+        begin
+            candidates[0] = RAM_INIT_FILE;
+            candidates[1] = "../Verification/downstream_init.hex";
+            candidates[2] = "../../Verification/downstream_init.hex";
+            candidates[3] = "Verification/downstream_init.hex";
+            candidates[4] = "../downstream_init.hex";
+            candidates[5] = "../../downstream_init.hex";
+
+            resolve_ram_init_file = RAM_INIT_FILE;
+
+            for (int i = 0; i < 6; i++) begin
+                fd = $fopen(candidates[i], "r");
+
+                if (fd != 0) begin
+                    $fclose(fd);
+                    resolve_ram_init_file = candidates[i];
+                    return resolve_ram_init_file;
+                end
+            end
+        end
+    endfunction
+
+    function automatic int assoc_value_from_idx(input int assoc_idx);
+        begin
+            if (assoc_idx == ASSOC_IDX_1)
+                assoc_value_from_idx = 1;
+            else if (assoc_idx == ASSOC_IDX_2)
+                assoc_value_from_idx = 2;
+            else if (assoc_idx == ASSOC_IDX_4)
+                assoc_value_from_idx = 4;
+            else if (assoc_idx == ASSOC_IDX_8)
+                assoc_value_from_idx = 8;
+            else
+                assoc_value_from_idx = 16;
+        end
+    endfunction
+
+    function automatic string pass_fail(input bit pass);
+        begin
+            pass_fail = pass ? "PASSED" : "FAILED";
+        end
+    endfunction
+
+    function automatic string test_name(input int test_id);
+        begin
+            if (test_id == TEST1)
+                test_name = "Test1";
+            else if (test_id == TEST2)
+                test_name = "Test2";
+            else if (test_id == TEST3)
+                test_name = "Test3";
+            else if (test_id == TEST4)
+                test_name = "Test4";
+            else if (test_id == TEST5)
+                test_name = "Test5";
+            else if (test_id == TEST6)
+                test_name = "Test6";
+            else if (test_id == TEST7)
+                test_name = "Test7";
+            else if (test_id == TEST8)
+                test_name = "Test8";
+            else if (test_id == TEST9)
+                test_name = "Test9";
+            else
+                test_name = "Test10";
+        end
+    endfunction
+
+    // CPU address is WORD-addressed.
+    // cpu_addr[1:0] is the word offset inside the 4-word line.
+    function automatic logic [ADDR_WIDTH-1:0] make_addr(input int test_id, input int i);
+        begin
+            if ((test_id == TEST1) || (test_id == TEST4)) begin
+                make_addr = ADDR_WIDTH'(i);
+            end
+            else if ((test_id == TEST5) || (test_id == TEST8) || (test_id == TEST10)) begin
+                make_addr = ADDR_WIDTH'(i * WORDS_PER_LINE);
+            end
+            else if ((test_id == TEST6) || (test_id == TEST7) || (test_id == TEST9)) begin
+                make_addr = ADDR_WIDTH'(i);
+            end
+            else begin
+                make_addr = ADDR_WIDTH'((i * WORDS_PER_LINE) + 2);
+            end
+        end
+    endfunction
+
+    function automatic logic [DATA_WIDTH-1:0] make_wdata(input int test_id, input int i);
+        begin
+            if ((test_id == TEST1) || (test_id == TEST4))
+                make_wdata = DATA_WIDTH'(i + 1);
+            else if (test_id == TEST5)
+                make_wdata = DATA_WIDTH'(32'h5000_0000 + i);
+            else if (test_id == TEST6)
+                make_wdata = DATA_WIDTH'(32'h6000_0000 + i);
+            else if (test_id == TEST7)
+                make_wdata = DATA_WIDTH'(32'h7000_0000 + i);
+            else if (test_id == TEST8)
+                make_wdata = DATA_WIDTH'(32'h8000_0000 + i);
+            else if (test_id == TEST9)
+                make_wdata = DATA_WIDTH'(32'h9000_0000 + i);
+            else if (test_id == TEST10)
+                make_wdata = DATA_WIDTH'(32'hA100_0000 + i);
+            else
+                make_wdata = DATA_WIDTH'(32'hA000_0000 + i);
+        end
+    endfunction
+
+    function automatic logic [DATA_WIDTH-1:0] make_wdata_second(input int test_id, input int i);
+        begin
+            make_wdata_second = make_wdata(test_id, i) ^ DATA_WIDTH'(32'h00FF_0000);
+        end
+    endfunction
+
+endpackage

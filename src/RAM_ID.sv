@@ -37,6 +37,7 @@ module RAM_ID #(
     localparam int WORD_ADDR_W = $clog2(DEPTH);
 
     logic [D_WIDTH-1:0] mem [0:DEPTH-1];
+    string init_file_path;
 
     logic [WORD_ADDR_W-1:0] word_addr;
 
@@ -45,8 +46,35 @@ module RAM_ID #(
 
     assign req_ready = 1'b1;
 
+    function automatic string resolve_init_file;
+        int fd;
+        string candidates [0:5];
+        begin
+            candidates[0] = INIT_FILE;
+            candidates[1] = "../Verification/downstream_init.hex";
+            candidates[2] = "../../Verification/downstream_init.hex";
+            candidates[3] = "Verification/downstream_init.hex";
+            candidates[4] = "../downstream_init.hex";
+            candidates[5] = "../../downstream_init.hex";
+
+            resolve_init_file = INIT_FILE;
+
+            for (int i = 0; i < 6; i++) begin
+                fd = $fopen(candidates[i], "r");
+
+                if (fd != 0) begin
+                    $fclose(fd);
+                    resolve_init_file = candidates[i];
+                    return resolve_init_file;
+                end
+            end
+        end
+    endfunction
+
     initial begin
-        $readmemh(INIT_FILE, mem);
+        init_file_path = resolve_init_file();
+        $display("RAM_ID loading init file: %s", init_file_path);
+        $readmemh(init_file_path, mem);
     end
 
     logic [READ_LATENCY:0] valid_pipe;
@@ -56,7 +84,7 @@ module RAM_ID #(
     always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
             // Reload RAM contents on every reset so each test is isolated.
-            $readmemh(INIT_FILE, mem);
+            $readmemh(init_file_path, mem);
 
             valid_pipe <= '0;
 

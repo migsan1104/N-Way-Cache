@@ -80,13 +80,6 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 Top level modules:
 	MSHR_Response_DeMux
 
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/Verification/Test_Complete.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/Verification/Test_Complete.sv
-QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module Test_Complete
-
-Top level modules:
-	Test_Complete
-
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Victim_Select.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Victim_Select.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 -- Compiling module Victim_Select
@@ -187,6 +180,13 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 Top level modules:
 	Reg_r
 
+} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/RAM.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/RAM.sv
+QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module RAM
+
+Top level modules:
+	RAM
+
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Replacement.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Replacement.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 -- Compiling module Replacement
@@ -231,13 +231,26 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 Top level modules:
 	Flag_Array
 
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_Mux.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_Mux.sv
+} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module MSHR_Response_Mux
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_Mux.sv(21): (vlog-13314) Defaulting port 'entry_miss_id' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+-- Compiling module Compare_Select_Replace
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv(31): (vlog-13314) Defaulting port 'way_line' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv(32): (vlog-13314) Defaulting port 'way_tag' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv(33): (vlog-13314) Defaulting port 'way_allocated' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv(34): (vlog-13314) Defaulting port 'way_dirty' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Compare_Select_Replace.sv(35): (vlog-13314) Defaulting port 'way_word_valid' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
 
 Top level modules:
+	Compare_Select_Replace
+
+} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_Mux.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/Verification/Test_Complete.sv
+Top level modules:
+QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 	MSHR_Response_Mux
+-- Compiling module Test_Complete
+
+Top level modules:
+	Test_Complete
 
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Address_Decode.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Address_Decode.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
@@ -252,6 +265,14 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 
 Top level modules:
 	MSHR_File
+
+} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/CPU_Write.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/CPU_Write.sv
+QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
+-- Compiling module CPU_Write
+** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/CPU_Write.sv(26): (vlog-13314) Defaulting port 'old_line' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
+
+Top level modules:
+	CPU_Write
 
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Delay_FF.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Delay_FF.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023

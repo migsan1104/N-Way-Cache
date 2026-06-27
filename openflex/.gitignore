@@ -1,0 +1,15 @@
+build_questa/
+build_vivado/
+openflex/
+Cache_timing_all.csv
+timing_all.log
+timing_all_transcript
+*.jou
+*.log
+*.str
+*.rpt
+*.backup
+*.wdb
+*.vcd
+transcript
+modelsim.ini

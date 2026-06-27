@@ -1,0 +1,53 @@
+mode: synth
+tool: vivado
+top: Cache_timing
+clock: clk
+device: XCU250-FIGD2104-2L-E
+
+files:
+  - rtl/Cache_timing.sv
+  - ../src/Address_Decode.sv
+  - ../src/Cache.sv
+  - ../src/Compare_Select_Replace.sv
+  - ../src/CPU_Write.sv
+  - ../src/Data_Array.sv
+  - ../src/Delay.sv
+  - ../src/Delay_FF.sv
+  - ../src/Delay_FF_r.sv
+  - ../src/Delay_r.sv
+  - ../src/Dispacher.sv
+  - ../src/FF.sv
+  - ../src/FF_r.sv
+  - ../src/FIFO.sv
+  - ../src/FIFO_Almost.sv
+  - ../src/FIFO_FWFT.sv
+  - ../src/Flag_Array.sv
+  - ../src/Flag_Data_Array.sv
+  - ../src/Hit_compare.sv
+  - ../src/Memory_Request_Arbirter.sv
+  - ../src/Memory_Request_Unit.sv
+  - ../src/Miss_Issue_Controller.sv
+  - ../src/Miss_Response_Unit.sv
+  - ../src/MSHR_Entry.sv
+  - ../src/MSHR_File.sv
+  - ../src/MSHR_Mux.sv
+  - ../src/MSHR_Request_Arbiter.sv
+  - ../src/MSHR_Response_DeMux.sv
+  - ../src/MSHR_Response_Mux.sv
+  - ../src/MSHR_Scheduler.sv
+  - ../src/RAM.sv
+  - ../src/RAM_2W1R.sv
+  - ../src/RAM_2W1R_Reset.sv
+  - ../src/RAM_ID.sv
+  - ../src/Refill_Write_Control.sv
+  - ../src/Reg.sv
+  - ../src/Reg_r.sv
+  - ../src/Replacement.sv
+  - ../src/Reservation_Station.sv
+  - ../src/Response_Unit.sv
+  - ../src/Tag_Array.sv
+  - ../src/Victim_Select.sv
+
+parameters:
+  CACHE_BYTES: [1024]
+  ASSOC: [1, 2, 4, 8, 16]

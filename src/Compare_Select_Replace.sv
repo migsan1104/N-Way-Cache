@@ -1,27 +1,5 @@
 // ============================================================
 // Compare_Select_Replace
-//
-// Combines compare, invalid-way select, PLRU replacement select,
-// early CPU write allocation, and victim capture.
-//
-// Assumption:
-//   replacement_way is already aligned with this compare phase.
-//   Therefore Replacement.lookup_set should be driven one phase earlier.
-//
-// CPU write path is combinational:
-//   - write hit updates hit way
-//   - write miss to invalid way early-allocates regular_way
-//   - write miss eviction early-allocates replacement_way
-//
-// On write miss allocation:
-//   - tag is installed immediately
-//   - data word is installed immediately
-//   - Flag_Data_Array should invalidate all other words
-//
-// Hit rules:
-//   line_match = allocated && tag_match
-//   write_hit  = line_match
-//   read_hit   = line_match && word_valid[word_id]
 // ============================================================
 
 module Compare_Select_Replace #(
@@ -83,6 +61,10 @@ module Compare_Select_Replace #(
     output logic                       regular_found,
     output logic [WAY_INDEX_W-1:0]     regular_way,
 
+    output logic [ASSOC-1:0]           alloc_wen,
+    output logic [SET_INDEX_W-1:0]     alloc_waddr,
+    output logic [TAG_WIDTH-1:0]       alloc_tag,
+
     output logic                       cpu_write_valid,
     output logic [ASSOC-1:0]           cpu_write_wen,
     output logic [ASSOC-1:0]           cpu_write_replace,
@@ -90,10 +72,6 @@ module Compare_Select_Replace #(
     output logic [SET_INDEX_W-1:0]     cpu_write_set_id,
     output logic [WORD_OFFSET_W-1:0]   cpu_write_word_id,
     output logic [DATA_WIDTH-1:0]      cpu_write_wdata,
-
-    output logic [ASSOC-1:0]           cpu_tag_wen,
-    output logic [SET_INDEX_W-1:0]     cpu_tag_waddr,
-    output logic [TAG_WIDTH-1:0]       cpu_tag_wdata,
 
     output logic                       replacement_update_valid,
     output logic [SET_INDEX_W-1:0]     replacement_update_set,
@@ -106,6 +84,9 @@ module Compare_Select_Replace #(
 
     logic [WAY_INDEX_W-1:0] hit_way_c;
     logic [DATA_WIDTH-1:0]  selected_word_c;
+
+    logic line_found_c;
+    logic [WAY_INDEX_W-1:0] line_way_c;
 
     logic hit_c;
     logic miss_c;
@@ -147,6 +128,18 @@ module Compare_Select_Replace #(
         end
     end
 
+    always_comb begin
+        line_found_c = 1'b0;
+        line_way_c   = '0;
+
+        for (int i = 0; i < ASSOC; i++) begin
+            if (line_match_c[i]) begin
+                line_found_c = 1'b1;
+                line_way_c   = WAY_INDEX_W'(i);
+            end
+        end
+    end
+
     assign hit_c  = |way_hit_c;
     assign miss_c = in_valid && !hit_c;
 
@@ -162,12 +155,16 @@ module Compare_Select_Replace #(
         end
     end
 
-    assign miss_way_c = regular_found_c ? regular_way_c : replacement_way;
+    assign miss_way_c =
+        line_found_c    ? line_way_c :
+        regular_found_c ? regular_way_c :
+                          replacement_way;
 
     always_comb begin
+        alloc_wen           = '0;
+
         cpu_write_wen       = '0;
         cpu_write_replace   = '0;
-        cpu_tag_wen         = '0;
 
         cpu_write_valid_c   = 1'b0;
         cpu_write_way_c     = '0;
@@ -177,12 +174,16 @@ module Compare_Select_Replace #(
             cpu_write_valid_c = 1'b1;
             cpu_write_way_c   = hit_way_c;
         end
-        else if (in_valid && in_write && miss_c) begin
-            cpu_write_valid_c   = 1'b1;
-            cpu_write_way_c     = miss_way_c;
-            cpu_write_replace_c = 1'b1;
+        else if (in_valid && miss_c) begin
+            if (!line_found_c) begin
+                alloc_wen[miss_way_c] = 1'b1;
+            end
 
-            cpu_tag_wen[miss_way_c] = 1'b1;
+            if (in_write) begin
+                cpu_write_valid_c   = 1'b1;
+                cpu_write_way_c     = miss_way_c;
+                cpu_write_replace_c = !line_found_c;
+            end
         end
 
         if (cpu_write_valid_c) begin
@@ -194,18 +195,18 @@ module Compare_Select_Replace #(
         end
     end
 
+    assign alloc_waddr       = in_set_id;
+    assign alloc_tag         = in_tag;
+
     assign cpu_write_valid   = cpu_write_valid_c;
     assign cpu_write_way     = cpu_write_way_c;
     assign cpu_write_set_id  = in_set_id;
     assign cpu_write_word_id = in_word_id;
     assign cpu_write_wdata   = in_wdata;
 
-    assign cpu_tag_waddr     = in_set_id;
-    assign cpu_tag_wdata     = in_tag;
-
-    assign replacement_update_valid = in_valid && miss_c;
+    assign replacement_update_valid = in_valid;
     assign replacement_update_set   = in_set_id;
-    assign replacement_update_way   = miss_way_c;
+    assign replacement_update_way   = hit_c ? hit_way_c : miss_way_c;
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -252,8 +253,8 @@ module Compare_Select_Replace #(
             out_hit_way      <= hit_way_c;
             out_miss_way     <= miss_way_c;
 
-            out_victim_valid <= way_allocated[miss_way_c];
-            out_victim_dirty <= way_dirty[miss_way_c];
+            out_victim_valid <= (!line_found_c) && way_allocated[miss_way_c];
+            out_victim_dirty <= (!line_found_c) && way_dirty[miss_way_c];
             out_victim_tag   <= way_tag[miss_way_c];
             out_victim_line  <= way_line[miss_way_c];
 

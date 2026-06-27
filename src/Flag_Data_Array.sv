@@ -1,26 +1,5 @@
 // ============================================================
 // Flag_Data_Array
-// One data + flag array for ONE WAY.
-//
-// Refill behavior:
-//   - refill_eviction = 1:
-//       replace full line, valid all words, dirty = refill_dirty
-//   - refill_eviction = 0:
-//       merge refill data only into invalid words
-//
-// CPU write behavior:
-//   - normal write hit:
-//       update one word, set word valid, set dirty
-//   - cpu_replace = 1:
-//       early allocation / eviction install
-//       update one word
-//       allocated = 1
-//       dirty = 1
-//       word_valid = only written word valid
-//
-// Priority:
-//   refill happens first
-//   CPU word write has final priority
 // ============================================================
 
 module Flag_Data_Array #(
@@ -46,6 +25,9 @@ module Flag_Data_Array #(
     input  logic [LINE_WIDTH-1:0]     refill_line,
     input  logic                      refill_dirty,
     input  logic                      refill_eviction,
+
+    input  logic                      alloc_wen,
+    input  logic [SET_INDEX_W-1:0]    alloc_waddr,
 
     input  logic                      cpu_word_wen,
     input  logic                      cpu_replace,
@@ -81,13 +63,11 @@ module Flag_Data_Array #(
             end
         end
         else begin
-            // Registered read
             rline      <= data_mem[raddr];
             allocated  <= allocated_mem[raddr];
             dirty      <= dirty_mem[raddr];
             word_valid <= word_valid_mem[raddr];
 
-            // Refill path
             if (refill_wen) begin
                 allocated_mem[refill_waddr] <= 1'b1;
 
@@ -109,7 +89,12 @@ module Flag_Data_Array #(
                 end
             end
 
-            // CPU word write has final priority
+            if (alloc_wen) begin
+                allocated_mem[alloc_waddr]  <= 1'b1;
+                dirty_mem[alloc_waddr]      <= 1'b0;
+                word_valid_mem[alloc_waddr] <= '0;
+            end
+
             if (cpu_word_wen) begin
                 data_mem[cpu_waddr][cpu_word_id*DATA_WIDTH +: DATA_WIDTH]
                     <= cpu_wdata;
@@ -125,24 +110,7 @@ module Flag_Data_Array #(
                 end
             end
 
-            // Same-cycle read bypass for CPU write
-            if (cpu_word_wen && (cpu_waddr == raddr)) begin
-                rline[cpu_word_id*DATA_WIDTH +: DATA_WIDTH] <= cpu_wdata;
-                allocated <= 1'b1;
-                dirty     <= 1'b1;
-
-                if (cpu_replace) begin
-                    word_valid <= cpu_word_mask;
-                end
-                else begin
-                    word_valid[cpu_word_id] <= 1'b1;
-                end
-            end
-
-            // Same-cycle read bypass for refill when no CPU write overrides it
-            if (refill_wen && (refill_waddr == raddr) &&
-                !(cpu_word_wen && (cpu_waddr == raddr))) begin
-
+            if (refill_wen && (refill_waddr == raddr)) begin
                 allocated <= 1'b1;
                 dirty     <= refill_dirty;
 
@@ -159,6 +127,25 @@ module Flag_Data_Array #(
                     end
 
                     word_valid <= '1;
+                end
+            end
+
+            if (alloc_wen && (alloc_waddr == raddr)) begin
+                allocated  <= 1'b1;
+                dirty      <= 1'b0;
+                word_valid <= '0;
+            end
+
+            if (cpu_word_wen && (cpu_waddr == raddr)) begin
+                rline[cpu_word_id*DATA_WIDTH +: DATA_WIDTH] <= cpu_wdata;
+                allocated <= 1'b1;
+                dirty     <= 1'b1;
+
+                if (cpu_replace) begin
+                    word_valid <= cpu_word_mask;
+                end
+                else begin
+                    word_valid[cpu_word_id] <= 1'b1;
                 end
             end
         end

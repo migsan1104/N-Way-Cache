@@ -45,12 +45,6 @@ module Cache #(
     input  logic [DATA_WIDTH-1:0]     mem_resp_rdata
 );
 
-    // Fixed cache line format:
-    //   - 4 words per line
-    //   - 32 bits per word
-    //   - 16 bytes per line
-    //
-    // Only CACHE_BYTES and ASSOC are user-configurable.
     localparam int WORD_BYTES      = 4;
     localparam int WORDS_PER_LINE  = 4;
     localparam int LINE_BYTES      = 16;
@@ -62,8 +56,6 @@ module Cache #(
     localparam int BYTE_OFFSET_W   = 2;
     localparam int WORD_OFFSET_W   = 2;
 
-    // For fully associative caches, NUM_SETS=1, so there is no real set field.
-    // SET_INDEX_W stays at least 1 because zero-width vectors are awkward in SV.
     localparam int SET_INDEX_BITS  = (NUM_SETS <= 1) ? 0 : $clog2(NUM_SETS);
     localparam int SET_INDEX_W     = (SET_INDEX_BITS == 0) ? 1 : SET_INDEX_BITS;
 
@@ -125,6 +117,10 @@ module Cache #(
     logic                         regular_found;
     logic [WAY_INDEX_W-1:0]       regular_way;
 
+    logic [ASSOC-1:0]             alloc_wen;
+    logic [SET_INDEX_W-1:0]       alloc_waddr;
+    logic [TAG_WIDTH-1:0]         alloc_tag;
+
     logic                         cpu_write_valid;
     logic [ASSOC-1:0]             cpu_write_wen;
     logic [ASSOC-1:0]             cpu_write_replace;
@@ -132,10 +128,6 @@ module Cache #(
     logic [SET_INDEX_W-1:0]       cpu_write_set_id;
     logic [WORD_OFFSET_W-1:0]     cpu_write_word_id;
     logic [DATA_WIDTH-1:0]        cpu_write_wdata;
-
-    logic [ASSOC-1:0]             cpu_tag_wen;
-    logic [SET_INDEX_W-1:0]       cpu_tag_waddr;
-    logic [TAG_WIDTH-1:0]         cpu_tag_wdata;
 
     logic [WAY_INDEX_W-1:0]       replacement_way;
     logic                         replacement_update_valid;
@@ -254,6 +246,9 @@ module Cache #(
                 .refill_dirty    (refill_dirty),
                 .refill_eviction (refill_eviction),
 
+                .alloc_wen       (alloc_wen[way_gen]),
+                .alloc_waddr     (alloc_waddr),
+
                 .cpu_word_wen    (cpu_write_wen[way_gen]),
                 .cpu_replace     (cpu_write_replace[way_gen]),
                 .cpu_waddr       (cpu_write_set_id),
@@ -272,9 +267,9 @@ module Cache #(
                 .raddr        (array_rindex),
                 .rdata        (way_tag[way_gen]),
 
-                .early_wen    (cpu_tag_wen[way_gen]),
-                .early_waddr  (cpu_tag_waddr),
-                .early_wdata  (cpu_tag_wdata),
+                .early_wen    (alloc_wen[way_gen]),
+                .early_waddr  (alloc_waddr),
+                .early_wdata  (alloc_tag),
 
                 .refill_wen   (refill_tag_wen[way_gen]),
                 .refill_waddr (refill_set_id),
@@ -360,6 +355,10 @@ module Cache #(
         .regular_found            (regular_found),
         .regular_way              (regular_way),
 
+        .alloc_wen                (alloc_wen),
+        .alloc_waddr              (alloc_waddr),
+        .alloc_tag                (alloc_tag),
+
         .cpu_write_valid          (cpu_write_valid),
         .cpu_write_wen            (cpu_write_wen),
         .cpu_write_replace        (cpu_write_replace),
@@ -367,10 +366,6 @@ module Cache #(
         .cpu_write_set_id         (cpu_write_set_id),
         .cpu_write_word_id        (cpu_write_word_id),
         .cpu_write_wdata          (cpu_write_wdata),
-
-        .cpu_tag_wen              (cpu_tag_wen),
-        .cpu_tag_waddr            (cpu_tag_waddr),
-        .cpu_tag_wdata            (cpu_tag_wdata),
 
         .replacement_update_valid (replacement_update_valid),
         .replacement_update_set   (replacement_update_set),
@@ -388,9 +383,6 @@ module Cache #(
     assign miss_select_line_addr  = cmp_line_addr;
     assign miss_select_way        = cmp_miss_way;
 
-    // CPU miss response data path is intentionally decoupled from refill.
-    // This delayed scalar stream feeds Dispacher through MSHR_File.
-    // Dispacher pairs this data with miss_valid/miss_id.
     Delay_r #(
         .D_WIDTH(DATA_WIDTH),
         .DELAY  (5)
@@ -414,7 +406,7 @@ module Cache #(
         .MSHR_ID_WIDTH    (MSHR_ID_WIDTH),
         .MISSQ_DEPTH      (32),
         .MSHR_AF          (8),
-        .MAX_WAITERS     (WORDS_PER_LINE)
+        .MAX_WAITERS      (WORDS_PER_LINE)
     ) MSHR_FILE (
         .clk                  (clk),
         .rst                  (rst),
@@ -441,13 +433,10 @@ module Cache #(
 
         .issue_done           (mshr_issued),
 
-        // Refill path uses raw memory response data.
-        // Do NOT delay this unless mem_resp_valid/id are delayed equally.
         .mem_resp_valid       (mem_resp_valid),
         .mem_resp_id          (mem_resp_id),
         .mem_resp_rdata       (mem_resp_rdata),
 
-        // Delayed scalar data path for miss responses.
         .delayed_miss_data    (delayed_miss_data),
 
         .miss_valid           (miss_cpu_resp_valid),
@@ -540,21 +529,22 @@ module Cache #(
         end
         else begin
             if (DEBUG && refill_wen && cpu_write_valid &&
-    (refill_set_id == cpu_write_set_id) &&
-    (refill_way == cpu_write_way)) begin
-    $display("[%0t] SAME_WAY_COLLISION: set=%0d way=%0d refill_tag=%h cpu_tag=%h refill_dirty=%0b refill_eviction=%0b cpu_replace=%0b refill_line=%h cpu_word=%0d cpu_wdata=%h",
-             $time,
-             refill_set_id,
-             refill_way,
-             refill_tag,
-             cpu_tag_wdata,
-             refill_dirty,
-             refill_eviction,
-             cpu_write_replace[cpu_write_way],
-             refill_line,
-             cpu_write_word_id,
-             cpu_write_wdata);
-end
+                (refill_set_id == cpu_write_set_id) &&
+                (refill_way == cpu_write_way)) begin
+                $display("[%0t] SAME_WAY_COLLISION: set=%0d way=%0d refill_tag=%h alloc_tag=%h refill_dirty=%0b refill_eviction=%0b cpu_replace=%0b refill_line=%h cpu_word=%0d cpu_wdata=%h",
+                         $time,
+                         refill_set_id,
+                         refill_way,
+                         refill_tag,
+                         alloc_tag,
+                         refill_dirty,
+                         refill_eviction,
+                         cpu_write_replace[cpu_write_way],
+                         refill_line,
+                         cpu_write_word_id,
+                         cpu_write_wdata);
+            end
+
             if (DEBUG && hit_resp_valid && hit_resp_ready) begin
                 $display("[%0t] CACHE HIT PUSH: write=%0b id=%0d data=%h",
                          $time,
@@ -571,15 +561,22 @@ end
                          delayed_miss_data);
             end
 
+            if (DEBUG && (|alloc_wen)) begin
+                $display("[%0t] CACHE ALLOC ARRAY: set=%0d tag=%h alloc_wen=%b",
+                         $time,
+                         alloc_waddr,
+                         alloc_tag,
+                         alloc_wen);
+            end
+
             if (DEBUG && cpu_write_valid) begin
-                $display("[%0t] CACHE CPU WRITE ARRAY: set=%0d way=%0d word=%0d data=%h replace=%0b cpu_tag_wen=%b",
+                $display("[%0t] CACHE CPU WRITE ARRAY: set=%0d way=%0d word=%0d data=%h replace=%0b",
                          $time,
                          cpu_write_set_id,
                          cpu_write_way,
                          cpu_write_word_id,
                          cpu_write_wdata,
-                         cpu_write_replace[cpu_write_way],
-                         cpu_tag_wen);
+                         cpu_write_replace[cpu_write_way]);
             end
 
             if (DEBUG && refill_wen) begin

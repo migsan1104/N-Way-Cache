@@ -1,0 +1,14 @@
+build_questa/
+build_vivado/
+openflex/
+!openflex/
+!openflex/**
+*.jou
+*.log
+*.str
+*.rpt
+*.backup
+*.wdb
+*.vcd
+transcript
+modelsim.ini
