@@ -13,7 +13,8 @@ module Compare_Select_Replace #(
     parameter int WORD_OFFSET_W   = 2,
     parameter int LINE_ADDR_WIDTH = 26,
     parameter int WORDS_PER_LINE  = 4,
-    parameter int WAY_INDEX_W     = (ASSOC <= 1) ? 1 : $clog2(ASSOC)
+    parameter int WAY_INDEX_W     = (ASSOC <= 1) ? 1 : $clog2(ASSOC),
+    localparam logic DEBUG        = 1'b0
 )(
     input  logic clk,
     input  logic rst,
@@ -93,6 +94,9 @@ module Compare_Select_Replace #(
 
     logic regular_found_c;
     logic [WAY_INDEX_W-1:0] regular_way_c;
+    logic complete_found_c;
+    logic [WAY_INDEX_W-1:0] complete_way_c;
+    logic replacement_complete_c;
     logic [WAY_INDEX_W-1:0] miss_way_c;
 
     logic cpu_write_valid_c;
@@ -146,19 +150,34 @@ module Compare_Select_Replace #(
     always_comb begin
         regular_found_c = 1'b0;
         regular_way_c   = '0;
+        complete_found_c = 1'b0;
+        complete_way_c   = '0;
 
         for (int i = 0; i < ASSOC; i++) begin
             if (!way_allocated[i] && !regular_found_c) begin
                 regular_found_c = 1'b1;
                 regular_way_c   = WAY_INDEX_W'(i);
             end
+
+            if (way_allocated[i] &&
+                (way_word_valid[i] == {WORDS_PER_LINE{1'b1}}) &&
+                !complete_found_c) begin
+                complete_found_c = 1'b1;
+                complete_way_c   = WAY_INDEX_W'(i);
+            end
         end
     end
 
     assign miss_way_c =
-        line_found_c    ? line_way_c :
-        regular_found_c ? regular_way_c :
-                          replacement_way;
+        line_found_c           ? line_way_c :
+        regular_found_c        ? regular_way_c :
+        replacement_complete_c ? replacement_way :
+        complete_found_c       ? complete_way_c :
+                                 replacement_way;
+
+    assign replacement_complete_c =
+        way_allocated[replacement_way] &&
+        (way_word_valid[replacement_way] == {WORDS_PER_LINE{1'b1}});
 
     always_comb begin
         alloc_wen           = '0;
@@ -260,6 +279,28 @@ module Compare_Select_Replace #(
 
             regular_found    <= regular_found_c;
             regular_way      <= regular_way_c;
+
+            if (DEBUG && in_valid && miss_c) begin
+                $display("[%0t] CSR MISS SNAPSHOT: write=%0b addr=%h line_addr=%h set=%0d word=%0d new_tag=%h miss_way=%0d line_found=%0b regular_found=%0b repl_way=%0d way_tag=%h way_alloc=%0b way_dirty=%0b way_word_valid=%b way_line=%h victim_valid=%0b victim_dirty=%0b",
+                         $time,
+                         in_write,
+                         in_addr,
+                         in_line_addr,
+                         in_set_id,
+                         in_word_id,
+                         in_tag,
+                         miss_way_c,
+                         line_found_c,
+                         regular_found_c,
+                         replacement_way,
+                         way_tag[miss_way_c],
+                         way_allocated[miss_way_c],
+                         way_dirty[miss_way_c],
+                         way_word_valid[miss_way_c],
+                         way_line[miss_way_c],
+                         (!line_found_c) && way_allocated[miss_way_c],
+                         (!line_found_c) && way_dirty[miss_way_c]);
+            end
         end
     end
 

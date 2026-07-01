@@ -18,7 +18,7 @@ module Dispacher #(
     localparam int WORDS_PER_LINE = (1 << WORD_OFFSET_W),
     localparam int WAITER_COUNT_W = $clog2(MAX_WAITERS + 1),
     localparam int MEM_PHASE_W    = $clog2(WORDS_PER_LINE + 1),
-    localparam logic DEBUG        = 1'b0
+    localparam logic DEBUG        = 1'b1
 )(
     input  logic clk,
     input  logic rst,

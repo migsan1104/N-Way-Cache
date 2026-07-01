@@ -18,7 +18,7 @@ module MSHR_Entry #(
     parameter int DATA_WIDTH      = 32,
     parameter int LINE_WIDTH      = 128,
     parameter int MSHR_ID_WIDTH   = 2,
-    localparam logic DEBUG        = 1'b0
+    localparam logic DEBUG        = 1'b1
 )(
     input  logic clk,
     input  logic rst,

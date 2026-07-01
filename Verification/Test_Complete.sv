@@ -18,6 +18,104 @@ module Test_Complete #(
     parameter bit TOGGLE_ASSOC_DEBUG_16 = 1'b1
 );
 
+    // Verification knobs.
+    localparam int TEST1_NUM_WRITES  = 300;
+    localparam int TEST1_NUM_READS   = 300;
+
+    localparam int TEST2_NUM_WRITES  = 200;
+    localparam int TEST2_NUM_READS   = 200;
+
+    // Test3 is burst based. Only TEST3_BURSTS is meant to be changed.
+    // Each burst sends exactly burst size random read/write requests, then reseeds.
+    localparam int TEST3_BURSTS      = 35;
+    localparam int TEST3_BURST_SIZE  = 8;
+    localparam int TEST3_BASE_SEED   = 32'h1234_5678;
+
+    localparam int TEST4_NUM_READS1  = 100;
+    localparam int TEST4_NUM_WRITES  = 100;
+    localparam int TEST4_NUM_READS2  = 100;
+
+    localparam int TEST5_REPEAT_COUNT = 10;
+    localparam int TEST5_NUM_LINES    = 10;
+
+    localparam int TEST6_REPEAT_COUNT = 10;
+    localparam int TEST6_NUM_LINES    = 25;
+
+    localparam int TEST7_NUM_CYCLES   = 200;
+    localparam int TEST8_NUM_CYCLES   = 200;
+    localparam int TEST9_NUM_CYCLES   = 200;
+    localparam int TEST10_NUM_CYCLES  = 200;
+
+    localparam bit TEST1_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST1_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST1_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST1_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST1_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST1_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST2_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST2_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST2_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST2_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST2_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST2_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST3_PRINT_CPU_REQS   = 1'b1;
+    localparam bit TEST3_PRINT_CPU_RESPS  = 1'b1;
+    localparam bit TEST3_PRINT_MEM_REQS   = 1'b1;
+    localparam bit TEST3_PRINT_MEM_RESPS  = 1'b1;
+    localparam bit TEST3_PRINT_CHECKS     = 1'b1;
+    localparam bit TEST3_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST4_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST4_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST4_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST4_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST4_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST4_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST5_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST5_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST5_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST5_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST5_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST5_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST6_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST6_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST6_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST6_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST6_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST6_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST7_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST7_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST7_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST7_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST7_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST7_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST8_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST8_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST8_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST8_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST8_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST8_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST9_PRINT_CPU_REQS   = 1'b0;
+    localparam bit TEST9_PRINT_CPU_RESPS  = 1'b0;
+    localparam bit TEST9_PRINT_MEM_REQS   = 1'b0;
+    localparam bit TEST9_PRINT_MEM_RESPS  = 1'b0;
+    localparam bit TEST9_PRINT_CHECKS     = 1'b0;
+    localparam bit TEST9_PRINT_REPORT     = 1'b1;
+
+    localparam bit TEST10_PRINT_CPU_REQS  = 1'b0;
+    localparam bit TEST10_PRINT_CPU_RESPS = 1'b0;
+    localparam bit TEST10_PRINT_MEM_REQS  = 1'b0;
+    localparam bit TEST10_PRINT_MEM_RESPS = 1'b0;
+    localparam bit TEST10_PRINT_CHECKS    = 1'b0;
+    localparam bit TEST10_PRINT_REPORT    = 1'b1;
+
     localparam int CACHE_LINES = CACHE_BYTES / LINE_BYTES;
 
     string ram_init_file_path;

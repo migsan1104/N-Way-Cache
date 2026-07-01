@@ -26,7 +26,7 @@ module MSHR_File #(
     parameter int MISSQ_DEPTH     = 64,
     parameter int MSHR_AF         = 7,
     parameter int MAX_WAITERS     = 4,
-    localparam logic DEBUG        = 1'b0
+    localparam logic DEBUG        = 1'b1
 )(
     input  logic clk,
     input  logic rst,

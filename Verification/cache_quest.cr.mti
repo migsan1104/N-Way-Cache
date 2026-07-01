@@ -63,16 +63,6 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 Top level modules:
 	Tag_Array
 
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Request_Arbiter.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Request_Arbiter.sv
-QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module MSHR_Request_Arbiter
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Request_Arbiter.sv(21): (vlog-13314) Defaulting port 'req_addr' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Request_Arbiter.sv(22): (vlog-13314) Defaulting port 'req_wdata' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Request_Arbiter.sv(23): (vlog-13314) Defaulting port 'req_id' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
-
-Top level modules:
-	MSHR_Request_Arbiter
-
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_DeMux.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Response_DeMux.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 -- Compiling module MSHR_Response_DeMux
@@ -93,15 +83,6 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 
 Top level modules:
 	FIFO_Almost
-
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Dispacher.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Dispacher.sv
-QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module Dispacher
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Dispacher.sv(30): (vlog-13314) Defaulting port 'dispatch_cpu_ids' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
-** Warning: /ecel/UFAD/miguel.sanchez1/Cache/src/Dispacher.sv(31): (vlog-13314) Defaulting port 'dispatch_word_ids' kind to 'var' rather than 'wire' due to default compile option setting of -svinputport=relaxed.
-
-Top level modules:
-	Dispacher
 
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Reservation_Station.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Reservation_Station.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
@@ -259,13 +240,6 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 Top level modules:
 	Address_Decode
 
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_File.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_File.sv
-QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module MSHR_File
-
-Top level modules:
-	MSHR_File
-
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/CPU_Write.sv {2 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/CPU_Write.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 -- Compiling module CPU_Write
@@ -287,13 +261,6 @@ QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
 
 Top level modules:
 	FIFO_FWFT
-
-} {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Entry.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/MSHR_Entry.sv
-QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023
--- Compiling module MSHR_Entry
-
-Top level modules:
-	MSHR_Entry
 
 } {} {}} /ecel/UFAD/miguel.sanchez1/Cache/src/Delay_FF_r.sv {1 {vlog -work work -vopt -sv -stats=none /ecel/UFAD/miguel.sanchez1/Cache/src/Delay_FF_r.sv
 QuestaSim-64 vlog 2023.3 Compiler 2023.07 Jul 17 2023

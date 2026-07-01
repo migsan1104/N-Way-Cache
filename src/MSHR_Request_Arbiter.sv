@@ -1,5 +1,5 @@
 // ============================================================
-// Registered MSHR request arbiter
+// MSHR request arbiter
 // Locks onto one MSHR and drains its request stream before
 // switching to another MSHR.
 //
@@ -32,32 +32,24 @@ module MSHR_Request_Arbiter #(
     output logic [MSHR_ID_WIDTH-1:0]         mem_req_id
 );
 
-    logic                         out_valid_r;
-    logic                         out_write_r;
-    logic [ADDR_WIDTH-1:0]        out_addr_r;
-    logic [DATA_WIDTH-1:0]        out_wdata_r;
-    logic [MSHR_ID_WIDTH-1:0]     out_id_r;
-
     logic                         lock_valid_r;
     logic [MSHR_ID_WIDTH-1:0]     lock_id_r;
 
     logic                         found_req;
-    logic                         load_new;
     logic [MSHR_COUNT-1:0]        selected_onehot;
     logic                         selected_write;
     logic [ADDR_WIDTH-1:0]        selected_addr;
     logic [DATA_WIDTH-1:0]        selected_wdata;
     logic [MSHR_ID_WIDTH-1:0]     selected_id;
+    logic [MSHR_ID_WIDTH-1:0]     selected_idx;
 
-    assign mem_req_valid = out_valid_r;
-    assign mem_req_write = out_write_r;
-    assign mem_req_addr  = out_addr_r;
-    assign mem_req_wdata = out_wdata_r;
-    assign mem_req_id    = out_id_r;
+    assign mem_req_valid = found_req;
+    assign mem_req_write = selected_write;
+    assign mem_req_addr  = selected_addr;
+    assign mem_req_wdata = selected_wdata;
+    assign mem_req_id    = selected_id;
 
-    assign load_new = !out_valid_r || mem_req_ready;
-
-    assign issued = (load_new && found_req) ? selected_onehot : '0;
+    assign issued = (found_req && mem_req_ready) ? selected_onehot : '0;
 
     always_comb begin
         found_req        = 1'b0;
@@ -66,6 +58,7 @@ module MSHR_Request_Arbiter #(
         selected_addr    = '0;
         selected_wdata   = '0;
         selected_id      = '0;
+        selected_idx     = '0;
 
         // If locked MSHR still has work, keep issuing it.
         if (lock_valid_r && req_valid[lock_id_r]) begin
@@ -75,6 +68,7 @@ module MSHR_Request_Arbiter #(
             selected_addr               = req_addr [lock_id_r];
             selected_wdata              = req_wdata[lock_id_r];
             selected_id                 = req_id   [lock_id_r];
+            selected_idx                = lock_id_r;
         end
         else begin
             // Otherwise choose a new MSHR by fixed priority.
@@ -86,6 +80,7 @@ module MSHR_Request_Arbiter #(
                     selected_addr      = req_addr[i];
                     selected_wdata     = req_wdata[i];
                     selected_id        = req_id[i];
+                    selected_idx       = i[MSHR_ID_WIDTH-1:0];
                 end
             end
         end
@@ -93,40 +88,15 @@ module MSHR_Request_Arbiter #(
 
     always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
-            out_valid_r  <= 1'b0;
-            out_write_r  <= 1'b0;
-            out_addr_r   <= '0;
-            out_wdata_r  <= '0;
-            out_id_r     <= '0;
             lock_valid_r <= 1'b0;
             lock_id_r    <= '0;
         end
         else begin
-            if (load_new) begin
-                if (found_req) begin
-                    out_valid_r  <= 1'b1;
-                    out_write_r  <= selected_write;
-                    out_addr_r   <= selected_addr;
-                    out_wdata_r  <= selected_wdata;
-                    out_id_r     <= selected_id;
-
-                    lock_valid_r <= 1'b1;
-                    lock_id_r    <= selected_id;
-                end
-                else begin
-                    out_valid_r  <= 1'b0;
-                    out_write_r  <= 1'b0;
-                    out_addr_r   <= '0;
-                    out_wdata_r  <= '0;
-                    out_id_r     <= '0;
-
-                    lock_valid_r <= 1'b0;
-                    lock_id_r    <= '0;
-                end
+            if (found_req && mem_req_ready) begin
+                lock_valid_r <= 1'b1;
+                lock_id_r    <= selected_idx;
             end
-
-            // Drop lock once selected MSHR no longer has a request.
-            if (lock_valid_r && !req_valid[lock_id_r]) begin
+            else if (lock_valid_r && !req_valid[lock_id_r]) begin
                 lock_valid_r <= 1'b0;
             end
         end
