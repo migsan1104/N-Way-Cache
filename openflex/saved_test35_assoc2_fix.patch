@@ -1,0 +1,637 @@
+diff --git a/src/Cache.sv b/src/Cache.sv
+index c9ba5d9..c605bbf 100644
+--- a/src/Cache.sv
++++ b/src/Cache.sv
+@@ -110,9 +110,10 @@ module Cache #(
+     logic [WAY_INDEX_W-1:0]       miss_select_way;
+ 
+     logic                         miss_select_victim_valid;
+-    logic                         miss_select_victim_dirty;
+-    logic [TAG_WIDTH-1:0]         miss_select_victim_tag;
+-    logic [LINE_WIDTH-1:0]        miss_select_victim_line;
++    logic                         miss_select_victim_dirty;
++    logic [TAG_WIDTH-1:0]         miss_select_victim_tag;
++    logic [LINE_WIDTH-1:0]        miss_select_victim_line;
++    logic [WORDS_PER_LINE-1:0]    miss_select_victim_word_valid;
+ 
+     logic                         regular_found;
+     logic [WAY_INDEX_W-1:0]       regular_way;
+@@ -159,8 +160,8 @@ module Cache #(
+     logic                         refill_eviction;
+     logic [LINE_WIDTH-1:0]        refill_line;
+ 
+-    logic [ASSOC-1:0]             refill_way_wen;
+-    logic [ASSOC-1:0]             refill_tag_wen;
++    logic [ASSOC-1:0]             refill_way_wen;
++    logic [ASSOC-1:0]             refill_tag_wen;
+ 
+     logic                         hit_resp_valid;
+     logic                         miss_resp_valid;
+@@ -211,11 +212,11 @@ module Cache #(
+         refill_way_wen = '0;
+         refill_tag_wen = '0;
+ 
+-        if (refill_wen) begin
+-            refill_way_wen[refill_way] = 1'b1;
+-            refill_tag_wen[refill_way] = 1'b1;
+-        end
+-    end
++        if (refill_wen) begin
++            refill_way_wen[refill_way] = 1'b1;
++            refill_tag_wen[refill_way] = 1'b1;
++        end
++    end
+ 
+     genvar way_gen;
+ 
+@@ -223,11 +224,12 @@ module Cache #(
+         for (way_gen = 0; way_gen < ASSOC; way_gen++) begin : GEN_WAYS
+ 
+             Flag_Data_Array #(
+-                .DATA_WIDTH     (DATA_WIDTH),
+-                .LINE_WIDTH     (LINE_WIDTH),
+-                .DEPTH          (NUM_SETS),
+-                .SET_INDEX_W    (SET_INDEX_W),
+-                .WORDS_PER_LINE (WORDS_PER_LINE),
++                .DATA_WIDTH     (DATA_WIDTH),
++                .LINE_WIDTH     (LINE_WIDTH),
++                .TAG_WIDTH      (TAG_WIDTH),
++                .DEPTH          (NUM_SETS),
++                .SET_INDEX_W    (SET_INDEX_W),
++                .WORDS_PER_LINE (WORDS_PER_LINE),
+                 .WORD_OFFSET_W  (WORD_OFFSET_W)
+             ) FLAG_DATA_ARRAY (
+                 .clk             (clk),
+@@ -240,16 +242,18 @@ module Cache #(
+                 .dirty           (way_dirty[way_gen]),
+                 .word_valid      (way_word_valid[way_gen]),
+ 
+-                .refill_wen      (refill_way_wen[way_gen]),
+-                .refill_waddr    (refill_set_id),
+-                .refill_line     (refill_line),
+-                .refill_dirty    (refill_dirty),
+-                .refill_eviction (refill_eviction),
+-
+-                .alloc_wen       (alloc_wen[way_gen]),
+-                .alloc_waddr     (alloc_waddr),
+-
+-                .cpu_word_wen    (cpu_write_wen[way_gen]),
++                .refill_wen      (refill_way_wen[way_gen]),
++                .refill_waddr    (refill_set_id),
++                .refill_tag      (refill_tag),
++                .refill_line     (refill_line),
++                .refill_dirty    (refill_dirty),
++                .refill_eviction (refill_eviction),
++
++                .alloc_wen       (alloc_wen[way_gen]),
++                .alloc_waddr     (alloc_waddr),
++                .alloc_tag       (alloc_tag),
++
++                .cpu_word_wen    (cpu_write_wen[way_gen]),
+                 .cpu_replace     (cpu_write_replace[way_gen]),
+                 .cpu_waddr       (cpu_write_set_id),
+                 .cpu_word_id     (cpu_write_word_id),
+@@ -271,10 +275,12 @@ module Cache #(
+                 .early_waddr  (alloc_waddr),
+                 .early_wdata  (alloc_tag),
+ 
+-                .refill_wen   (refill_tag_wen[way_gen]),
+-                .refill_waddr (refill_set_id),
+-                .refill_wdata (refill_tag)
+-            );
++                .refill_wen   (refill_tag_wen[way_gen]),
++                .refill_waddr (refill_set_id),
++                .refill_wdata (refill_tag),
++
++                .refill_current_match ()
++            );
+ 
+         end
+     endgenerate
+@@ -348,9 +354,10 @@ module Cache #(
+         .out_miss_way             (cmp_miss_way),
+ 
+         .out_victim_valid         (miss_select_victim_valid),
+-        .out_victim_dirty         (miss_select_victim_dirty),
+-        .out_victim_tag           (miss_select_victim_tag),
+-        .out_victim_line          (miss_select_victim_line),
++        .out_victim_dirty         (miss_select_victim_dirty),
++        .out_victim_tag           (miss_select_victim_tag),
++        .out_victim_line          (miss_select_victim_line),
++        .out_victim_word_valid    (miss_select_victim_word_valid),
+ 
+         .regular_found            (regular_found),
+         .regular_way              (regular_way),
+@@ -425,9 +432,10 @@ module Cache #(
+         .alloc_cpu_req_id     (miss_select_cpu_req_id),
+ 
+         .alloc_victim_valid   (miss_select_victim_valid),
+-        .alloc_victim_dirty   (miss_select_victim_dirty),
+-        .alloc_victim_tag     (miss_select_victim_tag),
+-        .alloc_victim_line    (miss_select_victim_line),
++        .alloc_victim_dirty   (miss_select_victim_dirty),
++        .alloc_victim_tag     (miss_select_victim_tag),
++        .alloc_victim_line    (miss_select_victim_line),
++        .alloc_victim_word_valid (miss_select_victim_word_valid),
+ 
+         .alloc_mshr_id        (mshr_alloc_id),
+ 
+@@ -646,4 +654,4 @@ module Cache #(
+         end
+     end
+ 
+-endmodule
+\ No newline at end of file
++endmodule
+diff --git a/src/Compare_Select_Replace.sv b/src/Compare_Select_Replace.sv
+index 5d7ac3f..cabbf9d 100644
+--- a/src/Compare_Select_Replace.sv
++++ b/src/Compare_Select_Replace.sv
+@@ -58,6 +58,7 @@ module Compare_Select_Replace #(
+     output logic                       out_victim_dirty,
+     output logic [TAG_WIDTH-1:0]       out_victim_tag,
+     output logic [LINE_WIDTH-1:0]      out_victim_line,
++    output logic [WORDS_PER_LINE-1:0]  out_victim_word_valid,
+ 
+     output logic                       regular_found,
+     output logic [WAY_INDEX_W-1:0]     regular_way,
+@@ -250,6 +251,7 @@ module Compare_Select_Replace #(
+             out_victim_dirty <= 1'b0;
+             out_victim_tag   <= '0;
+             out_victim_line  <= '0;
++            out_victim_word_valid <= '0;
+ 
+             regular_found    <= 1'b0;
+             regular_way      <= '0;
+@@ -276,6 +278,9 @@ module Compare_Select_Replace #(
+             out_victim_dirty <= (!line_found_c) && way_dirty[miss_way_c];
+             out_victim_tag   <= way_tag[miss_way_c];
+             out_victim_line  <= way_line[miss_way_c];
++            out_victim_word_valid <= (!line_found_c)
++                                     ? way_word_valid[miss_way_c]
++                                     : '0;
+ 
+             regular_found    <= regular_found_c;
+             regular_way      <= regular_way_c;
+diff --git a/src/Flag_Data_Array.sv b/src/Flag_Data_Array.sv
+index 2cceb7a..f97ca15 100644
+--- a/src/Flag_Data_Array.sv
++++ b/src/Flag_Data_Array.sv
+@@ -5,6 +5,7 @@
+ module Flag_Data_Array #(
+     parameter int DATA_WIDTH     = 32,
+     parameter int LINE_WIDTH     = 128,
++    parameter int TAG_WIDTH      = 24,
+     parameter int DEPTH          = 16,
+     parameter int SET_INDEX_W    = (DEPTH <= 1) ? 1 : $clog2(DEPTH),
+     parameter int WORDS_PER_LINE = LINE_WIDTH / DATA_WIDTH,
+@@ -22,12 +23,14 @@ module Flag_Data_Array #(
+ 
+     input  logic                      refill_wen,
+     input  logic [SET_INDEX_W-1:0]    refill_waddr,
++    input  logic [TAG_WIDTH-1:0]       refill_tag,
+     input  logic [LINE_WIDTH-1:0]     refill_line,
+     input  logic                      refill_dirty,
+     input  logic                      refill_eviction,
+ 
+     input  logic                      alloc_wen,
+     input  logic [SET_INDEX_W-1:0]    alloc_waddr,
++    input  logic [TAG_WIDTH-1:0]       alloc_tag,
+ 
+     input  logic                      cpu_word_wen,
+     input  logic                      cpu_replace,
+@@ -40,12 +43,25 @@ module Flag_Data_Array #(
+     logic                      allocated_mem  [0:DEPTH-1];
+     logic                      dirty_mem      [0:DEPTH-1];
+     logic [WORDS_PER_LINE-1:0] word_valid_mem [0:DEPTH-1];
++    logic [TAG_WIDTH-1:0]      tag_mem        [0:DEPTH-1];
++    logic                      read_refill_pending_mem [0:DEPTH-1];
++    logic                      read_refill_merge_mem   [0:DEPTH-1];
+ 
+     logic [WORDS_PER_LINE-1:0] cpu_word_mask;
++    logic                      refill_current_match;
++    logic                      refill_full_overwrite;
+ 
+     always_comb begin
+         cpu_word_mask = '0;
+         cpu_word_mask[cpu_word_id] = 1'b1;
++
++        refill_current_match =
++            (tag_mem[refill_waddr] == refill_tag);
++
++        refill_full_overwrite =
++            refill_eviction ||
++            (read_refill_pending_mem[refill_waddr] &&
++             !read_refill_merge_mem[refill_waddr]);
+     end
+ 
+     always_ff @(posedge clk) begin
+@@ -60,6 +76,9 @@ module Flag_Data_Array #(
+                 allocated_mem[i]  <= 1'b0;
+                 dirty_mem[i]      <= 1'b0;
+                 word_valid_mem[i] <= '0;
++                tag_mem[i]        <= '0;
++                read_refill_pending_mem[i] <= 1'b0;
++                read_refill_merge_mem[i]   <= 1'b0;
+             end
+         end
+         else begin
+@@ -68,31 +87,40 @@ module Flag_Data_Array #(
+             dirty      <= dirty_mem[raddr];
+             word_valid <= word_valid_mem[raddr];
+ 
+-            if (refill_wen) begin
++            if (refill_wen && refill_current_match) begin
+                 allocated_mem[refill_waddr] <= 1'b1;
+ 
+-                if (refill_eviction) begin
++                if (refill_full_overwrite) begin
+                     data_mem[refill_waddr]       <= refill_line;
+-                    dirty_mem[refill_waddr]      <= refill_dirty;
++                    dirty_mem[refill_waddr]      <=
++                        refill_dirty | read_refill_merge_mem[refill_waddr];
+                     word_valid_mem[refill_waddr] <= '1;
+                 end
+                 else begin
+                     for (int w = 0; w < WORDS_PER_LINE; w++) begin
+                         if (!word_valid_mem[refill_waddr][w]) begin
+                             data_mem[refill_waddr][w*DATA_WIDTH +: DATA_WIDTH]
+-                                <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
++                            <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
+                         end
+                     end
+ 
+                     word_valid_mem[refill_waddr] <= '1;
+-                    dirty_mem[refill_waddr]      <= refill_dirty;
++                    dirty_mem[refill_waddr]      <=
++                        dirty_mem[refill_waddr] | refill_dirty;
+                 end
++
++                read_refill_pending_mem[refill_waddr] <= 1'b0;
++                read_refill_merge_mem[refill_waddr]   <= 1'b0;
+             end
+ 
+             if (alloc_wen) begin
+                 allocated_mem[alloc_waddr]  <= 1'b1;
+                 dirty_mem[alloc_waddr]      <= 1'b0;
+                 word_valid_mem[alloc_waddr] <= '0;
++                tag_mem[alloc_waddr]        <= alloc_tag;
++                read_refill_pending_mem[alloc_waddr] <=
++                    !(cpu_word_wen && cpu_replace && (cpu_waddr == alloc_waddr));
++                read_refill_merge_mem[alloc_waddr] <= 1'b0;
+             end
+ 
+             if (cpu_word_wen) begin
+@@ -101,6 +129,9 @@ module Flag_Data_Array #(
+ 
+                 allocated_mem[cpu_waddr] <= 1'b1;
+                 dirty_mem[cpu_waddr]     <= 1'b1;
++                if (!cpu_replace && read_refill_pending_mem[cpu_waddr]) begin
++                    read_refill_merge_mem[cpu_waddr] <= 1'b1;
++                end
+ 
+                 if (cpu_replace) begin
+                     word_valid_mem[cpu_waddr] <= cpu_word_mask;
+@@ -110,11 +141,13 @@ module Flag_Data_Array #(
+                 end
+             end
+ 
+-            if (refill_wen && (refill_waddr == raddr)) begin
++            if (refill_wen && refill_current_match && (refill_waddr == raddr)) begin
+                 allocated <= 1'b1;
+-                dirty     <= refill_dirty;
++                dirty     <= refill_full_overwrite
++                             ? (refill_dirty | read_refill_merge_mem[refill_waddr])
++                             : (dirty_mem[refill_waddr] | refill_dirty);
+ 
+-                if (refill_eviction) begin
++                if (refill_full_overwrite) begin
+                     rline      <= refill_line;
+                     word_valid <= '1;
+                 end
+@@ -122,7 +155,7 @@ module Flag_Data_Array #(
+                     for (int w = 0; w < WORDS_PER_LINE; w++) begin
+                         if (!word_valid_mem[refill_waddr][w]) begin
+                             rline[w*DATA_WIDTH +: DATA_WIDTH]
+-                                <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
++                            <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
+                         end
+                     end
+ 
+@@ -151,4 +184,4 @@ module Flag_Data_Array #(
+         end
+     end
+ 
+-endmodule
+\ No newline at end of file
++endmodule
+diff --git a/src/MSHR_Entry.sv b/src/MSHR_Entry.sv
+index 273afd2..f0a0268 100644
+--- a/src/MSHR_Entry.sv
++++ b/src/MSHR_Entry.sv
+@@ -37,9 +37,10 @@ module MSHR_Entry #(
+     input  logic [MSHR_ID_WIDTH-1:0]   alloc_mshr_id,
+ 
+     input  logic                       alloc_victim_valid,
+-    input  logic                       alloc_victim_dirty,
+-    input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
+-    input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
++    input  logic                       alloc_victim_dirty,
++    input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
++    input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
++    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
+ 
+     input  logic                       issue_done,
+ 
+@@ -101,10 +102,11 @@ module MSHR_Entry #(
+     logic [DATA_WIDTH-1:0] wdata_r, wdata_n;
+ 
+     logic victim_valid_r, victim_valid_n;
+-    logic victim_dirty_r, victim_dirty_n;
+-    logic [TAG_WIDTH-1:0]  victim_tag_r, victim_tag_n;
+-    logic [LINE_WIDTH-1:0] victim_line_r, victim_line_n;
+-    logic [LINE_ADDR_WIDTH-1:0] victim_line_addr;
++    logic victim_dirty_r, victim_dirty_n;
++    logic [TAG_WIDTH-1:0]  victim_tag_r, victim_tag_n;
++    logic [LINE_WIDTH-1:0] victim_line_r, victim_line_n;
++    logic [WORDS_PER_LINE-1:0] victim_word_valid_r, victim_word_valid_n;
++    logic [LINE_ADDR_WIDTH-1:0] victim_line_addr;
+ 
+     logic [LINE_ADDR_WIDTH-1:0] line_addr_n;
+     logic [SET_INDEX_W-1:0]     set_id_n;
+@@ -151,10 +153,10 @@ module MSHR_Entry #(
+         (state == S_ISSUE_R_R) ||
+         (state == S_ISSUE_R_W);
+ 
+-    assign req_valid =
+-        (state == S_ISSUE_W)   ||
+-        (state == S_ISSUE_R_R) ||
+-        (state == S_ISSUE_R_W);
++    assign req_valid =
++        ((state == S_ISSUE_W) && victim_word_valid_r[wb_word_id]) ||
++        (state == S_ISSUE_R_R) ||
++        (state == S_ISSUE_R_W);
+ 
+     assign req_write   = (state == S_ISSUE_W);
+     assign req_mshr_id = mshr_id;
+@@ -198,9 +200,10 @@ module MSHR_Entry #(
+         mshr_id_n      = mshr_id;
+ 
+         victim_valid_n = victim_valid_r;
+-        victim_dirty_n = victim_dirty_r;
+-        victim_tag_n   = victim_tag_r;
+-        victim_line_n  = victim_line_r;
++        victim_dirty_n = victim_dirty_r;
++        victim_tag_n   = victim_tag_r;
++        victim_line_n  = victim_line_r;
++        victim_word_valid_n = victim_word_valid_r;
+ 
+         fill_line_n    = fill_line_r;
+ 
+@@ -224,9 +227,10 @@ module MSHR_Entry #(
+                     mshr_id_n      = alloc_mshr_id;
+ 
+                     victim_valid_n = alloc_victim_valid;
+-                    victim_dirty_n = alloc_victim_dirty;
+-                    victim_tag_n   = alloc_victim_tag;
+-                    victim_line_n  = alloc_victim_line;
++                    victim_dirty_n = alloc_victim_dirty;
++                    victim_tag_n   = alloc_victim_tag;
++                    victim_line_n  = alloc_victim_line;
++                    victim_word_valid_n = alloc_victim_word_valid;
+ 
+                     wb_count_n     = '0;
+                     issue_count_n  = '0;
+@@ -263,11 +267,20 @@ module MSHR_Entry #(
+                 end
+             end
+ 
+-            S_ISSUE_W: begin
+-                if (issue_done) begin
+-                    if (wb_count == WORDS_PER_LINE-1) begin
+-                        wb_count_n = '0;
+-                        state_n    = write_r ? S_ISSUE_R_W : S_ISSUE_R_R;
++            S_ISSUE_W: begin
++                if (!victim_word_valid_r[wb_word_id]) begin
++                    if (wb_count == WORDS_PER_LINE-1) begin
++                        wb_count_n = '0;
++                        state_n    = write_r ? S_ISSUE_R_W : S_ISSUE_R_R;
++                    end
++                    else begin
++                        wb_count_n = wb_count + 1'b1;
++                    end
++                end
++                else if (issue_done) begin
++                    if (wb_count == WORDS_PER_LINE-1) begin
++                        wb_count_n = '0;
++                        state_n    = write_r ? S_ISSUE_R_W : S_ISSUE_R_R;
+                     end
+                     else begin
+                         wb_count_n = wb_count + 1'b1;
+@@ -307,7 +320,7 @@ module MSHR_Entry #(
+                         recv_count_n      = '0;
+                         refill_wen_n      = 1'b1;
+                         refill_dirty_n    = 1'b0;
+-                        refill_eviction_n = victim_valid_r;
++                        refill_eviction_n = 1'b0;
+                         state_n           = S_REFILL;
+                     end
+                     else begin
+@@ -364,9 +377,10 @@ module MSHR_Entry #(
+             mshr_id        <= '0;
+ 
+             victim_valid_r <= 1'b0;
+-            victim_dirty_r <= 1'b0;
+-            victim_tag_r   <= '0;
+-            victim_line_r  <= '0;
++            victim_dirty_r <= 1'b0;
++            victim_tag_r   <= '0;
++            victim_line_r  <= '0;
++            victim_word_valid_r <= '0;
+ 
+             fill_line_r    <= '0;
+ 
+@@ -393,9 +407,10 @@ module MSHR_Entry #(
+             mshr_id        <= mshr_id_n;
+ 
+             victim_valid_r <= victim_valid_n;
+-            victim_dirty_r <= victim_dirty_n;
+-            victim_tag_r   <= victim_tag_n;
+-            victim_line_r  <= victim_line_n;
++            victim_dirty_r <= victim_dirty_n;
++            victim_tag_r   <= victim_tag_n;
++            victim_line_r  <= victim_line_n;
++            victim_word_valid_r <= victim_word_valid_n;
+ 
+             fill_line_r    <= fill_line_n;
+ 
+diff --git a/src/MSHR_File.sv b/src/MSHR_File.sv
+index d5ede6e..68f1612 100644
+--- a/src/MSHR_File.sv
++++ b/src/MSHR_File.sv
+@@ -45,9 +45,10 @@ module MSHR_File #(
+     input  logic [CPU_ID_WIDTH-1:0]    alloc_cpu_req_id,
+ 
+     input  logic                       alloc_victim_valid,
+-    input  logic                       alloc_victim_dirty,
+-    input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
+-    input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
++    input  logic                       alloc_victim_dirty,
++    input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
++    input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
++    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
+ 
+     output logic [MSHR_ID_WIDTH-1:0]   alloc_mshr_id,
+ 
+@@ -99,9 +100,10 @@ module MSHR_File #(
+         logic [DATA_WIDTH-1:0]      wdata;
+ 
+         logic                       victim_valid;
+-        logic                       victim_dirty;
+-        logic [TAG_WIDTH-1:0]       victim_tag;
+-        logic [LINE_WIDTH-1:0]      victim_line;
++        logic                       victim_dirty;
++        logic [TAG_WIDTH-1:0]       victim_tag;
++        logic [LINE_WIDTH-1:0]      victim_line;
++        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
+     } rs_issue_entry_t;
+ 
+     rs_issue_entry_t rs_issue_entry;
+@@ -178,9 +180,10 @@ module MSHR_File #(
+         .alloc_cpu_req_id   (alloc_cpu_req_id),
+ 
+         .alloc_victim_valid (alloc_victim_valid),
+-        .alloc_victim_dirty (alloc_victim_dirty),
+-        .alloc_victim_tag   (alloc_victim_tag),
+-        .alloc_victim_line  (alloc_victim_line),
++        .alloc_victim_dirty (alloc_victim_dirty),
++        .alloc_victim_tag   (alloc_victim_tag),
++        .alloc_victim_line  (alloc_victim_line),
++        .alloc_victim_word_valid (alloc_victim_word_valid),
+ 
+         .issue_valid        (rs_issue_valid),
+         .issue_accept       (rs_issue_accept),
+@@ -197,9 +200,10 @@ module MSHR_File #(
+         .issue_word_id      (rs_issue_entry.word_id),
+ 
+         .issue_victim_valid (rs_issue_entry.victim_valid),
+-        .issue_victim_dirty (rs_issue_entry.victim_dirty),
+-        .issue_victim_tag   (rs_issue_entry.victim_tag),
+-        .issue_victim_line  (rs_issue_entry.victim_line),
++        .issue_victim_dirty (rs_issue_entry.victim_dirty),
++        .issue_victim_tag   (rs_issue_entry.victim_tag),
++        .issue_victim_line  (rs_issue_entry.victim_line),
++        .issue_victim_word_valid (rs_issue_entry.victim_word_valid),
+ 
+         .retire_valid       (rs_retire_valid),
+         .retire_line_addr   (rs_retire_line_addr),
+@@ -379,9 +383,10 @@ module MSHR_File #(
+                 .alloc_mshr_id      (i[MSHR_ID_WIDTH-1:0]),
+ 
+                 .alloc_victim_valid (rs_issue_entry.victim_valid),
+-                .alloc_victim_dirty (rs_issue_entry.victim_dirty),
+-                .alloc_victim_tag   (rs_issue_entry.victim_tag),
+-                .alloc_victim_line  (rs_issue_entry.victim_line),
++                .alloc_victim_dirty (rs_issue_entry.victim_dirty),
++                .alloc_victim_tag   (rs_issue_entry.victim_tag),
++                .alloc_victim_line  (rs_issue_entry.victim_line),
++                .alloc_victim_word_valid (rs_issue_entry.victim_word_valid),
+ 
+                 .issue_done         (issue_done[i]),
+ 
+diff --git a/src/Reservation_Station.sv b/src/Reservation_Station.sv
+index 185e232..184523d 100644
+--- a/src/Reservation_Station.sv
++++ b/src/Reservation_Station.sv
+@@ -51,6 +51,7 @@ module Reservation_Station #(
+     input  logic                       alloc_victim_dirty,
+     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
+     input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
++    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
+ 
+     output logic                       issue_valid,
+     input  logic                       issue_accept,
+@@ -70,6 +71,7 @@ module Reservation_Station #(
+     output logic                       issue_victim_dirty,
+     output logic [TAG_WIDTH-1:0]       issue_victim_tag,
+     output logic [LINE_WIDTH-1:0]      issue_victim_line,
++    output logic [LINE_WIDTH/DATA_WIDTH-1:0] issue_victim_word_valid,
+ 
+     input  logic                       retire_valid,
+     input  logic [LINE_ADDR_WIDTH-1:0] retire_line_addr,
+@@ -99,6 +101,7 @@ module Reservation_Station #(
+         logic                       victim_dirty;
+         logic [TAG_WIDTH-1:0]       victim_tag;
+         logic [LINE_WIDTH-1:0]      victim_line;
++        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
+ 
+         logic [WAITER_COUNT_W-1:0]  cpu_id_count;
+         logic [CPU_ID_WIDTH-1:0]    cpu_ids  [MAX_WAITERS];
+@@ -209,6 +212,7 @@ module Reservation_Station #(
+     assign issue_victim_dirty = rs[issue_rs_id].victim_dirty;
+     assign issue_victim_tag   = rs[issue_rs_id].victim_tag;
+     assign issue_victim_line  = rs[issue_rs_id].victim_line;
++    assign issue_victim_word_valid = rs[issue_rs_id].victim_word_valid;
+ 
+     always_comb begin
+         retire_match_found = 1'b0;
+@@ -265,6 +269,7 @@ module Reservation_Station #(
+                 rs[i].victim_dirty <= 1'b0;
+                 rs[i].victim_tag   <= '0;
+                 rs[i].victim_line  <= '0;
++                rs[i].victim_word_valid <= '0;
+ 
+                 rs[i].cpu_id_count <= '0;
+ 
+@@ -311,6 +316,7 @@ module Reservation_Station #(
+                     rs[free_idx].victim_dirty <= alloc_victim_dirty;
+                     rs[free_idx].victim_tag   <= alloc_victim_tag;
+                     rs[free_idx].victim_line  <= alloc_victim_line;
++                    rs[free_idx].victim_word_valid <= alloc_victim_word_valid;
+ 
+                     rs[free_idx].cpu_id_count <= WAITER_COUNT_W'(1);
+                     rs[free_idx].cpu_ids[0]   <= alloc_cpu_req_id;
+@@ -356,4 +362,4 @@ module Reservation_Station #(
+         end
+     end
+ 
+-endmodule
+\ No newline at end of file
++endmodule
+diff --git a/src/Tag_Array.sv b/src/Tag_Array.sv
+index 3869c97..8ee2e98 100644
+--- a/src/Tag_Array.sv
++++ b/src/Tag_Array.sv
+@@ -16,11 +16,15 @@ module Tag_Array #(
+ 
+     input  logic                   refill_wen,
+     input  logic [SET_INDEX_W-1:0] refill_waddr,
+-    input  logic [TAG_WIDTH-1:0]   refill_wdata
++    input  logic [TAG_WIDTH-1:0]   refill_wdata,
++
++    output logic                   refill_current_match
+ );
+ 
+     logic [TAG_WIDTH-1:0] mem [DEPTH];
+ 
++    assign refill_current_match = (mem[refill_waddr] == refill_wdata);
++
+     always_ff @(posedge clk) begin
+         if (rst) begin
+             for (int i = 0; i < DEPTH; i++) begin
+@@ -33,7 +37,7 @@ module Tag_Array #(
+             rdata <= mem[raddr];
+ 
+             // Refill write happens first
+-            if (refill_wen) begin
++            if (refill_wen && refill_current_match) begin
+                 if (DEBUG) begin
+                     $display("[%0t] TAG_ARRAY REFILL_WRITE: set=%0d old_tag=%h new_tag=%h raddr=%0d",
+                              $time, refill_waddr, mem[refill_waddr], refill_wdata, raddr);
+@@ -71,4 +75,4 @@ module Tag_Array #(
+         end
+     end
+ 
+-endmodule
+\ No newline at end of file
++endmodule

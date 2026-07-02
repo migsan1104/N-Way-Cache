@@ -51,6 +51,7 @@ module Reservation_Station #(
     input  logic                       alloc_victim_dirty,
     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
     input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
+    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
 
     output logic                       issue_valid,
     input  logic                       issue_accept,
@@ -70,6 +71,7 @@ module Reservation_Station #(
     output logic                       issue_victim_dirty,
     output logic [TAG_WIDTH-1:0]       issue_victim_tag,
     output logic [LINE_WIDTH-1:0]      issue_victim_line,
+    output logic [LINE_WIDTH/DATA_WIDTH-1:0] issue_victim_word_valid,
 
     input  logic                       retire_valid,
     input  logic [LINE_ADDR_WIDTH-1:0] retire_line_addr,
@@ -99,6 +101,7 @@ module Reservation_Station #(
         logic                       victim_dirty;
         logic [TAG_WIDTH-1:0]       victim_tag;
         logic [LINE_WIDTH-1:0]      victim_line;
+        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
 
         logic [WAITER_COUNT_W-1:0]  cpu_id_count;
         logic [CPU_ID_WIDTH-1:0]    cpu_ids  [MAX_WAITERS];
@@ -209,6 +212,7 @@ module Reservation_Station #(
     assign issue_victim_dirty = rs[issue_rs_id].victim_dirty;
     assign issue_victim_tag   = rs[issue_rs_id].victim_tag;
     assign issue_victim_line  = rs[issue_rs_id].victim_line;
+    assign issue_victim_word_valid = rs[issue_rs_id].victim_word_valid;
 
     always_comb begin
         retire_match_found = 1'b0;
@@ -265,6 +269,7 @@ module Reservation_Station #(
                 rs[i].victim_dirty <= 1'b0;
                 rs[i].victim_tag   <= '0;
                 rs[i].victim_line  <= '0;
+                rs[i].victim_word_valid <= '0;
 
                 rs[i].cpu_id_count <= '0;
 
@@ -311,6 +316,7 @@ module Reservation_Station #(
                     rs[free_idx].victim_dirty <= alloc_victim_dirty;
                     rs[free_idx].victim_tag   <= alloc_victim_tag;
                     rs[free_idx].victim_line  <= alloc_victim_line;
+                    rs[free_idx].victim_word_valid <= alloc_victim_word_valid;
 
                     rs[free_idx].cpu_id_count <= WAITER_COUNT_W'(1);
                     rs[free_idx].cpu_ids[0]   <= alloc_cpu_req_id;
