@@ -44,6 +44,7 @@ We will:
 - Implement a non-blocking cache architecture
 - Support multiple outstanding misses
 - Implement an out-of-order response mechanism
+- Implement critial word first behavior for misses. 
 - Implement replacement policies
 - Implement write-back/write-allocate behavior
 - Produce a modular RTL design suitable for verification and physical implementation
