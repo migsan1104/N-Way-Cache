@@ -58,6 +58,7 @@ module Compare_Select_Replace #(
     output logic                       out_victim_dirty,
     output logic [TAG_WIDTH-1:0]       out_victim_tag,
     output logic [LINE_WIDTH-1:0]      out_victim_line,
+    output logic [WORDS_PER_LINE-1:0]  out_victim_word_valid,
 
     output logic                       regular_found,
     output logic [WAY_INDEX_W-1:0]     regular_way,
@@ -250,6 +251,7 @@ module Compare_Select_Replace #(
             out_victim_dirty <= 1'b0;
             out_victim_tag   <= '0;
             out_victim_line  <= '0;
+            out_victim_word_valid <= '0;
 
             regular_found    <= 1'b0;
             regular_way      <= '0;
@@ -276,6 +278,9 @@ module Compare_Select_Replace #(
             out_victim_dirty <= (!line_found_c) && way_dirty[miss_way_c];
             out_victim_tag   <= way_tag[miss_way_c];
             out_victim_line  <= way_line[miss_way_c];
+            out_victim_word_valid <= (!line_found_c)
+                                     ? way_word_valid[miss_way_c]
+                                     : '0;
 
             regular_found    <= regular_found_c;
             regular_way      <= regular_way_c;

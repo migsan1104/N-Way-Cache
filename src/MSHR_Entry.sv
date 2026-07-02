@@ -40,6 +40,7 @@ module MSHR_Entry #(
     input  logic                       alloc_victim_dirty,
     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
     input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
+    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
 
     input  logic                       issue_done,
 
@@ -104,6 +105,7 @@ module MSHR_Entry #(
     logic victim_dirty_r, victim_dirty_n;
     logic [TAG_WIDTH-1:0]  victim_tag_r, victim_tag_n;
     logic [LINE_WIDTH-1:0] victim_line_r, victim_line_n;
+    logic [WORDS_PER_LINE-1:0] victim_word_valid_r, victim_word_valid_n;
     logic [LINE_ADDR_WIDTH-1:0] victim_line_addr;
 
     logic [LINE_ADDR_WIDTH-1:0] line_addr_n;
@@ -152,7 +154,7 @@ module MSHR_Entry #(
         (state == S_ISSUE_R_W);
 
     assign req_valid =
-        (state == S_ISSUE_W)   ||
+        ((state == S_ISSUE_W) && victim_word_valid_r[wb_word_id]) ||
         (state == S_ISSUE_R_R) ||
         (state == S_ISSUE_R_W);
 
@@ -201,6 +203,7 @@ module MSHR_Entry #(
         victim_dirty_n = victim_dirty_r;
         victim_tag_n   = victim_tag_r;
         victim_line_n  = victim_line_r;
+        victim_word_valid_n = victim_word_valid_r;
 
         fill_line_n    = fill_line_r;
 
@@ -227,6 +230,7 @@ module MSHR_Entry #(
                     victim_dirty_n = alloc_victim_dirty;
                     victim_tag_n   = alloc_victim_tag;
                     victim_line_n  = alloc_victim_line;
+                    victim_word_valid_n = alloc_victim_word_valid;
 
                     wb_count_n     = '0;
                     issue_count_n  = '0;
@@ -264,7 +268,16 @@ module MSHR_Entry #(
             end
 
             S_ISSUE_W: begin
-                if (issue_done) begin
+                if (!victim_word_valid_r[wb_word_id]) begin
+                    if (wb_count == WORDS_PER_LINE-1) begin
+                        wb_count_n = '0;
+                        state_n    = write_r ? S_ISSUE_R_W : S_ISSUE_R_R;
+                    end
+                    else begin
+                        wb_count_n = wb_count + 1'b1;
+                    end
+                end
+                else if (issue_done) begin
                     if (wb_count == WORDS_PER_LINE-1) begin
                         wb_count_n = '0;
                         state_n    = write_r ? S_ISSUE_R_W : S_ISSUE_R_R;
@@ -307,7 +320,7 @@ module MSHR_Entry #(
                         recv_count_n      = '0;
                         refill_wen_n      = 1'b1;
                         refill_dirty_n    = 1'b0;
-                        refill_eviction_n = victim_valid_r;
+                        refill_eviction_n = 1'b0;
                         state_n           = S_REFILL;
                     end
                     else begin
@@ -367,6 +380,7 @@ module MSHR_Entry #(
             victim_dirty_r <= 1'b0;
             victim_tag_r   <= '0;
             victim_line_r  <= '0;
+            victim_word_valid_r <= '0;
 
             fill_line_r    <= '0;
 
@@ -396,6 +410,7 @@ module MSHR_Entry #(
             victim_dirty_r <= victim_dirty_n;
             victim_tag_r   <= victim_tag_n;
             victim_line_r  <= victim_line_n;
+            victim_word_valid_r <= victim_word_valid_n;
 
             fill_line_r    <= fill_line_n;
 

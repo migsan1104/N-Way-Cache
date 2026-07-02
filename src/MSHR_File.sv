@@ -48,6 +48,7 @@ module MSHR_File #(
     input  logic                       alloc_victim_dirty,
     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
     input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
+    input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
 
     output logic [MSHR_ID_WIDTH-1:0]   alloc_mshr_id,
 
@@ -102,6 +103,7 @@ module MSHR_File #(
         logic                       victim_dirty;
         logic [TAG_WIDTH-1:0]       victim_tag;
         logic [LINE_WIDTH-1:0]      victim_line;
+        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
     } rs_issue_entry_t;
 
     rs_issue_entry_t rs_issue_entry;
@@ -181,6 +183,7 @@ module MSHR_File #(
         .alloc_victim_dirty (alloc_victim_dirty),
         .alloc_victim_tag   (alloc_victim_tag),
         .alloc_victim_line  (alloc_victim_line),
+        .alloc_victim_word_valid (alloc_victim_word_valid),
 
         .issue_valid        (rs_issue_valid),
         .issue_accept       (rs_issue_accept),
@@ -200,6 +203,7 @@ module MSHR_File #(
         .issue_victim_dirty (rs_issue_entry.victim_dirty),
         .issue_victim_tag   (rs_issue_entry.victim_tag),
         .issue_victim_line  (rs_issue_entry.victim_line),
+        .issue_victim_word_valid (rs_issue_entry.victim_word_valid),
 
         .retire_valid       (rs_retire_valid),
         .retire_line_addr   (rs_retire_line_addr),
@@ -382,6 +386,7 @@ module MSHR_File #(
                 .alloc_victim_dirty (rs_issue_entry.victim_dirty),
                 .alloc_victim_tag   (rs_issue_entry.victim_tag),
                 .alloc_victim_line  (rs_issue_entry.victim_line),
+                .alloc_victim_word_valid (rs_issue_entry.victim_word_valid),
 
                 .issue_done         (issue_done[i]),
 

@@ -16,10 +16,14 @@ module Tag_Array #(
 
     input  logic                   refill_wen,
     input  logic [SET_INDEX_W-1:0] refill_waddr,
-    input  logic [TAG_WIDTH-1:0]   refill_wdata
+    input  logic [TAG_WIDTH-1:0]   refill_wdata,
+
+    output logic                   refill_current_match
 );
 
     logic [TAG_WIDTH-1:0] mem [DEPTH];
+
+    assign refill_current_match = (mem[refill_waddr] == refill_wdata);
 
     always_ff @(posedge clk) begin
         if (rst) begin
@@ -33,7 +37,7 @@ module Tag_Array #(
             rdata <= mem[raddr];
 
             // Refill write happens first
-            if (refill_wen) begin
+            if (refill_wen && refill_current_match) begin
                 if (DEBUG) begin
                     $display("[%0t] TAG_ARRAY REFILL_WRITE: set=%0d old_tag=%h new_tag=%h raddr=%0d",
                              $time, refill_waddr, mem[refill_waddr], refill_wdata, raddr);

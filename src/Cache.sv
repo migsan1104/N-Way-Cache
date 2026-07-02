@@ -113,6 +113,7 @@ module Cache #(
     logic                         miss_select_victim_dirty;
     logic [TAG_WIDTH-1:0]         miss_select_victim_tag;
     logic [LINE_WIDTH-1:0]        miss_select_victim_line;
+    logic [WORDS_PER_LINE-1:0]    miss_select_victim_word_valid;
 
     logic                         regular_found;
     logic [WAY_INDEX_W-1:0]       regular_way;
@@ -225,6 +226,7 @@ module Cache #(
             Flag_Data_Array #(
                 .DATA_WIDTH     (DATA_WIDTH),
                 .LINE_WIDTH     (LINE_WIDTH),
+                .TAG_WIDTH      (TAG_WIDTH),
                 .DEPTH          (NUM_SETS),
                 .SET_INDEX_W    (SET_INDEX_W),
                 .WORDS_PER_LINE (WORDS_PER_LINE),
@@ -242,12 +244,14 @@ module Cache #(
 
                 .refill_wen      (refill_way_wen[way_gen]),
                 .refill_waddr    (refill_set_id),
+                .refill_tag      (refill_tag),
                 .refill_line     (refill_line),
                 .refill_dirty    (refill_dirty),
                 .refill_eviction (refill_eviction),
 
                 .alloc_wen       (alloc_wen[way_gen]),
                 .alloc_waddr     (alloc_waddr),
+                .alloc_tag       (alloc_tag),
 
                 .cpu_word_wen    (cpu_write_wen[way_gen]),
                 .cpu_replace     (cpu_write_replace[way_gen]),
@@ -273,7 +277,9 @@ module Cache #(
 
                 .refill_wen   (refill_tag_wen[way_gen]),
                 .refill_waddr (refill_set_id),
-                .refill_wdata (refill_tag)
+                .refill_wdata (refill_tag),
+
+                .refill_current_match ()
             );
 
         end
@@ -351,6 +357,7 @@ module Cache #(
         .out_victim_dirty         (miss_select_victim_dirty),
         .out_victim_tag           (miss_select_victim_tag),
         .out_victim_line          (miss_select_victim_line),
+        .out_victim_word_valid    (miss_select_victim_word_valid),
 
         .regular_found            (regular_found),
         .regular_way              (regular_way),
@@ -428,6 +435,7 @@ module Cache #(
         .alloc_victim_dirty   (miss_select_victim_dirty),
         .alloc_victim_tag     (miss_select_victim_tag),
         .alloc_victim_line    (miss_select_victim_line),
+        .alloc_victim_word_valid (miss_select_victim_word_valid),
 
         .alloc_mshr_id        (mshr_alloc_id),
 
