@@ -1,160 +1,111 @@
-# Cache
+# High-Frequency Parameterized Cache Architecture
 
-High-Performance Parameterized Non-Blocking Cache IP with PPA Exploration
+## Goal / Overview
 
-## Overview
+The goal of this project will be to design, verify, optimize, and eventually physically implement a high-performance parameterized cache architecture. This project aims to study cache architecture tradeoffs while following a realistic ASIC development methodology from RTL design through physical implementation.
 
-This project focuses on the design and implementation of a parameterized cache IP in SystemVerilog with configurable associativity, scalable architecture exploration, and non-blocking cache behavior.
+The cache architecture will be:
 
-The cache is being designed using ASIC-oriented RTL methodologies while leveraging FPGA implementation flows for rapid timing closure experimentation and PPA (Performance, Power, and Area) analysis.
+- Parameterized
+- N-way set associative
+- Non-blocking
+- Out-of-order response capable
+- High-frequency oriented
+- Designed using synthesizable RTL
+- Fully verified before optimization
 
-A major focus of the project is high-frequency structural RTL design, scalable cache architecture exploration, and out-of-order cache response handling.
+This project will use a structured engineering flow:
 
-The cache architecture is designed to support configurable:
-- Cache sizes
-- Set associativity
-- Read latency
-- Line size
-- Memory organization
+1. Design the cache architecture.
+2. Verify functionality using both directed and constrained-random testing.
+3. Perform FPGA implementation using Xilinx UltraScale Out-of-Context synthesis and implementation to collect timing, utilization, and power data.
+4. Optimize the architecture based on those PPA results.
+5. Select the best-performing architecture.
+6. Complete a full RTL-to-GDSII ASIC implementation flow.
 
-Planned advanced features include:
-- Non-blocking cache behavior
-- Multiple outstanding misses
-- Hit-under-miss support
-- Miss-under-miss support
-- Out-of-order cache responses
-
-Example behavior:
-
-If the CPU issues requests A, B, C, and D back-to-back, where A and C miss while B and D hit, the cache can continue servicing hits while outstanding misses are pending.
-
-The cache may return responses in an order such as:
-
-```text
-B -> D -> A -> C
-```
-
-depending on downstream memory completion timing.
+FPGA implementation will be used as an architectural evaluation step before ASIC implementation. The final objective will be to understand how architectural decisions affect performance, power, and area while progressing from RTL through physical implementation.
 
 ---
 
-## Project Goals
+## Project Roadmap
 
-- Develop reusable and technology-agnostic cache RTL
-- Design a scalable non-blocking cache architecture
-- Explore PPA tradeoffs across associativity configurations
-- Analyze timing scalability across cache sizes and organizations
-- Study the impact of associativity on timing, area, and power
-- Practice ASIC-oriented RTL development methodologies
-- Explore high-frequency structural RTL optimization techniques
-- Build a clean and well-documented cache IP architecture
+The project will be divided into four major phases.
 
----
+## 1. Design Specification
 
-## Features
+In this phase, we will define the cache architecture and develop a modular RTL implementation suitable for verification, optimization, and physical implementation.
 
-- Parameterized cache architecture
-- Configurable set associativity
-    - Direct-mapped
-    - 2-way set associative
-    - 4-way set associative
-    - 8-way set associative
-- Configurable cache sizes
-- Adjustable read latency
-- Structural SystemVerilog RTL
-- Technology-independent module organization
-- FPGA-based timing and PPA exploration flow
-- Modular cache subsystem design
-- Non-blocking cache architecture (planned)
-- Out-of-order response support (planned)
-- Multiple outstanding misses (planned)
+We will:
+
+- Define the cache architecture
+- Develop a parameterized RTL implementation
+- Support configurable cache size
+- Support configurable associativity
+- Implement a non-blocking cache architecture
+- Support multiple outstanding misses
+- Implement an out-of-order response mechanism
+- Implement replacement policies
+- Implement write-back/write-allocate behavior
+- Produce a modular RTL design suitable for verification and physical implementation
 
 ---
 
-## Planned Architecture
+## 2. Verification
 
-The cache design is planned to include:
-- Address decode logic
-- Tag array
-- Data array
-- Valid/dirty tracking
-- Hit/miss detection
-- Replacement policy logic
-- Memory refill path
-- MSHR (Miss Status Holding Register) structures
-- CPU interface
-- Downstream memory interface
-- Request tracking and response ordering logic
+In this phase, we will verify functional correctness before beginning architectural optimization. The verification process will aim to demonstrate that the cache behaves correctly across directed scenarios, randomized traffic, and stressful corner cases.
 
----
+We will use:
 
-## Verification
-
-Verification will include:
 - Directed testing
-- Randomized testing
+- Random testing
 - Functional coverage
-- Timing validation
+- Self-checking testbench infrastructure
+- Scoreboards
 - Corner-case testing
-- Multi-request non-blocking cache validation
+- Stress testing
+- Regression testing
 
-Simulation tools:
-- Questa
-- ModelSim
+Optimization will only begin after functional correctness has been demonstrated.
 
 ---
 
-## PPA Exploration
+## 3. FPGA PPA Characterization and Optimization
 
-The project analyzes:
-- Fmax scalability
+In this phase, we will synthesize and implement the design using Xilinx UltraScale devices in Out-of-Context mode. This will provide quantitative data for comparing architectural configurations before committing to an ASIC implementation path.
+
+We will collect:
+
+- Maximum operating frequency
 - Resource utilization
 - Power consumption
-- Associativity tradeoffs
-- Cache size scaling
-- Latency tradeoffs
-- Non-blocking architecture overhead
-- Outstanding miss scalability
 
-Implementation sweeps are performed across multiple parameter combinations using Vivado out-of-context synthesis and implementation flows.
+Multiple cache configurations will be evaluated, including different associativities, cache sizes, and architectural optimizations. These measurements will guide architectural optimization and allow quantitative comparison of design tradeoffs.
 
-Future ASIC-oriented exploration may include:
-- ASIC synthesis flows
-- Standard-cell timing analysis
-- RTL-to-GDS experimentation
+FPGA implementation will serve as an intermediate architectural evaluation step, not as the final implementation target.
 
 ---
 
-## Tools Used
+## 4. RTL-to-GDSII Flow
 
-- SystemVerilog
-- Vivado
-- Questa / ModelSim
-- TCL scripting
-- Python scripting
+Once the architecture has been verified and optimized, we will transition to a complete ASIC implementation flow. This phase will demonstrate the complete digital IC implementation process from synthesizable RTL through manufacturable layout. We will go through the whole RTL -> GDSII flow with the best design implemented on the FPGA in terms of PPA tradeoffs. 
 
----
+This flow will include:
 
-## Future Work
+- Logic synthesis
+- Static Timing Analysis (STA)
+- Floorplanning
+- Placement
+- Clock Tree Synthesis (CTS)
+- Routing
+- Timing closure
+- Power analysis
+- Physical verification
+- GDSII generation
 
-- AXI interface support
-- Full multi-MSHR architecture
-- Advanced replacement policies
-- Multi-level cache hierarchy
-- Cache coherence experiments
-- ASIC synthesis flow integration
-- RTL-to-GDS exploration
-- Automated architectural sweep framework
-- Detailed PPA report generation
+The ASIC implementation phase will connect the architectural design decisions made earlier in the project to their physical consequences in timing, power, area, and layout complexity.
 
 ---
 
-## Repository Structure
+## Project Goal
 
-```text
-rtl/        -> RTL source files
-tb/         -> Testbenches
-scripts/    -> TCL and automation scripts
-reports/    -> Timing, power, and utilization reports
-docs/       -> Project documentation
-```
+Our goal is to produce a high-performance parameterized cache architecture while studying the impact of architectural decisions on performance, power, and area throughout both FPGA and ASIC implementation flows. The project will combine architecture design, functional verification, FPGA-based PPA characterization, optimization, and full RTL-to-GDSII implementation into a complete engineering research workflow.
