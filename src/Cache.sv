@@ -3,7 +3,7 @@
 // ============================================================
 
 module Cache #(
-    parameter int CACHE_BYTES   = 1024,
+    parameter int CACHE_BYTES   = 4096,
     parameter int ASSOC         = 4,
 
     localparam int ADDR_WIDTH    = 32,
@@ -31,8 +31,6 @@ module Cache #(
     output logic [CPU_ID_WIDTH-1:0]   cpu_resp_id,
 
     output logic                      mem_req_valid,
-    input  logic                      mem_req_ready,
-
     output logic                      mem_req_write,
     output logic [ADDR_WIDTH-1:0]     mem_req_addr,
     output logic [DATA_WIDTH-1:0]     mem_req_wdata,
@@ -53,14 +51,13 @@ module Cache #(
     localparam int NUM_LINES       = CACHE_BYTES / LINE_BYTES;
     localparam int NUM_SETS        = NUM_LINES / ASSOC;
 
-    localparam int BYTE_OFFSET_W   = 2;
     localparam int WORD_OFFSET_W   = 2;
 
     localparam int SET_INDEX_BITS  = (NUM_SETS <= 1) ? 0 : $clog2(NUM_SETS);
     localparam int SET_INDEX_W     = (SET_INDEX_BITS == 0) ? 1 : SET_INDEX_BITS;
 
-    localparam int TAG_WIDTH       = ADDR_WIDTH - BYTE_OFFSET_W - WORD_OFFSET_W - SET_INDEX_BITS;
-    localparam int LINE_ADDR_WIDTH = ADDR_WIDTH - BYTE_OFFSET_W - WORD_OFFSET_W;
+    localparam int TAG_WIDTH       = ADDR_WIDTH - WORD_OFFSET_W - SET_INDEX_BITS;
+    localparam int LINE_ADDR_WIDTH = ADDR_WIDTH - WORD_OFFSET_W;
 
     localparam int WAY_INDEX_W     = (ASSOC <= 1) ? 1 : $clog2(ASSOC);
     localparam int MSHR_COUNT      = 4;
@@ -491,7 +488,6 @@ module Cache #(
         .issued        (mshr_issued),
 
         .mem_req_valid (mem_req_valid),
-        .mem_req_ready (mem_req_ready),
         .mem_req_write (mem_req_write),
         .mem_req_addr  (mem_req_addr),
         .mem_req_wdata (mem_req_wdata),

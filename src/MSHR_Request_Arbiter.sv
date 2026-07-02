@@ -25,7 +25,6 @@ module MSHR_Request_Arbiter #(
     output logic [MSHR_COUNT-1:0]            issued,
 
     output logic                             mem_req_valid,
-    input  logic                             mem_req_ready,
     output logic                             mem_req_write,
     output logic [ADDR_WIDTH-1:0]            mem_req_addr,
     output logic [DATA_WIDTH-1:0]            mem_req_wdata,
@@ -49,7 +48,7 @@ module MSHR_Request_Arbiter #(
     assign mem_req_wdata = selected_wdata;
     assign mem_req_id    = selected_id;
 
-    assign issued = (found_req && mem_req_ready) ? selected_onehot : '0;
+    assign issued = found_req ? selected_onehot : '0;
 
     always_comb begin
         found_req        = 1'b0;
@@ -92,7 +91,7 @@ module MSHR_Request_Arbiter #(
             lock_id_r    <= '0;
         end
         else begin
-            if (found_req && mem_req_ready) begin
+            if (found_req) begin
                 lock_valid_r <= 1'b1;
                 lock_id_r    <= selected_idx;
             end

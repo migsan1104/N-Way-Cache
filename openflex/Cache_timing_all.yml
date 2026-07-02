@@ -49,5 +49,5 @@ files:
   - ../src/Victim_Select.sv
 
 parameters:
-  CACHE_BYTES: [1024]
+  CACHE_BYTES: [4096]
   ASSOC: [1, 2, 4, 8, 16]

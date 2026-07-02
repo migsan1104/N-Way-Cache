@@ -120,6 +120,7 @@ module Reservation_Station #(
 
     logic same_line_found;
     logic [RS_ID_WIDTH-1:0] same_line_idx;
+    logic same_line_retiring;
     logic can_merge;
 
     logic [31:0] best_age;
@@ -177,8 +178,13 @@ module Reservation_Station #(
         end
     end
 
+    assign same_line_retiring =
+        retire_match_found &&
+        (retire_match_idx == same_line_idx);
+
     assign can_merge =
         same_line_found &&
+        !same_line_retiring &&
         !alloc_write &&
         !rs[same_line_idx].write &&
         (rs[same_line_idx].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));

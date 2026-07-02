@@ -1,7 +1,7 @@
 // ============================================================
 // Downstream memory request arbiter
 // Priority: dirty writeback requests before read refill requests
-// Assumption: mem_req_ready means downstream accepts next cycle
+// Assumption: downstream accepts every issued request.
 // ============================================================
 
 module Memory_Request_Arbiter #(
@@ -32,8 +32,6 @@ module Memory_Request_Arbiter #(
     // ============================================================
 
     output logic                  mem_req_valid,
-    input  logic                  mem_req_ready,
-
     output logic                  mem_req_write,
     output logic [ADDR_WIDTH-1:0] mem_req_addr,
     output logic [LINE_WIDTH-1:0] mem_req_wdata,
@@ -58,7 +56,7 @@ module Memory_Request_Arbiter #(
             mem_req_wdata = wb_req_wdata;
             mem_req_id    = '0;
 
-            wb_req_ready = mem_req_ready;
+            wb_req_ready = 1'b1;
         end
 
         else if (refill_req_valid) begin
@@ -68,7 +66,7 @@ module Memory_Request_Arbiter #(
             mem_req_wdata = '0;
             mem_req_id    = refill_req_id;
 
-            refill_req_ready = mem_req_ready;
+            refill_req_ready = 1'b1;
         end
     end
 

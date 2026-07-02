@@ -7,14 +7,14 @@ module Test_1;
     localparam int CPU_ID_WIDTH     = 8;
     localparam int MSHR_ID_WIDTH    = 2;
 
-    localparam int CACHE_BYTES      = 1024;
+    localparam int CACHE_BYTES      = 4096;
     localparam int LINE_BYTES       = 16;
     localparam int ASSOC            = 4;
 
     localparam int WORDS_PER_LINE   = LINE_BYTES / (DATA_WIDTH / 8);
     localparam int CACHE_LINES      = CACHE_BYTES / LINE_BYTES;
 
-    localparam int RAM_DEPTH_WORDS  = 1024;
+    localparam int RAM_DEPTH_WORDS  = CACHE_BYTES * 16;
     localparam int RAM_READ_LATENCY = 20;
 
     localparam int NUM_WRITES       = 100;
@@ -46,7 +46,6 @@ module Test_1;
     logic [CPU_ID_WIDTH-1:0] cpu_resp_id;
 
     logic                     mem_req_valid;
-    logic                     mem_req_ready;
     logic                     mem_req_write;
     logic [ADDR_WIDTH-1:0]    mem_req_addr;
     logic [DATA_WIDTH-1:0]    mem_req_wdata;
@@ -118,7 +117,6 @@ module Test_1;
         .cpu_resp_id    (cpu_resp_id),
 
         .mem_req_valid  (mem_req_valid),
-        .mem_req_ready  (mem_req_ready),
         .mem_req_write  (mem_req_write),
         .mem_req_addr   (mem_req_addr),
         .mem_req_wdata  (mem_req_wdata),
@@ -142,7 +140,6 @@ module Test_1;
         .rst          (rst),
 
         .req_valid    (mem_req_valid),
-        .req_ready    (mem_req_ready),
         .req_write    (mem_req_write),
         .req_addr     (mem_req_addr),
         .req_wdata    (mem_req_wdata),
@@ -164,7 +161,7 @@ module Test_1;
             while (i < NUM_WRITES) begin
                 cpu_req_valid <= 1'b1;
                 cpu_req_write <= 1'b1;
-                cpu_req_addr  <= ADDR_WIDTH'(i << 2);
+                cpu_req_addr  <= ADDR_WIDTH'(i);
                 cpu_req_wdata <= DATA_WIDTH'(i + 1);
                 cpu_req_id    <= CPU_ID_WIDTH'(i);
 
@@ -191,7 +188,7 @@ module Test_1;
             while (i < NUM_READS) begin
                 cpu_req_valid <= 1'b1;
                 cpu_req_write <= 1'b0;
-                cpu_req_addr  <= ADDR_WIDTH'(i << 2);
+                cpu_req_addr  <= ADDR_WIDTH'(i);
                 cpu_req_wdata <= '0;
                 cpu_req_id    <= CPU_ID_WIDTH'(NUM_WRITES + i);
 
@@ -215,7 +212,7 @@ module Test_1;
             total_cpu_requests_sent <= 0;
 
             for (int i = 0; i < RAM_DEPTH_WORDS; i++) begin
-                golden_mem[i] <= '0;
+                golden_mem[i] <= DATA_WIDTH'(32'h1000_0000 + i);
             end
 
             for (int i = 0; i < 256; i++) begin
@@ -228,12 +225,12 @@ module Test_1;
             total_cpu_requests_sent <= total_cpu_requests_sent + 1;
 
             if (cpu_req_write) begin
-                golden_mem[cpu_req_addr >> 2] <= cpu_req_wdata;
+                golden_mem[cpu_req_addr] <= cpu_req_wdata;
             end
             else begin
-                expected_by_id[cpu_req_id]       <= golden_mem[cpu_req_addr >> 2];
+                expected_by_id[cpu_req_id]       <= golden_mem[cpu_req_addr];
                 expected_valid_by_id[cpu_req_id] <= 1'b1;
-                expected_addr_by_id[cpu_req_id]  <= int'(cpu_req_addr >> 2);
+                expected_addr_by_id[cpu_req_id]  <= int'(cpu_req_addr);
             end
 
             if (PRINT_CPU_REQS) begin
@@ -242,7 +239,7 @@ module Test_1;
                          in_read_phase ? "READ_PHASE" : "WRITE_PHASE",
                          cpu_req_write,
                          cpu_req_addr,
-                         cpu_req_addr >> 2,
+                         cpu_req_addr,
                          cpu_req_wdata,
                          cpu_req_id,
                          total_cpu_requests_sent + 1);
@@ -346,7 +343,7 @@ module Test_1;
         else begin
             mem_req_valid_d <= mem_req_valid;
 
-            if (mem_req_valid && mem_req_ready) begin
+            if (mem_req_valid) begin
                 mem_req_valid_cycles <= mem_req_valid_cycles + 1;
 
                 if (mem_req_write)
@@ -360,7 +357,7 @@ module Test_1;
                              in_read_phase ? "READ_PHASE" : "WRITE_PHASE",
                              mem_req_write,
                              mem_req_addr,
-                             mem_req_addr >> 2,
+                             mem_req_addr,
                              mem_req_wdata,
                              mem_req_id,
                              mem_req_valid_cycles + 1);
