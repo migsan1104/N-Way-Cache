@@ -29,7 +29,7 @@
             else if (test_id == TEST2)
                 run_one_test(TEST2, TEST2_NUM_WRITES, TEST2_NUM_READS);
             else if (test_id == TEST3)
-                run_test3(TEST3_BURSTS);
+                run_test3(0);
             else if (test_id == TEST4)
                 run_test4(TEST4_NUM_READS1, TEST4_NUM_WRITES, TEST4_NUM_READS2);
             else if (test_id == TEST5)
@@ -139,6 +139,9 @@
 
         $display("==================================================");
         $display("FINAL REPORT PER ASSOCIATIVITY");
+        $display("Pressure knobs: CPU_REQ_VALID_PROBABILITY=%0.3f CPU_RESP_READY_PROBABILITY=%0.3f",
+                 CPU_REQ_VALID_PROBABILITY,
+                 CPU_RESP_READY_PROBABILITY);
         for (int a = 0; a < NUM_ASSOC_CONFIGS; a++) begin
             real test3_miss_rate;
 

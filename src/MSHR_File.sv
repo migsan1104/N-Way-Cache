@@ -26,7 +26,7 @@ module MSHR_File #(
     parameter int MISSQ_DEPTH     = 64,
     parameter int MSHR_AF         = 7,
     parameter int MAX_WAITERS     = 4,
-    localparam logic DEBUG        = 1'b1
+    localparam logic DEBUG        = 1'b0
 )(
     input  logic clk,
     input  logic rst,
@@ -230,6 +230,7 @@ module MSHR_File #(
         .delayed_miss_data    (delayed_miss_data),
 
         .dispatch_valid       (dispatch_valid),
+        .dispatch_critical_word(entry_word_id[retire_sel_idx]),
         .dispatch_cpu_id_count(dispatch_cpu_id_count),
         .dispatch_cpu_ids     (dispatch_cpu_ids),
         .dispatch_word_ids    (dispatch_word_ids),

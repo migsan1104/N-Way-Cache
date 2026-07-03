@@ -17,7 +17,7 @@
 module Address_Decode #(
     parameter int ADDR_WIDTH   = 32,
     parameter int DATA_WIDTH   = 32,
-    parameter int CACHE_BYTES  = 1024,
+    parameter int CACHE_BYTES  = 4096,
     parameter int LINE_BYTES   = 16,
     parameter int ASSOC        = 4,
     parameter int CPU_ID_WIDTH = 4,

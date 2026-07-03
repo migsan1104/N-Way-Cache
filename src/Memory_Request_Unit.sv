@@ -38,8 +38,6 @@ module Memory_Request_Unit #(
     // ============================================================
 
     output logic                         mem_req_valid,
-    input  logic                         mem_req_ready,
-
     output logic                         mem_req_write,
     output logic [ADDR_WIDTH-1:0]        mem_req_addr,
     output logic [LINE_WIDTH-1:0]        mem_req_wdata,
@@ -70,7 +68,6 @@ module Memory_Request_Unit #(
         .evict_line_data(evict_line_data),
 
         .mem_req_valid  (wb_req_valid),
-        .mem_req_ready  (wb_req_ready),
         .mem_req_write  (),
         .mem_req_addr   (wb_req_addr),
         .mem_req_wdata  (wb_req_wdata)
@@ -92,7 +89,6 @@ module Memory_Request_Unit #(
         .miss_id      (miss_id),
 
         .mem_req_valid(refill_req_valid),
-        .mem_req_ready(refill_req_ready),
         .mem_req_write(),
         .mem_req_addr (refill_req_addr),
         .mem_req_id   (refill_req_id)
@@ -114,7 +110,6 @@ module Memory_Request_Unit #(
         .refill_req_id   (refill_req_id),
 
         .mem_req_valid   (mem_req_valid),
-        .mem_req_ready   (mem_req_ready),
         .mem_req_write   (mem_req_write),
         .mem_req_addr    (mem_req_addr),
         .mem_req_wdata   (mem_req_wdata),

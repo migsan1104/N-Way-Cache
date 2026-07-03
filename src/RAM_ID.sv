@@ -21,8 +21,6 @@ module RAM_ID #(
     input  logic                    rst,
 
     input  logic                    req_valid,
-    output logic                    req_ready,
-
     input  logic                    req_write,
     input  logic [ADDR_WIDTH-1:0]   req_addr,
     input  logic [D_WIDTH-1:0]      req_wdata,
@@ -43,8 +41,6 @@ module RAM_ID #(
 
     // Cache sends word addresses, not byte addresses.
     assign word_addr = req_addr[WORD_ADDR_W-1:0];
-
-    assign req_ready = 1'b1;
 
     function automatic string resolve_init_file;
         int fd;
@@ -71,10 +67,20 @@ module RAM_ID #(
         end
     endfunction
 
+    task automatic init_memory;
+        begin
+            for (int i = 0; i < DEPTH; i++) begin
+                mem[i] = D_WIDTH'(32'h1000_0000 + i);
+            end
+
+            $readmemh(init_file_path, mem);
+        end
+    endtask
+
     initial begin
         init_file_path = resolve_init_file();
         $display("RAM_ID loading init file: %s", init_file_path);
-        $readmemh(init_file_path, mem);
+        init_memory();
     end
 
     logic [READ_LATENCY:0] valid_pipe;
@@ -84,7 +90,7 @@ module RAM_ID #(
     always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
             // Reload RAM contents on every reset so each test is isolated.
-            $readmemh(init_file_path, mem);
+            init_memory();
 
             valid_pipe <= '0;
 
@@ -94,11 +100,11 @@ module RAM_ID #(
             end
         end
         else begin
-            valid_pipe[0] <= req_valid && req_ready && !req_write;
+            valid_pipe[0] <= req_valid && !req_write;
             id_pipe[0]    <= req_id;
             data_pipe[0]  <= mem[word_addr];
 
-            if (req_valid && req_ready && req_write) begin
+            if (req_valid && req_write) begin
                 mem[word_addr] <= req_wdata;
             end
 

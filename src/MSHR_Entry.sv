@@ -18,7 +18,7 @@ module MSHR_Entry #(
     parameter int DATA_WIDTH      = 32,
     parameter int LINE_WIDTH      = 128,
     parameter int MSHR_ID_WIDTH   = 2,
-    localparam logic DEBUG        = 1'b1
+    localparam logic DEBUG        = 1'b0
 )(
     input  logic clk,
     input  logic rst,
@@ -138,11 +138,8 @@ module MSHR_Entry #(
         ? recv_count[WORD_OFFSET_W-1:0] + 1'b1
         : recv_count[WORD_OFFSET_W-1:0];
 
-    assign active_issue_word_id =
-        (state == S_ISSUE_R_W) ? write_issue_word_id : read_issue_word_id;
-
-    assign active_recv_word_id =
-        (state == S_WAIT_R_W) ? write_recv_word_id : read_recv_word_id;
+    assign active_issue_word_id = read_issue_word_id;
+    assign active_recv_word_id  = read_recv_word_id;
 
     assign victim_line_addr = {victim_tag_r, set_id};
 
@@ -302,7 +299,7 @@ module MSHR_Entry #(
 
             S_ISSUE_R_W: begin
                 if (issue_done) begin
-                    if (issue_count == WORDS_PER_LINE-2) begin
+                    if (issue_count == WORDS_PER_LINE-1) begin
                         issue_count_n = '0;
                         state_n       = S_WAIT_R_W;
                     end
@@ -331,9 +328,14 @@ module MSHR_Entry #(
 
             S_WAIT_R_W: begin
                 if (resp_valid) begin
-                    fill_line_n[active_recv_word_id * DATA_WIDTH +: DATA_WIDTH] = resp_data;
+                    if (active_recv_word_id != miss_word_id_r) begin
+                        fill_line_n[active_recv_word_id * DATA_WIDTH +: DATA_WIDTH] = resp_data;
+                    end
+                    else begin
+                        fill_line_n[active_recv_word_id * DATA_WIDTH +: DATA_WIDTH] = wdata_r;
+                    end
 
-                    if (recv_count == WORDS_PER_LINE-2) begin
+                    if (recv_count == WORDS_PER_LINE-1) begin
                         recv_count_n      = '0;
                         refill_wen_n      = 1'b1;
                         refill_dirty_n    = 1'b1;

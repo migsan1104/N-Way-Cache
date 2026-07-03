@@ -7,14 +7,14 @@ module Basic_Test;
     localparam int CPU_ID_WIDTH     = 8;
     localparam int MSHR_ID_WIDTH    = 2;
 
-    localparam int CACHE_BYTES      = 1024;
+    localparam int CACHE_BYTES      = 4096;
     localparam int LINE_BYTES       = 16;
     localparam int ASSOC            = 4;
 
     localparam int WORDS_PER_LINE   = LINE_BYTES / (DATA_WIDTH / 8);
     localparam int CACHE_LINES      = CACHE_BYTES / LINE_BYTES;
 
-    localparam int RAM_DEPTH_WORDS  = 1024;
+    localparam int RAM_DEPTH_WORDS  = CACHE_BYTES * 16;
     localparam int RAM_READ_LATENCY = 20;
 
     localparam int NUM_WRITES       = 100;
@@ -48,7 +48,6 @@ module Basic_Test;
     logic [CPU_ID_WIDTH-1:0] cpu_resp_id;
 
     logic                     mem_req_valid;
-    logic                     mem_req_ready;
     logic                     mem_req_write;
     logic [ADDR_WIDTH-1:0]    mem_req_addr;
     logic [DATA_WIDTH-1:0]    mem_req_wdata;
@@ -119,7 +118,6 @@ module Basic_Test;
         .cpu_resp_id    (cpu_resp_id),
 
         .mem_req_valid  (mem_req_valid),
-        .mem_req_ready  (mem_req_ready),
         .mem_req_write  (mem_req_write),
         .mem_req_addr   (mem_req_addr),
         .mem_req_wdata  (mem_req_wdata),
@@ -143,7 +141,6 @@ module Basic_Test;
         .rst          (rst),
 
         .req_valid    (mem_req_valid),
-        .req_ready    (mem_req_ready),
         .req_write    (mem_req_write),
         .req_addr     (mem_req_addr),
         .req_wdata    (mem_req_wdata),
@@ -165,7 +162,7 @@ module Basic_Test;
             while (i < NUM_WRITES) begin
                 cpu_req_valid <= 1'b1;
                 cpu_req_write <= 1'b1;
-                cpu_req_addr  <= (2 + (i * 4)) << 2;
+                cpu_req_addr  <= ADDR_WIDTH'(2 + (i * 4));
                 cpu_req_wdata <= 32'hA000_0000 + i;
                 cpu_req_id    <= CPU_ID_WIDTH'(i);
 
@@ -192,7 +189,7 @@ module Basic_Test;
             while (i < NUM_READS) begin
                 cpu_req_valid <= 1'b1;
                 cpu_req_write <= 1'b0;
-                cpu_req_addr  <= (2 + (i * 4)) << 2;
+                cpu_req_addr  <= ADDR_WIDTH'(2 + (i * 4));
                 cpu_req_wdata <= '0;
                 cpu_req_id    <= CPU_ID_WIDTH'(i + NUM_WRITES);
 
@@ -280,7 +277,7 @@ module Basic_Test;
         else begin
             mem_req_valid_d <= mem_req_valid;
 
-            if (mem_req_valid && mem_req_ready) begin
+            if (mem_req_valid) begin
                 mem_req_valid_cycles <= mem_req_valid_cycles + 1;
 
                 if (mem_req_write) begin

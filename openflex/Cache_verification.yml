@@ -49,4 +49,4 @@ files:
   - ../Verification/Test_Complete.sv
 
 parameters:
-  CACHE_BYTES: [1024]
+  CACHE_BYTES: [4096]

@@ -2,7 +2,6 @@ package Test_Complete_pkg;
 
     localparam int ADDR_WIDTH        = 32;
     localparam int DATA_WIDTH        = 32;
-    localparam int MAX_TEST_REQUESTS = 1000;
 
     // CPU-visible IDs are reusable slots, not unique request numbers.
     // The DUT interface is 4 bits wide, while this testbench intentionally
@@ -23,7 +22,6 @@ package Test_Complete_pkg;
 
     localparam int WORDS_PER_LINE    = LINE_BYTES / (DATA_WIDTH / 8);
 
-    localparam int RAM_DEPTH_WORDS   = 1024;
     localparam int RAM_READ_LATENCY  = 20;
 
     localparam string RAM_INIT_FILE  = "downstream_init.hex";

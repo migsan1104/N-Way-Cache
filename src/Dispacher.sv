@@ -18,7 +18,7 @@ module Dispacher #(
     localparam int WORDS_PER_LINE = (1 << WORD_OFFSET_W),
     localparam int WAITER_COUNT_W = $clog2(MAX_WAITERS + 1),
     localparam int MEM_PHASE_W    = $clog2(WORDS_PER_LINE + 1),
-    localparam logic DEBUG        = 1'b1
+    localparam logic DEBUG        = 1'b0
 )(
     input  logic clk,
     input  logic rst,
@@ -26,6 +26,7 @@ module Dispacher #(
     input  logic [DATA_WIDTH-1:0]      delayed_miss_data,
 
     input  logic                       dispatch_valid,
+    input  logic [WORD_OFFSET_W-1:0]   dispatch_critical_word,
     input  logic [WAITER_COUNT_W-1:0]  dispatch_cpu_id_count,
     input  logic [CPU_ID_WIDTH-1:0]    dispatch_cpu_ids  [MAX_WAITERS],
     input  logic [WORD_OFFSET_W-1:0]   dispatch_word_ids [MAX_WAITERS],
@@ -70,7 +71,7 @@ module Dispacher #(
         (dispatch_cpu_id_count != '0);
 
     assign cur_critical_word_c =
-        new_bundle_c ? dispatch_word_ids[0] : critical_word_r;
+        new_bundle_c ? dispatch_critical_word : critical_word_r;
 
     assign refill_active_c =
         new_bundle_c ||
@@ -172,7 +173,7 @@ module Dispacher #(
                 busy_r          <= !all_sent_next_c;
                 cpu_id_count_r  <= dispatch_cpu_id_count;
                 sent_count_r    <= WAITER_COUNT_W'(miss_valid);
-                critical_word_r <= dispatch_word_ids[0];
+                critical_word_r <= dispatch_critical_word;
                 mem_phase_r     <= MEM_PHASE_W'(1);
                 word_seen_r     <= word_seen_eff_c;
                 sent_r          <= '0;
@@ -230,7 +231,7 @@ end
              $time,
              dispatch_cpu_id_count,
              busy_r,
-             dispatch_word_ids[0],
+             dispatch_critical_word,
              delayed_miss_data,
              dispatch_cpu_ids[0], dispatch_cpu_ids[1],
              dispatch_cpu_ids[2], dispatch_cpu_ids[3],

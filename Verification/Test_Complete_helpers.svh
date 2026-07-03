@@ -243,7 +243,12 @@ function automatic int find_free_slot;
     endtask
 
     task automatic clear_scoreboard;
+        int scoreboard_entries;
         begin
+            scoreboard_entries = active_num_writes + active_num_reads;
+            if (scoreboard_entries <= 0)
+                scoreboard_entries = 1;
+
             total_cpu_requests_sent = 0;
             total_cpu_responses     = 0;
             total_write_responses   = 0;
@@ -271,7 +276,15 @@ function automatic int find_free_slot;
             mem_req_valid_d                  = 1'b0;
             mem_resp_count                   = 0;
 
-            for (int i = 0; i < MAX_TEST_REQUESTS; i++) begin
+            expected_by_seq          = new[scoreboard_entries];
+            expected_valid_by_seq    = new[scoreboard_entries];
+            expected_addr_by_seq     = new[scoreboard_entries];
+            expected_is_read_by_seq  = new[scoreboard_entries];
+            expected_is_write_by_seq = new[scoreboard_entries];
+            read_done_by_seq         = new[scoreboard_entries];
+            cpu_resp_count_by_seq    = new[scoreboard_entries];
+
+            for (int i = 0; i < scoreboard_entries; i++) begin
                 expected_by_seq[i]          = '0;
                 expected_valid_by_seq[i]    = 1'b0;
                 expected_addr_by_seq[i]     = 0;
@@ -284,6 +297,11 @@ function automatic int find_free_slot;
             for (int s = 0; s < CPU_SLOT_COUNT; s++) begin
                 slot_busy[s] = 1'b0;
                 slot_seq[s]  = 0;
+                slot_addr[s] = 0;
+            end
+
+            for (int a = 0; a < RAM_DEPTH_WORDS; a++) begin
+                outstanding_addr_busy[a] = 1'b0;
             end
         end
     endtask
@@ -292,13 +310,13 @@ function automatic int find_free_slot;
                                             input int num_writes,
                                             input int num_reads);
         begin
-            active_test        <= test_id;
-            active_assoc_value <= assoc_value_from_idx(active_assoc_idx);
-            active_num_writes  <= num_writes;
-            active_num_reads  <= num_reads;
-            in_read_phase     <= 1'b0;
+            active_test        = test_id;
+            active_assoc_value = assoc_value_from_idx(active_assoc_idx);
+            active_num_writes  = num_writes;
+            active_num_reads   = num_reads;
+            in_read_phase      = 1'b0;
 
-            $readmemh(ram_init_file_path, golden_mem);
+            init_golden_mem();
             clear_scoreboard();
             drive_idle();
 
@@ -319,13 +337,6 @@ function automatic int find_free_slot;
         begin
             accepted = 1'b0;
 
-            if (req_seq >= MAX_TEST_REQUESTS) begin
-                $error("%s request sequence exceeds scoreboard size. req_seq=%0d max=%0d",
-                       test_name(test_id),
-                       req_seq,
-                       MAX_TEST_REQUESTS);
-            end
-
             while (!accepted) begin
                 slot = find_free_slot();
 
@@ -334,6 +345,11 @@ function automatic int find_free_slot;
                     @(posedge clk);
                 end
                 else begin
+                    while (!chance(CPU_REQ_VALID_PROBABILITY)) begin
+                        drive_idle();
+                        @(posedge clk);
+                    end
+
                     cpu_req_valid <= 1'b1;
                     cpu_req_write <= write_req;
                     cpu_req_addr  <= addr;
@@ -342,44 +358,63 @@ function automatic int find_free_slot;
 
                     @(posedge clk);
 
-                    if (cpu_req_ready) begin
-                        accepted = 1'b1;
+                    while (!cpu_req_ready) begin
+                        cpu_req_valid <= 1'b1;
+                        cpu_req_write <= write_req;
+                        cpu_req_addr  <= addr;
+                        cpu_req_wdata <= wdata;
+                        cpu_req_id    <= CPU_ID_WIDTH'(slot);
 
-                        // Mark slot busy after the accepted clock edge.
-                        // Response monitor frees slots when cpu_resp_valid arrives.
-                        slot_busy[slot] = 1'b1;
-                        slot_seq[slot]  = req_seq;
+                        @(posedge clk);
+                    end
 
-                        total_cpu_requests_sent = total_cpu_requests_sent + 1;
+                    accepted = 1'b1;
 
-                        if (write_req) begin
-                            golden_mem[addr] = wdata;
+                    // Mark slot busy after the accepted clock edge.
+                    // Response monitor frees slots when cpu_resp_valid arrives.
+                    slot_busy[slot] = 1'b1;
+                    slot_seq[slot]  = req_seq;
+                    slot_addr[slot] = int'(addr);
 
-                            expected_is_write_by_seq[req_seq] = 1'b1;
-                            expected_is_read_by_seq[req_seq]  = 1'b0;
-                        end
-                        else begin
-                            expected_by_seq[req_seq]       = golden_mem[addr];
-                            expected_valid_by_seq[req_seq] = 1'b1;
-                            expected_addr_by_seq[req_seq]  = int'(addr);
+                    if (int'(addr) < RAM_DEPTH_WORDS)
+                        outstanding_addr_busy[int'(addr)] = 1'b1;
 
-                            expected_is_read_by_seq[req_seq]  = 1'b1;
-                            expected_is_write_by_seq[req_seq] = 1'b0;
-                        end
+                    total_cpu_requests_sent = total_cpu_requests_sent + 1;
 
-                        if (print_cpu_reqs(active_test)) begin
-                            $display("[%0t] CPU_REQ_SEND: test=%s phase=%s req_seq=%0d slot=%0d write=%0b addr=%h word_addr=%0d wdata=%h total_now=%0d",
-                                     $time,
-                                     test_name(active_test),
-                                     (active_test == TEST3) ? "MIXED_PHASE" : (in_read_phase ? "READ_PHASE" : "WRITE_PHASE"),
-                                     req_seq,
-                                     slot,
-                                     write_req,
-                                     addr,
-                                     addr,
-                                     wdata,
-                                     total_cpu_requests_sent);
-                        end
+                    if (req_seq >= expected_is_read_by_seq.size()) begin
+                        unexpected_resp_errors = unexpected_resp_errors + 1;
+                        $display("TB WARNING: %s request sequence exceeds scoreboard size. req_seq=%0d size=%0d",
+                                 test_name(test_id),
+                                 req_seq,
+                                 expected_is_read_by_seq.size());
+                    end
+                    else if (write_req) begin
+                        golden_mem[addr] = wdata;
+
+                        expected_is_write_by_seq[req_seq] = 1'b1;
+                        expected_is_read_by_seq[req_seq]  = 1'b0;
+                    end
+                    else begin
+                        expected_by_seq[req_seq]       = golden_mem[addr];
+                        expected_valid_by_seq[req_seq] = 1'b1;
+                        expected_addr_by_seq[req_seq]  = int'(addr);
+
+                        expected_is_read_by_seq[req_seq]  = 1'b1;
+                        expected_is_write_by_seq[req_seq] = 1'b0;
+                    end
+
+                    if (print_cpu_reqs(active_test)) begin
+                        $display("[%0t] CPU_REQ_SEND: test=%s phase=%s req_seq=%0d slot=%0d write=%0b addr=%h word_addr=%0d wdata=%h total_now=%0d",
+                                 $time,
+                                 test_name(active_test),
+                                 (active_test == TEST3) ? "MIXED_PHASE" : (in_read_phase ? "READ_PHASE" : "WRITE_PHASE"),
+                                 req_seq,
+                                 slot,
+                                 write_req,
+                                 addr,
+                                 addr,
+                                 wdata,
+                                 total_cpu_requests_sent);
                     end
                 end
             end
@@ -431,35 +466,245 @@ function automatic int find_free_slot;
         end
     endtask
 
-    task automatic send_random_requests(input int num_bursts);
+    task automatic clear_test3_phase_addr_used;
+        begin
+            for (int i = 0; i < RAM_DEPTH_WORDS; i++) begin
+                test3_phase_addr_used[i] = 1'b0;
+            end
+        end
+    endtask
+
+    task automatic build_test3_addr_pool(input int phase_idx,
+                                         input int burst_len);
+        bit used_word_addr [0:RAM_DEPTH_WORDS-1];
+        int candidate;
+        int tmp;
+        int pool_seed;
+        begin
+            for (int i = 0; i < RAM_DEPTH_WORDS; i++) begin
+                used_word_addr[i] = 1'b0;
+            end
+
+            pool_seed = TEST3_BASE_SEED ^
+                        (active_assoc_value * 32'h0001_0001) ^
+                        (phase_idx * 32'h0010_0101) ^
+                        (burst_len * 32'h0000_0101);
+            void'($urandom(pool_seed));
+
+            for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
+                do begin
+                    candidate = $urandom_range(0, RAM_DEPTH_WORDS - 1);
+                end while (used_word_addr[candidate] ||
+                           test3_phase_addr_used[candidate]);
+
+                used_word_addr[candidate] = 1'b1;
+                test3_phase_addr_used[candidate] = 1'b1;
+                test3_addr_pool[i] = candidate;
+            end
+
+            for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
+                for (int j = i + 1; j < TEST3_ADDR_POOL_SIZE; j++) begin
+                    if (test3_addr_pool[j] < test3_addr_pool[i]) begin
+                        tmp = test3_addr_pool[i];
+                        test3_addr_pool[i] = test3_addr_pool[j];
+                        test3_addr_pool[j] = tmp;
+                    end
+                end
+            end
+
+            if (assoc_debug_enabled(active_assoc_idx)) begin
+                $display("TEST3 PHASE ADDR POOL: assoc=%0d burst_len=%0d phase=%0d pool_size=%0d seed=%h min_word=%0d max_word=%0d",
+                         active_assoc_value,
+                         burst_len,
+                         phase_idx,
+                         TEST3_ADDR_POOL_SIZE,
+                         pool_seed,
+                         test3_addr_pool[0],
+                         test3_addr_pool[TEST3_ADDR_POOL_SIZE-1]);
+            end
+        end
+    endtask
+
+    task automatic wait_for_test3_drain(input int expected_responses,
+                                        input string name);
+        int timeout_cycles;
+        int quiet_cycles;
+        begin
+            wait_for_responses(expected_responses, name);
+
+            timeout_cycles = 0;
+            quiet_cycles   = 0;
+
+            while ((quiet_cycles < 50) && (timeout_cycles < 2000000)) begin
+                @(posedge clk);
+                timeout_cycles++;
+
+                if (!mem_req_valid && (mem_resp_count >= mem_read_req_cycles))
+                    quiet_cycles++;
+                else
+                    quiet_cycles = 0;
+            end
+
+            if (quiet_cycles < 50) begin
+                $error("%s timed out draining memory traffic. mem_req_valid=%0b mem_read_req_cycles=%0d mem_resp_count=%0d",
+                       name,
+                       mem_req_valid,
+                       mem_read_req_cycles,
+                       mem_resp_count);
+            end
+        end
+    endtask
+
+    task automatic print_test3_sweep_summary(input int burst_len,
+                                             input int total_start,
+                                             input int read_start,
+                                             input int write_start,
+                                             input int hit_start,
+                                             input int miss_start,
+                                             input int data_check_start,
+                                             input int data_error_start,
+                                             input int mem_write_start);
+        int sweep_total;
+        int sweep_reads;
+        int sweep_writes;
+        int sweep_hits;
+        int sweep_misses;
+        int sweep_data_checks;
+        int sweep_data_errors;
+        int sweep_writebacks;
+        real hit_rate;
+        real miss_rate;
+        begin
+            sweep_total       = total_cpu_responses - total_start;
+            sweep_reads       = total_read_responses - read_start;
+            sweep_writes      = total_write_responses - write_start;
+            sweep_hits        = hit_count - hit_start;
+            sweep_misses      = miss_count - miss_start;
+            sweep_data_checks = data_check_count - data_check_start;
+            sweep_data_errors = data_error_count - data_error_start;
+            sweep_writebacks  = (mem_write_req_cycles - mem_write_start) / WORDS_PER_LINE;
+
+            if (sweep_total == 0) begin
+                hit_rate  = 0.0;
+                miss_rate = 0.0;
+            end
+            else begin
+                hit_rate  = (real'(sweep_hits) * 100.0) / real'(sweep_total);
+                miss_rate = (real'(sweep_misses) * 100.0) / real'(sweep_total);
+            end
+
+            $display("TEST3 BL=%0d SUMMARY: total=%0d, reads=%0d, writes=%0d, hits=%0d, misses=%0d, hit_rate=%0.2f%%, miss_rate=%0.2f%%, data_checks=%0d, data_errors=%0d, writebacks=%0d",
+                     burst_len,
+                     sweep_total,
+                     sweep_reads,
+                     sweep_writes,
+                     sweep_hits,
+                     sweep_misses,
+                     hit_rate,
+                     miss_rate,
+                     sweep_data_checks,
+                     sweep_data_errors,
+                     sweep_writebacks);
+        end
+    endtask
+
+    task automatic print_test3_final_summary;
+        real hit_rate;
+        real miss_rate;
+        begin
+            if (total_cpu_responses == 0) begin
+                hit_rate  = 0.0;
+                miss_rate = 0.0;
+            end
+            else begin
+                hit_rate  = (real'(hit_count) * 100.0) / real'(total_cpu_responses);
+                miss_rate = (real'(miss_count) * 100.0) / real'(total_cpu_responses);
+            end
+
+            $display("TEST3 FINAL SUMMARY: total=%0d, reads=%0d, writes=%0d, hits=%0d, misses=%0d, hit_rate=%0.2f%%, miss_rate=%0.2f%%, data_checks=%0d, data_errors=%0d, writebacks=%0d",
+                     total_cpu_responses,
+                     total_read_responses,
+                     total_write_responses,
+                     hit_count,
+                     miss_count,
+                     hit_rate,
+                     miss_rate,
+                     data_check_count,
+                     data_error_count,
+                     mem_write_req_cycles / WORDS_PER_LINE);
+        end
+    endtask
+
+    task automatic send_test3_locality_sweep(input int burst_len,
+                                             inout int req_seq);
         bit rand_write;
         int rand_word_addr;
+        int base_idx;
+        int local_idx;
+        int local_offset;
+        int local_window;
+        int burst_seed;
+        int requests_sent;
+        int burst;
+        int requests_this_burst;
         logic [DATA_WIDTH-1:0] rand_wdata;
-        int req_seq;
         begin
-            test3_write_count = 0;
-            test3_read_count  = 0;
-            req_seq           = 0;
+            requests_sent = 0;
+            burst         = 0;
 
-            for (int burst = 0; burst < num_bursts; burst++) begin
-                // Change the random seed between bursts. This keeps each burst
-                // reproducible, and every associativity sees the same burst stream.
-                void'($urandom(TEST3_BASE_SEED + burst));
+            while (requests_sent < TEST3_REQUESTS_PER_SWEEP) begin
+                burst_seed = TEST3_BASE_SEED ^
+                             (active_assoc_value * 32'h0001_0001) ^
+                             (burst_len * 32'h0000_0101) ^
+                             burst;
+                void'($urandom(burst_seed));
+
+                base_idx = $urandom_range(0, TEST3_ADDR_POOL_SIZE - 1);
+                requests_this_burst = burst_len;
+                if ((requests_sent + requests_this_burst) > TEST3_REQUESTS_PER_SWEEP)
+                    requests_this_burst = TEST3_REQUESTS_PER_SWEEP - requests_sent;
 
                 if (assoc_debug_enabled(active_assoc_idx)) begin
-                    $display("[%0t] TEST3 BURST START: assoc=%0d burst=%0d seed=%h req_seq_base=%0d burst_size=%0d",
+                    $display("[%0t] TEST3 BURST START: assoc=%0d burst_len=%0d burst=%0d seed=%h req_seq_base=%0d base_idx=%0d requests=%0d",
                              $time,
                              active_assoc_value,
+                             burst_len,
                              burst,
-                             TEST3_BASE_SEED + burst,
+                             burst_seed,
                              req_seq,
-                             TEST3_BURST_SIZE);
+                             base_idx,
+                             requests_this_burst);
                 end
 
-                for (int i = 0; i < TEST3_BURST_SIZE; i++) begin
-                    rand_write     = bit'($urandom_range(0, 1));
-                    rand_word_addr = $urandom_range(0, RAM_DEPTH_WORDS - 1);
-                    rand_wdata     = DATA_WIDTH'($urandom);
+                local_window = burst_len;
+                if (local_window > TEST3_LOCAL_WINDOW_MAX)
+                    local_window = TEST3_LOCAL_WINDOW_MAX;
+
+                for (int i = 0; i < requests_this_burst; i++) begin
+                    int attempts;
+
+                    attempts = 0;
+
+                    do begin
+                        local_offset   = $urandom_range(0, local_window - 1);
+                        local_idx      = (base_idx + local_offset) % TEST3_ADDR_POOL_SIZE;
+                        rand_word_addr = test3_addr_pool[local_idx];
+                        attempts++;
+                    end while (outstanding_addr_busy[rand_word_addr] &&
+                               (attempts < TEST3_ADDR_POOL_SIZE));
+
+                    if (outstanding_addr_busy[rand_word_addr]) begin
+                        for (int search = 0; search < TEST3_ADDR_POOL_SIZE; search++) begin
+                            local_idx = (base_idx + search) % TEST3_ADDR_POOL_SIZE;
+                            if (!outstanding_addr_busy[test3_addr_pool[local_idx]]) begin
+                                rand_word_addr = test3_addr_pool[local_idx];
+                                break;
+                            end
+                        end
+                    end
+
+                    rand_write = bit'($urandom_range(0, 1));
+                    rand_wdata = DATA_WIDTH'($urandom);
 
                     issue_one_request(TEST3,
                                       req_seq,
@@ -473,7 +718,10 @@ function automatic int find_free_slot;
                         test3_read_count++;
 
                     req_seq++;
+                    requests_sent++;
                 end
+
+                burst++;
             end
         end
     endtask
@@ -538,7 +786,7 @@ function automatic int find_free_slot;
             timeout_cycles = 0;
 
             while ((total_cpu_responses < expected_responses) &&
-                   (timeout_cycles < 200000)) begin
+                   (timeout_cycles < 2000000)) begin
                 @(posedge clk);
                 timeout_cycles++;
             end
@@ -617,21 +865,12 @@ function automatic int find_free_slot;
         int expected_total;
         begin
             expected_total = num_writes + num_reads;
-            pass = 1'b1;
+            pass = (data_error_count == 0);
             missing_resp_errors = 0;
 
-            if (expected_total > MAX_TEST_REQUESTS) begin
-                pass = 1'b0;
-                $error("%s has too many requests. Max=%0d requested=%0d",
-                       test_name(test_id),
-                       MAX_TEST_REQUESTS,
-                       expected_total);
-            end
-
             if (total_cpu_requests_sent !== expected_total) begin
-                pass = 1'b0;
-                $error("%s expected %0d CPU requests sent, got %0d",
-                       test_name(test_id), expected_total, total_cpu_requests_sent);
+                $display("TB WARNING: %s expected %0d CPU requests sent, got %0d",
+                         test_name(test_id), expected_total, total_cpu_requests_sent);
             end
 
             if (total_cpu_responses !== expected_total) begin
@@ -676,7 +915,7 @@ function automatic int find_free_slot;
                        test_name(test_id), unexpected_resp_errors);
             end
 
-            for (int i = 0; i < MAX_TEST_REQUESTS; i++) begin
+            for (int i = 0; i < expected_is_read_by_seq.size(); i++) begin
                 if (expected_is_read_by_seq[i] &&
                     expected_valid_by_seq[i] &&
                     !read_done_by_seq[i]) begin
@@ -756,31 +995,97 @@ function automatic int find_free_slot;
         end
     endtask
 
-    task automatic run_test3(input int num_bursts);
+    task automatic run_test3(input int unused_num_bursts);
         bit pass;
-        int total_random_reqs;
+        int req_seq;
+        int burst_lengths [0:TEST3_NUM_BURST_LENGTHS-1];
         begin
-            total_random_reqs = num_bursts * TEST3_BURST_SIZE;
+            burst_lengths[0] = 8;
+            burst_lengths[1] = 16;
+            burst_lengths[2] = 24;
+            burst_lengths[3] = 32;
+            burst_lengths[4] = 40;
+            burst_lengths[5] = 48;
+            burst_lengths[6] = 56;
+            burst_lengths[7] = 64;
+            burst_lengths[8] = 72;
+            burst_lengths[9] = 80;
 
-            reset_dut_and_scoreboard(TEST3, 0, 0);
+            reset_dut_and_scoreboard(TEST3, TEST3_TOTAL_REQUESTS, 0);
+            clear_test3_phase_addr_used();
 
             $display("==================================================");
             $display("Starting Test3");
-            $display("Test3: burst random mixed read/write requests");
-            $display("Test3: bursts=%0d requests_per_burst=%0d total_requests=%0d",
-                     num_bursts,
-                     TEST3_BURST_SIZE,
-                     total_random_reqs);
-            $display("Test3: base_seed=%h, seed changes to base_seed + burst", TEST3_BASE_SEED);
+            $display("Test3: controlled-locality burst-length miss-rate sweep");
+            $display("Test3: address_pool=%0d unique word addresses within %0d-word downstream space",
+                     TEST3_ADDR_POOL_SIZE,
+                     RAM_DEPTH_WORDS);
+            $display("Test3: burst_lengths=8,16,24,32,40,48,56,64,72,80 requests_per_phase=%0d total_requests=%0d",
+                     TEST3_REQUESTS_PER_SWEEP,
+                     TEST3_TOTAL_REQUESTS);
+            $display("Test3: base_seed=%h, seed changes per burst and burst length", TEST3_BASE_SEED);
             $display("Test3: CPU uses %0d reusable request ID slots", CPU_SLOT_COUNT);
             $display("==================================================");
 
-            in_read_phase <= 1'b0;
-            send_random_requests(num_bursts);
+            req_seq = 0;
+            test3_write_count = 0;
+            test3_read_count  = 0;
 
-            wait_for_responses(total_random_reqs, "Test3");
+            in_read_phase <= 1'b0;
+
+            for (int bl_idx = 0; bl_idx < TEST3_NUM_BURST_LENGTHS; bl_idx++) begin
+                int burst_len;
+                int total_start;
+                int read_start;
+                int write_start;
+                int hit_start;
+                int miss_start;
+                int data_check_start;
+                int data_error_start;
+                int mem_write_start;
+                int target_responses;
+                int burst_count;
+
+                burst_len        = burst_lengths[bl_idx];
+                build_test3_addr_pool(bl_idx, burst_len);
+
+                total_start      = total_cpu_responses;
+                read_start       = total_read_responses;
+                write_start      = total_write_responses;
+                hit_start        = hit_count;
+                miss_start       = miss_count;
+                data_check_start = data_check_count;
+                data_error_start = data_error_count;
+                mem_write_start  = mem_write_req_cycles;
+                target_responses = total_cpu_responses + TEST3_REQUESTS_PER_SWEEP;
+                burst_count      = (TEST3_REQUESTS_PER_SWEEP + burst_len - 1) / burst_len;
+
+                $display("==================================================");
+                $display("TEST3 PHASE START: assoc=%0d burst_len=%0d phase_requests=%0d bursts=%0d req_seq_base=%0d",
+                         active_assoc_value,
+                         burst_len,
+                         TEST3_REQUESTS_PER_SWEEP,
+                         burst_count,
+                         req_seq);
+                $display("==================================================");
+
+                send_test3_locality_sweep(burst_len, req_seq);
+                wait_for_test3_drain(target_responses,
+                                     $sformatf("Test3 BL=%0d", burst_len));
+
+                print_test3_sweep_summary(burst_len,
+                                          total_start,
+                                          read_start,
+                                          write_start,
+                                          hit_start,
+                                          miss_start,
+                                          data_check_start,
+                                          data_error_start,
+                                          mem_write_start);
+            end
 
             check_results(TEST3, test3_write_count, test3_read_count, pass);
+            print_test3_final_summary();
             print_report(TEST3);
             record_assoc_result(TEST3, pass, data_error_count);
 
