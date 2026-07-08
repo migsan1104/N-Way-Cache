@@ -8,8 +8,8 @@ module Test_Complete #(
     parameter int ASSOC       = 0,
 
     // Forward/backpressure knobs. Values are probabilities from 0.0 to 1.0.
-    parameter real CPU_REQ_VALID_PROBABILITY  = 0.8,
-    parameter real CPU_RESP_READY_PROBABILITY = 0.8,
+    parameter real CPU_REQ_VALID_PROBABILITY  = 1.0,
+    parameter real CPU_RESP_READY_PROBABILITY = 1.0,
 
     // Per-associativity debug gates.
     // ASSOC=0 runs every associativity; ASSOC=1/2/4/8/16 runs only that one.
@@ -31,7 +31,7 @@ module Test_Complete #(
 
     // Test3 sweeps burst lengths to measure miss rate under controlled locality.
     localparam int TEST3_ADDR_POOL_SIZE       = 500;
-    localparam int TEST3_REQUESTS_PER_SWEEP   = 2000;
+    localparam int TEST3_REQUESTS_PER_SWEEP   = 10000;
     localparam int TEST3_NUM_BURST_LENGTHS    = 10;
     localparam int TEST3_TOTAL_REQUESTS       = TEST3_REQUESTS_PER_SWEEP * TEST3_NUM_BURST_LENGTHS;
     localparam int TEST3_LOCAL_WINDOW_MAX     = 32;
@@ -180,6 +180,8 @@ module Test_Complete #(
     int total_requests_by_assoc [0:NUM_ASSOC_CONFIGS-1];
     int test3_requests_by_assoc [0:NUM_ASSOC_CONFIGS-1];
     int test3_misses_by_assoc   [0:NUM_ASSOC_CONFIGS-1];
+    longint unsigned hit_read_latency_total_by_assoc [0:NUM_ASSOC_CONFIGS-1];
+    int              hit_read_latency_count_by_assoc [0:NUM_ASSOC_CONFIGS-1];
 
     int test3_write_count;
     int test3_read_count;
@@ -195,6 +197,8 @@ module Test_Complete #(
     int miss_count;
     int write_miss_count;
     int read_miss_count;
+    longint unsigned hit_read_latency_total;
+    int              hit_read_latency_count;
 
     int mem_req_valid_cycles;
     int mem_read_req_cycles;
@@ -219,6 +223,8 @@ module Test_Complete #(
 
     logic                  expected_is_read_by_seq  [];
     logic                  expected_is_write_by_seq [];
+    longint unsigned       request_issue_cycle_by_seq [];
+    logic                  request_issue_cycle_valid_by_seq [];
 
     int data_check_count;
     int data_error_count;

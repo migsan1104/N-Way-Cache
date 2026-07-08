@@ -87,6 +87,8 @@
             total_requests_by_assoc[a] = 0;
             test3_requests_by_assoc[a] = 0;
             test3_misses_by_assoc[a]   = 0;
+            hit_read_latency_total_by_assoc[a] = 0;
+            hit_read_latency_count_by_assoc[a] = 0;
         end
 
         clear_scoreboard();
@@ -144,6 +146,7 @@
                  CPU_RESP_READY_PROBABILITY);
         for (int a = 0; a < NUM_ASSOC_CONFIGS; a++) begin
             real test3_miss_rate;
+            real avg_hit_read_latency;
 
             if (assoc_selected(a)) begin
                 if (test3_requests_by_assoc[a] == 0)
@@ -152,10 +155,19 @@
                     test3_miss_rate = (real'(test3_misses_by_assoc[a]) * 100.0) /
                                       real'(test3_requests_by_assoc[a]);
 
-                $display("Associativity %0d %s | Test3 miss rate = %0.2f%% | random requests = %0d | total requests = %0d",
+                if (hit_read_latency_count_by_assoc[a] == 0)
+                    avg_hit_read_latency = 0.0;
+                else
+                    avg_hit_read_latency =
+                        real'(hit_read_latency_total_by_assoc[a]) /
+                        real'(hit_read_latency_count_by_assoc[a]);
+
+                $display("Associativity %0d %s | Test3 miss rate = %0.2f%% | avg hit read latency = %0.2f cycles | hit read samples = %0d | random requests = %0d | total requests = %0d",
                          assoc_value_from_idx(a),
                          pass_fail(assoc_tests_passed(a)),
                          test3_miss_rate,
+                         avg_hit_read_latency,
+                         hit_read_latency_count_by_assoc[a],
                          test3_requests_by_assoc[a],
                          total_requests_by_assoc[a]);
             end

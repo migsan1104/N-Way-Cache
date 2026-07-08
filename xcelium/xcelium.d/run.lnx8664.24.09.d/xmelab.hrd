@@ -1,0 +1,24 @@
+//
+// File created by:  xrun
+// Do not modify this file
+//
+-timescale
+1ns/1ps
+
+Test_Complete
+-DEFPARAM
+Test_Complete.CPU_REQ_VALID_PROBABILITY=0.8
+-DEFPARAM
+Test_Complete.CPU_RESP_READY_PROBABILITY=0.8
+-DEFPARAM
+Test_Complete.TOGGLE_ASSOC_DEBUG_1=0
+-DEFPARAM
+Test_Complete.TOGGLE_ASSOC_DEBUG_2=0
+-DEFPARAM
+Test_Complete.TOGGLE_ASSOC_DEBUG_4=0
+-DEFPARAM
+Test_Complete.TOGGLE_ASSOC_DEBUG_8=0
+-DEFPARAM
+Test_Complete.TOGGLE_ASSOC_DEBUG_16=0
+-ACCESS
++rwc

@@ -11,9 +11,9 @@
 
 module Response_Unit #(
     parameter int DATA_WIDTH   = 32,
-    parameter int CPU_ID_WIDTH = 4,
-    parameter int FIFO_DEPTH   = 64,
-    localparam logic DEBUG         = 1'b0
+    parameter int CPU_ID_WIDTH = 3,
+    parameter int FIFO_DEPTH   = 8,
+    parameter int FIFO_DEPTH_MISS = 8
 )(
     input  logic clk,
     input  logic rst,
@@ -26,7 +26,7 @@ module Response_Unit #(
 
     // Miss response input
     input  logic                    miss_valid,
-    output logic                    miss_ready,
+
     input  logic [DATA_WIDTH-1:0]   miss_data,
     input  logic [CPU_ID_WIDTH-1:0] miss_id,
 
@@ -46,7 +46,7 @@ module Response_Unit #(
     logic [RESP_WIDTH-1:0] hit_fifo_wr_data;
     logic [RESP_WIDTH-1:0] hit_fifo_rd_data;
 
-    logic miss_fifo_full;
+
     logic miss_fifo_empty;
     logic miss_fifo_rd_en;
     logic [RESP_WIDTH-1:0] miss_fifo_wr_data;
@@ -54,9 +54,9 @@ module Response_Unit #(
 
     logic choose_miss;
     logic choose_hit;
+    
 
     assign hit_ready  = !hit_fifo_full;
-    assign miss_ready = !miss_fifo_full;
 
     assign hit_fifo_wr_data  = {1'b1, hit_id, hit_data};
     assign miss_fifo_wr_data = {1'b0, miss_id, miss_data};
@@ -69,7 +69,7 @@ module Response_Unit #(
         .rst     (rst),
 
         .full    (hit_fifo_full),
-        .wr_en   (hit_valid && hit_ready),
+        .wr_en   (hit_valid),
         .wr_data (hit_fifo_wr_data),
 
         .empty   (hit_fifo_empty),
@@ -77,15 +77,15 @@ module Response_Unit #(
         .rd_data (hit_fifo_rd_data)
     );
 
-    FIFO_FWFT #(
+    FIFO_NF #(
         .WIDTH(RESP_WIDTH),
-        .DEPTH(FIFO_DEPTH)
+        .DEPTH(FIFO_DEPTH_MISS)
     ) MISS_FIFO (
         .clk     (clk),
         .rst     (rst),
 
-        .full    (miss_fifo_full),
-        .wr_en   (miss_valid && miss_ready),
+
+        .wr_en   (miss_valid),
         .wr_data (miss_fifo_wr_data),
 
         .empty   (miss_fifo_empty),
@@ -123,15 +123,5 @@ module Response_Unit #(
         cpu_resp_valid &&
         cpu_resp_ready &&
         choose_hit;
-    always_ff @(posedge clk) begin
-    if (!rst && hit_valid && hit_ready && DEBUG) begin
-        $display("[%0t] RESPONSE_UNIT PUSH HIT: id=%0d data=%h",
-                 $time, hit_id, hit_data);
-    end
-
-    if (!rst && miss_valid && miss_ready && DEBUG) begin
-        $display("[%0t] RESPONSE_UNIT PUSH MISS: id=%0d data=%h",
-                 $time, miss_id, miss_data);
-    end
-    end
+ 
 endmodule

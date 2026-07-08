@@ -1,0 +1,9 @@
+define XMSIMRC	( /apps/cds/xcelium2409/tools/xcelium/files/xmsimrc, ~/.xmsimrc )
+define AMSRC	( /apps/cds/xcelium2409/tools/xcelium/files/amsrc, ~/.amsrc )
+include ./hdlrun.var
+include ./xllibs/hdl.var
+define SNAPSHOT worklib.CPU_Write:sv
+DEFINE RUNMODEDEFAULT 1
+DEFINE LIB_MAP ( + => worklib )
+define ELAB_SNAPSHOT
+define SNAPSHOT worklib.Test_Complete:sv
