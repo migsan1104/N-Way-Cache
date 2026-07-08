@@ -1,5 +1,10 @@
 // ============================================================
 // Compare_Select_Replace
+//
+// Reduced metadata path:
+//   - carries tag/set/word only
+//   - removed in_addr / out_addr
+//   - removed in_line_addr / out_line_addr
 // ============================================================
 
 module Compare_Select_Replace #(
@@ -7,27 +12,22 @@ module Compare_Select_Replace #(
     parameter int DATA_WIDTH      = 32,
     parameter int LINE_WIDTH      = 128,
     parameter int TAG_WIDTH       = 24,
-    parameter int ADDR_WIDTH      = 32,
     parameter int CPU_ID_WIDTH    = 4,
     parameter int SET_INDEX_W     = 4,
     parameter int WORD_OFFSET_W   = 2,
-    parameter int LINE_ADDR_WIDTH = 26,
     parameter int WORDS_PER_LINE  = 4,
-    parameter int WAY_INDEX_W     = (ASSOC <= 1) ? 1 : $clog2(ASSOC),
-    localparam logic DEBUG        = 1'b0
+    parameter int WAY_INDEX_W     = (ASSOC <= 1) ? 1 : $clog2(ASSOC)
 )(
     input  logic clk,
     input  logic rst,
 
     input  logic                       in_valid,
     input  logic                       in_write,
-    input  logic [ADDR_WIDTH-1:0]      in_addr,
     input  logic [DATA_WIDTH-1:0]      in_wdata,
     input  logic [CPU_ID_WIDTH-1:0]    in_cpu_req_id,
     input  logic [TAG_WIDTH-1:0]       in_tag,
     input  logic [SET_INDEX_W-1:0]     in_set_id,
     input  logic [WORD_OFFSET_W-1:0]   in_word_id,
-    input  logic [LINE_ADDR_WIDTH-1:0] in_line_addr,
 
     input  logic [LINE_WIDTH-1:0]      way_line       [ASSOC],
     input  logic [TAG_WIDTH-1:0]       way_tag        [ASSOC],
@@ -42,35 +42,27 @@ module Compare_Select_Replace #(
     output logic                       out_hit,
     output logic                       out_miss,
 
-    output logic [ADDR_WIDTH-1:0]      out_addr,
     output logic [DATA_WIDTH-1:0]      out_wdata,
     output logic [DATA_WIDTH-1:0]      out_rdata,
     output logic [CPU_ID_WIDTH-1:0]    out_cpu_req_id,
     output logic [TAG_WIDTH-1:0]       out_tag,
     output logic [SET_INDEX_W-1:0]     out_set_id,
     output logic [WORD_OFFSET_W-1:0]   out_word_id,
-    output logic [LINE_ADDR_WIDTH-1:0] out_line_addr,
 
-    output logic [WAY_INDEX_W-1:0]     out_hit_way,
     output logic [WAY_INDEX_W-1:0]     out_miss_way,
 
-    output logic                       out_victim_valid,
     output logic                       out_victim_dirty,
     output logic [TAG_WIDTH-1:0]       out_victim_tag,
     output logic [LINE_WIDTH-1:0]      out_victim_line,
     output logic [WORDS_PER_LINE-1:0]  out_victim_word_valid,
 
-    output logic                       regular_found,
-    output logic [WAY_INDEX_W-1:0]     regular_way,
 
     output logic [ASSOC-1:0]           alloc_wen,
     output logic [SET_INDEX_W-1:0]     alloc_waddr,
     output logic [TAG_WIDTH-1:0]       alloc_tag,
 
-    output logic                       cpu_write_valid,
     output logic [ASSOC-1:0]           cpu_write_wen,
     output logic [ASSOC-1:0]           cpu_write_replace,
-    output logic [WAY_INDEX_W-1:0]     cpu_write_way,
     output logic [SET_INDEX_W-1:0]     cpu_write_set_id,
     output logic [WORD_OFFSET_W-1:0]   cpu_write_word_id,
     output logic [DATA_WIDTH-1:0]      cpu_write_wdata,
@@ -142,6 +134,7 @@ module Compare_Select_Replace #(
                 line_found_c = 1'b1;
                 line_way_c   = WAY_INDEX_W'(i);
             end
+            
         end
     end
 
@@ -149,8 +142,8 @@ module Compare_Select_Replace #(
     assign miss_c = in_valid && !hit_c;
 
     always_comb begin
-        regular_found_c = 1'b0;
-        regular_way_c   = '0;
+        regular_found_c  = 1'b0;
+        regular_way_c    = '0;
         complete_found_c = 1'b0;
         complete_way_c   = '0;
 
@@ -160,7 +153,8 @@ module Compare_Select_Replace #(
                 regular_way_c   = WAY_INDEX_W'(i);
             end
 
-            if (way_allocated[i] &&
+            if (
+                way_allocated[i] &&
                 (way_word_valid[i] == {WORDS_PER_LINE{1'b1}}) &&
                 !complete_found_c) begin
                 complete_found_c = 1'b1;
@@ -169,16 +163,16 @@ module Compare_Select_Replace #(
         end
     end
 
+    assign replacement_complete_c =
+        way_allocated[replacement_way] &&
+        (way_word_valid[replacement_way] == {WORDS_PER_LINE{1'b1}});
+
     assign miss_way_c =
         line_found_c           ? line_way_c :
         regular_found_c        ? regular_way_c :
         replacement_complete_c ? replacement_way :
         complete_found_c       ? complete_way_c :
                                  replacement_way;
-
-    assign replacement_complete_c =
-        way_allocated[replacement_way] &&
-        (way_word_valid[replacement_way] == {WORDS_PER_LINE{1'b1}});
 
     always_comb begin
         alloc_wen           = '0;
@@ -190,11 +184,11 @@ module Compare_Select_Replace #(
         cpu_write_way_c     = '0;
         cpu_write_replace_c = 1'b0;
 
-        if (in_valid && in_write && hit_c) begin
+        if (in_write && hit_c) begin
             cpu_write_valid_c = 1'b1;
             cpu_write_way_c   = hit_way_c;
         end
-        else if (in_valid && miss_c) begin
+        else if (miss_c) begin
             if (!line_found_c) begin
                 alloc_wen[miss_way_c] = 1'b1;
             end
@@ -218,8 +212,6 @@ module Compare_Select_Replace #(
     assign alloc_waddr       = in_set_id;
     assign alloc_tag         = in_tag;
 
-    assign cpu_write_valid   = cpu_write_valid_c;
-    assign cpu_write_way     = cpu_write_way_c;
     assign cpu_write_set_id  = in_set_id;
     assign cpu_write_word_id = in_word_id;
     assign cpu_write_wdata   = in_wdata;
@@ -230,83 +222,34 @@ module Compare_Select_Replace #(
 
     always_ff @(posedge clk) begin
         if (rst) begin
-            out_valid        <= 1'b0;
-            out_write        <= 1'b0;
-            out_hit          <= 1'b0;
-            out_miss         <= 1'b0;
-
-            out_addr         <= '0;
-            out_wdata        <= '0;
-            out_rdata        <= '0;
-            out_cpu_req_id   <= '0;
-            out_tag          <= '0;
-            out_set_id       <= '0;
-            out_word_id      <= '0;
-            out_line_addr    <= '0;
-
-            out_hit_way      <= '0;
-            out_miss_way     <= '0;
-
-            out_victim_valid <= 1'b0;
-            out_victim_dirty <= 1'b0;
-            out_victim_tag   <= '0;
-            out_victim_line  <= '0;
-            out_victim_word_valid <= '0;
-
-            regular_found    <= 1'b0;
-            regular_way      <= '0;
+            out_valid             <= 1'b0;
+            out_write             <= 1'b0;
+            out_hit               <= 1'b0;
+            out_miss              <= 1'b0;
         end
         else begin
-            out_valid        <= in_valid;
-            out_write        <= in_write;
-            out_hit          <= hit_c;
-            out_miss         <= miss_c;
-
-            out_addr         <= in_addr;
-            out_wdata        <= in_wdata;
-            out_rdata        <= selected_word_c;
-            out_cpu_req_id   <= in_cpu_req_id;
-            out_tag          <= in_tag;
-            out_set_id       <= in_set_id;
-            out_word_id      <= in_word_id;
-            out_line_addr    <= in_line_addr;
-
-            out_hit_way      <= hit_way_c;
-            out_miss_way     <= miss_way_c;
-
-            out_victim_valid <= (!line_found_c) && way_allocated[miss_way_c];
-            out_victim_dirty <= (!line_found_c) && way_dirty[miss_way_c];
-            out_victim_tag   <= way_tag[miss_way_c];
-            out_victim_line  <= way_line[miss_way_c];
-            out_victim_word_valid <= (!line_found_c)
-                                     ? way_word_valid[miss_way_c]
-                                     : '0;
-
-            regular_found    <= regular_found_c;
-            regular_way      <= regular_way_c;
-
-            if (DEBUG && in_valid && miss_c) begin
-                $display("[%0t] CSR MISS SNAPSHOT: write=%0b addr=%h line_addr=%h set=%0d word=%0d new_tag=%h miss_way=%0d line_found=%0b regular_found=%0b repl_way=%0d way_tag=%h way_alloc=%0b way_dirty=%0b way_word_valid=%b way_line=%h victim_valid=%0b victim_dirty=%0b",
-                         $time,
-                         in_write,
-                         in_addr,
-                         in_line_addr,
-                         in_set_id,
-                         in_word_id,
-                         in_tag,
-                         miss_way_c,
-                         line_found_c,
-                         regular_found_c,
-                         replacement_way,
-                         way_tag[miss_way_c],
-                         way_allocated[miss_way_c],
-                         way_dirty[miss_way_c],
-                         way_word_valid[miss_way_c],
-                         way_line[miss_way_c],
-                         (!line_found_c) && way_allocated[miss_way_c],
-                         (!line_found_c) && way_dirty[miss_way_c]);
-            end
+            out_valid             <= in_valid;
+            out_write             <= in_write;
+            out_hit               <= hit_c;
+            out_miss              <= miss_c;
         end
     end
+    always_ff @(posedge clk) begin
+
+        out_wdata             <= in_wdata;
+        out_rdata             <= selected_word_c;
+        out_cpu_req_id        <= in_cpu_req_id;
+        out_tag               <= in_tag;
+        out_set_id            <= in_set_id;
+        out_word_id           <= in_word_id;
+
+        out_miss_way          <= miss_way_c;
+
+        out_victim_dirty      <= way_dirty[miss_way_c];
+        out_victim_tag        <= way_tag[miss_way_c];
+        out_victim_line       <= way_line[miss_way_c];
+        out_victim_word_valid <= way_word_valid[miss_way_c];
+    end
+    
 
 endmodule

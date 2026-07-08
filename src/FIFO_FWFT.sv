@@ -31,17 +31,12 @@ module FIFO_FWFT #(
     logic [PTR_W-1:0] wr_ptr_r;
     logic [PTR_W-1:0] rd_ptr_r;
 
-    logic do_write;
-    logic do_read;
-
     assign empty = (wr_ptr_r == rd_ptr_r);
 
     assign full =
         (wr_ptr_r[IDX_W-1:0] == rd_ptr_r[IDX_W-1:0]) &&
         (wr_ptr_r[PTR_W-1]   != rd_ptr_r[PTR_W-1]);
 
-    assign do_write = wr_en && !full;
-    assign do_read  = rd_en && !empty;
 
     assign rd_data = ram[rd_ptr_r[IDX_W-1:0]];
 
@@ -51,15 +46,15 @@ module FIFO_FWFT #(
             rd_ptr_r <= '0;
         end
         else begin
-            if (do_write) begin
+            if (wr_en) begin
                 ram[wr_ptr_r[IDX_W-1:0]] <= wr_data;
             end
 
-            if (do_write) begin
+            if (wr_en) begin
                 wr_ptr_r <= wr_ptr_r + 1'b1;
             end
 
-            if (do_read) begin
+            if (rd_en) begin
                 rd_ptr_r <= rd_ptr_r + 1'b1;
             end
         end

@@ -25,8 +25,7 @@ module MSHR_File #(
     parameter int MSHR_ID_WIDTH   = 2,
     parameter int MISSQ_DEPTH     = 64,
     parameter int MSHR_AF         = 7,
-    parameter int MAX_WAITERS     = 4,
-    localparam logic DEBUG        = 1'b0
+    parameter int MAX_WAITERS     = 4
 )(
     input  logic clk,
     input  logic rst,
@@ -35,22 +34,17 @@ module MSHR_File #(
     output logic                       alloc_ready,
 
     input  logic [LINE_ADDR_WIDTH-1:0] alloc_line_addr,
-    input  logic [SET_INDEX_W-1:0]     alloc_set_id,
     input  logic [WORD_OFFSET_W-1:0]   alloc_word_id,
-    input  logic [TAG_WIDTH-1:0]       alloc_tag,
     input  logic [WAY_INDEX_W-1:0]     alloc_way,
 
     input  logic                       alloc_write,
     input  logic [DATA_WIDTH-1:0]      alloc_wdata,
     input  logic [CPU_ID_WIDTH-1:0]    alloc_cpu_req_id,
 
-    input  logic                       alloc_victim_valid,
     input  logic                       alloc_victim_dirty,
     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
     input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
     input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
-
-    output logic [MSHR_ID_WIDTH-1:0]   alloc_mshr_id,
 
     input  logic [3:0]                 issue_done,
 
@@ -68,22 +62,15 @@ module MSHR_File #(
     output logic [SET_INDEX_W-1:0]     refill_set_id,
     output logic [TAG_WIDTH-1:0]       refill_tag,
     output logic [WAY_INDEX_W-1:0]     refill_way,
-    output logic                       refill_dirty,
-    output logic                       refill_eviction,
     output logic [LINE_WIDTH-1:0]      refill_line,
 
     output logic [3:0]                 issue_pending,
-    output logic [LINE_ADDR_WIDTH-1:0] issue_line_addr [4],
-    output logic [WORD_OFFSET_W-1:0]   issue_word_id   [4],
 
     output logic [3:0]                 req_valid,
     output logic [3:0]                 req_write,
     output logic [ADDR_WIDTH-1:0]      req_addr  [4],
     output logic [DATA_WIDTH-1:0]      req_wdata [4],
-    output logic [MSHR_ID_WIDTH-1:0]   req_id    [4],
-
-    output logic                       full,
-    output logic                       empty
+    output logic [MSHR_ID_WIDTH-1:0]   req_id    [4]
 );
 
     localparam int MSHR_COUNT     = 4;
@@ -96,10 +83,7 @@ module MSHR_File #(
         logic [WORD_OFFSET_W-1:0]   word_id;
         logic [TAG_WIDTH-1:0]       tag;
         logic [WAY_INDEX_W-1:0]     way;
-        logic                       write;
-        logic [DATA_WIDTH-1:0]      wdata;
 
-        logic                       victim_valid;
         logic                       victim_dirty;
         logic [TAG_WIDTH-1:0]       victim_tag;
         logic [LINE_WIDTH-1:0]      victim_line;
@@ -113,7 +97,7 @@ module MSHR_File #(
     logic [RS_ID_WIDTH-1:0] rs_issue_id;
 
     logic rs_retire_valid;
-    logic [LINE_ADDR_WIDTH-1:0] rs_retire_line_addr;
+    logic [MSHR_ID_WIDTH-1:0] rs_retire_mshr_id;
 
     logic dispatch_valid;
     logic [WAITER_COUNT_W-1:0] dispatch_cpu_id_count;
@@ -123,8 +107,6 @@ module MSHR_File #(
     logic [MSHR_COUNT-1:0] entry_valid;
     logic [MSHR_COUNT-1:0] entry_issue_pending;
     logic [MSHR_COUNT-1:0] entry_refill_wen;
-    logic [MSHR_COUNT-1:0] entry_refill_dirty;
-    logic [MSHR_COUNT-1:0] entry_refill_eviction;
 
     logic [LINE_ADDR_WIDTH-1:0] entry_line_addr [MSHR_COUNT];
     logic [SET_INDEX_W-1:0]     entry_set_id    [MSHR_COUNT];
@@ -132,10 +114,8 @@ module MSHR_File #(
     logic [TAG_WIDTH-1:0]       entry_tag       [MSHR_COUNT];
     logic [WAY_INDEX_W-1:0]     entry_way       [MSHR_COUNT];
 
-    logic [MSHR_ID_WIDTH-1:0]   entry_mshr_id   [MSHR_COUNT];
     logic [LINE_WIDTH-1:0]      entry_fill_line [MSHR_COUNT];
 
-    logic [MSHR_COUNT-1:0]      entry_alloc_onehot;
     logic [MSHR_COUNT-1:0]      mshr_resp_valid;
     logic [DATA_WIDTH-1:0]      mshr_resp_data;
     logic [MSHR_ID_WIDTH-1:0]   entry_alloc_idx;
@@ -171,15 +151,12 @@ module MSHR_File #(
         .alloc_ready        (alloc_ready),
 
         .alloc_line_addr    (alloc_line_addr),
-        .alloc_set_id       (alloc_set_id),
         .alloc_word_id      (alloc_word_id),
-        .alloc_tag          (alloc_tag),
         .alloc_way          (alloc_way),
         .alloc_write        (alloc_write),
         .alloc_wdata        (alloc_wdata),
         .alloc_cpu_req_id   (alloc_cpu_req_id),
 
-        .alloc_victim_valid (alloc_victim_valid),
         .alloc_victim_dirty (alloc_victim_dirty),
         .alloc_victim_tag   (alloc_victim_tag),
         .alloc_victim_line  (alloc_victim_line),
@@ -195,18 +172,16 @@ module MSHR_File #(
         .issue_tag          (rs_issue_entry.tag),
         .issue_way          (rs_issue_entry.way),
 
-        .issue_write        (rs_issue_entry.write),
-        .issue_wdata        (rs_issue_entry.wdata),
+   
         .issue_word_id      (rs_issue_entry.word_id),
 
-        .issue_victim_valid (rs_issue_entry.victim_valid),
         .issue_victim_dirty (rs_issue_entry.victim_dirty),
         .issue_victim_tag   (rs_issue_entry.victim_tag),
         .issue_victim_line  (rs_issue_entry.victim_line),
         .issue_victim_word_valid (rs_issue_entry.victim_word_valid),
 
         .retire_valid       (rs_retire_valid),
-        .retire_line_addr   (rs_retire_line_addr),
+        .retire_mshr_id     (rs_retire_mshr_id),
 
         .dispatch_valid        (dispatch_valid),
         .dispatch_cpu_id_count (dispatch_cpu_id_count),
@@ -245,28 +220,25 @@ module MSHR_File #(
     // ============================================================
 
     always_comb begin
-        entry_alloc_ready  = 1'b0;
-        entry_alloc_idx    = '0;
-        entry_alloc_onehot = '0;
+        entry_alloc_ready = 1'b0;
+        entry_alloc_idx   = '0;
 
         for (int i = 0; i < MSHR_COUNT; i++) begin
             if (!entry_valid[i] && !entry_alloc_ready) begin
-                entry_alloc_ready     = 1'b1;
-                entry_alloc_idx       = i[MSHR_ID_WIDTH-1:0];
-                entry_alloc_onehot[i] = 1'b1;
+                entry_alloc_ready = 1'b1;
+                entry_alloc_idx   = i[MSHR_ID_WIDTH-1:0];
             end
         end
     end
 
     assign entry_alloc_fire = rs_issue_valid && entry_alloc_ready;
     assign rs_issue_accept  = entry_alloc_fire;
-    assign alloc_mshr_id    = entry_alloc_idx;
+
 
     // ============================================================
-    // Completed MSHR select for response dispatch
-    // If multiple retire in same cycle, highest index wins.
-    //
-    // This does NOT control refill. Refill uses MSHR_Mux below.
+    // Completed MSHR select for response dispatch.
+    // Match MSHR_Mux priority so refill and CPU response retire
+    // consume the same completed entry if completions overlap.
     // ============================================================
 
     always_comb begin
@@ -274,15 +246,15 @@ module MSHR_File #(
         retire_sel_idx   = '0;
 
         for (int i = 0; i < MSHR_COUNT; i++) begin
-            if (entry_refill_wen[i]) begin
+            if (entry_refill_wen[i] && !retire_sel_valid) begin
                 retire_sel_valid = 1'b1;
                 retire_sel_idx   = i[MSHR_ID_WIDTH-1:0];
             end
         end
     end
 
-    assign rs_retire_valid     = retire_sel_valid;
-    assign rs_retire_line_addr = entry_line_addr[retire_sel_idx];
+    assign rs_retire_valid   = retire_sel_valid;
+    assign rs_retire_mshr_id = retire_sel_idx;
 
     // ============================================================
     // Memory response demux
@@ -320,15 +292,11 @@ module MSHR_File #(
         .entry_set_id          (entry_set_id),
         .entry_tag             (entry_tag),
         .entry_way             (entry_way),
-        .entry_refill_dirty    (entry_refill_dirty),
-        .entry_refill_eviction (entry_refill_eviction),
         .entry_fill_line       (entry_fill_line),
         .refill_wen            (refill_wen),
         .refill_set_id         (refill_set_id),
         .refill_tag            (refill_tag),
         .refill_way            (refill_way),
-        .refill_dirty          (refill_dirty),
-        .refill_eviction       (refill_eviction),
         .refill_line           (refill_line)
     );
 
@@ -337,15 +305,6 @@ module MSHR_File #(
     // ============================================================
 
     assign issue_pending = entry_issue_pending;
-    assign full          = !alloc_ready;
-    assign empty         = ~|entry_valid;
-
-    always_comb begin
-        for (int i = 0; i < MSHR_COUNT; i++) begin
-            issue_line_addr[i] = entry_line_addr[i];
-            issue_word_id[i]   = entry_word_id[i];
-        end
-    end
 
     // ============================================================
     // MSHR entries
@@ -365,12 +324,13 @@ module MSHR_File #(
                 .WAY_INDEX_W     (WAY_INDEX_W),
                 .DATA_WIDTH      (DATA_WIDTH),
                 .LINE_WIDTH      (LINE_WIDTH),
-                .MSHR_ID_WIDTH   (MSHR_ID_WIDTH)
+                .MSHR_ID_WIDTH   (MSHR_ID_WIDTH),
+                .ENTRY_ID        (i)
             ) ENTRY (
                 .clk                (clk),
                 .rst                (rst),
 
-                .alloc              (entry_alloc_fire && entry_alloc_onehot[i]),
+                .alloc              (entry_alloc_fire && (entry_alloc_idx == i[MSHR_ID_WIDTH-1:0])),
 
                 .alloc_line_addr    (rs_issue_entry.line_addr),
                 .alloc_set_id       (rs_issue_entry.set_id),
@@ -378,12 +338,6 @@ module MSHR_File #(
                 .alloc_tag          (rs_issue_entry.tag),
                 .alloc_way          (rs_issue_entry.way),
 
-                .alloc_write        (rs_issue_entry.write),
-                .alloc_wdata        (rs_issue_entry.wdata),
-
-                .alloc_mshr_id      (i[MSHR_ID_WIDTH-1:0]),
-
-                .alloc_victim_valid (rs_issue_entry.victim_valid),
                 .alloc_victim_dirty (rs_issue_entry.victim_dirty),
                 .alloc_victim_tag   (rs_issue_entry.victim_tag),
                 .alloc_victim_line  (rs_issue_entry.victim_line),
@@ -409,48 +363,11 @@ module MSHR_File #(
                 .tag                (entry_tag[i]),
                 .way                (entry_way[i]),
 
-                .mshr_id            (entry_mshr_id[i]),
-
                 .refill_wen         (entry_refill_wen[i]),
-                .refill_dirty       (entry_refill_dirty[i]),
-                .refill_eviction    (entry_refill_eviction[i]),
                 .fill_line          (entry_fill_line[i])
             );
 
         end
     endgenerate
-
-    // ============================================================
-    // Debug
-    // ============================================================
-
-    always_ff @(posedge clk) begin
-        if (!rst) begin
-            if (entry_alloc_fire && DEBUG) begin
-                $display("[%0t] MSHR_FILE_ALLOC_LATCH: entry=%0d rs_id=%0d write=%0b line_addr=%h set=%0d word=%0d tag=%h way=%0d victim_valid=%0b victim_dirty=%0b victim_tag=%h victim_line=%h",
-                         $time,
-                         entry_alloc_idx,
-                         rs_issue_id,
-                         rs_issue_entry.write,
-                         rs_issue_entry.line_addr,
-                         rs_issue_entry.set_id,
-                         rs_issue_entry.word_id,
-                         rs_issue_entry.tag,
-                         rs_issue_entry.way,
-                         rs_issue_entry.victim_valid,
-                         rs_issue_entry.victim_dirty,
-                         rs_issue_entry.victim_tag,
-                         rs_issue_entry.victim_line);
-            end
-
-            if (rs_retire_valid && DEBUG) begin
-                $display("[%0t] MSHR_FILE_RESPONSE_RETIRE_SELECT: mshr=%0d line_addr=%h delayed_miss_data=%h",
-                         $time,
-                         retire_sel_idx,
-                         rs_retire_line_addr,
-                         delayed_miss_data);
-            end
-        end
-    end
 
 endmodule

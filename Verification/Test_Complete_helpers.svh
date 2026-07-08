@@ -26,6 +26,10 @@
             test_data_errors_by_assoc[test_id][active_assoc_idx] = errors;
             total_requests_by_assoc[active_assoc_idx] =
                 total_requests_by_assoc[active_assoc_idx] + total_cpu_requests_sent;
+            hit_read_latency_total_by_assoc[active_assoc_idx] =
+                hit_read_latency_total_by_assoc[active_assoc_idx] + hit_read_latency_total;
+            hit_read_latency_count_by_assoc[active_assoc_idx] =
+                hit_read_latency_count_by_assoc[active_assoc_idx] + hit_read_latency_count;
 
             if (test_id == TEST3) begin
                 test3_requests_by_assoc[active_assoc_idx] = total_cpu_requests_sent;
@@ -45,6 +49,12 @@ function automatic string test_status_line(input int test_id, input int assoc_id
                                              assoc_value_from_idx(assoc_idx),
                                              test_name(test_id),
                                              test_data_errors_by_assoc[test_id][assoc_idx]);
+        end
+    endfunction
+
+function automatic longint unsigned current_cycle;
+        begin
+            current_cycle = longint'($time / 10);
         end
     endfunction
 
@@ -258,6 +268,8 @@ function automatic int find_free_slot;
             miss_count              = 0;
             write_miss_count        = 0;
             read_miss_count         = 0;
+            hit_read_latency_total  = 0;
+            hit_read_latency_count  = 0;
 
             data_check_count        = 0;
             data_error_count        = 0;
@@ -281,6 +293,8 @@ function automatic int find_free_slot;
             expected_addr_by_seq     = new[scoreboard_entries];
             expected_is_read_by_seq  = new[scoreboard_entries];
             expected_is_write_by_seq = new[scoreboard_entries];
+            request_issue_cycle_by_seq       = new[scoreboard_entries];
+            request_issue_cycle_valid_by_seq = new[scoreboard_entries];
             read_done_by_seq         = new[scoreboard_entries];
             cpu_resp_count_by_seq    = new[scoreboard_entries];
 
@@ -290,6 +304,8 @@ function automatic int find_free_slot;
                 expected_addr_by_seq[i]     = 0;
                 expected_is_read_by_seq[i]  = 1'b0;
                 expected_is_write_by_seq[i] = 1'b0;
+                request_issue_cycle_by_seq[i]       = 0;
+                request_issue_cycle_valid_by_seq[i] = 1'b0;
                 read_done_by_seq[i]         = 1'b0;
                 cpu_resp_count_by_seq[i]    = 0;
             end
@@ -389,6 +405,8 @@ function automatic int find_free_slot;
                                  expected_is_read_by_seq.size());
                     end
                     else if (write_req) begin
+                        request_issue_cycle_by_seq[req_seq]       = current_cycle();
+                        request_issue_cycle_valid_by_seq[req_seq] = 1'b1;
                         golden_mem[addr] = wdata;
 
                         expected_is_write_by_seq[req_seq] = 1'b1;
@@ -398,6 +416,8 @@ function automatic int find_free_slot;
                         expected_by_seq[req_seq]       = golden_mem[addr];
                         expected_valid_by_seq[req_seq] = 1'b1;
                         expected_addr_by_seq[req_seq]  = int'(addr);
+                        request_issue_cycle_by_seq[req_seq]       = current_cycle();
+                        request_issue_cycle_valid_by_seq[req_seq] = 1'b1;
 
                         expected_is_read_by_seq[req_seq]  = 1'b1;
                         expected_is_write_by_seq[req_seq] = 1'b0;
@@ -476,49 +496,59 @@ function automatic int find_free_slot;
 
     task automatic build_test3_addr_pool(input int phase_idx,
                                          input int burst_len);
-        bit used_word_addr [0:RAM_DEPTH_WORDS-1];
+        int base_line;
         int candidate;
-        int tmp;
+        int line_count;
+        int max_base_line;
         int pool_seed;
+        int word_offset;
+        bit block_available;
         begin
-            for (int i = 0; i < RAM_DEPTH_WORDS; i++) begin
-                used_word_addr[i] = 1'b0;
-            end
-
             pool_seed = TEST3_BASE_SEED ^
                         (active_assoc_value * 32'h0001_0001) ^
                         (phase_idx * 32'h0010_0101) ^
                         (burst_len * 32'h0000_0101);
             void'($urandom(pool_seed));
 
-            for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
-                do begin
-                    candidate = $urandom_range(0, RAM_DEPTH_WORDS - 1);
-                end while (used_word_addr[candidate] ||
-                           test3_phase_addr_used[candidate]);
+            line_count    = RAM_DEPTH_WORDS / WORDS_PER_LINE;
+            max_base_line = line_count - TEST3_ADDR_POOL_SIZE;
+            base_line     = $urandom_range(0, max_base_line);
 
-                used_word_addr[candidate] = 1'b1;
-                test3_phase_addr_used[candidate] = 1'b1;
-                test3_addr_pool[i] = candidate;
-            end
+            for (int attempt = 0; attempt <= max_base_line; attempt++) begin
+                block_available = 1'b1;
 
-            for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
-                for (int j = i + 1; j < TEST3_ADDR_POOL_SIZE; j++) begin
-                    if (test3_addr_pool[j] < test3_addr_pool[i]) begin
-                        tmp = test3_addr_pool[i];
-                        test3_addr_pool[i] = test3_addr_pool[j];
-                        test3_addr_pool[j] = tmp;
+                for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
+                    word_offset = $urandom_range(0, WORDS_PER_LINE - 1);
+                    candidate   = ((base_line + i) * WORDS_PER_LINE) + word_offset;
+                    if (test3_phase_addr_used[candidate]) begin
+                        block_available = 1'b0;
                     end
+
+                    test3_addr_pool[i] = candidate;
+                end
+
+                if (block_available) begin
+                    break;
+                end
+
+                base_line++;
+                if (base_line > max_base_line) begin
+                    base_line = 0;
                 end
             end
 
+            for (int i = 0; i < TEST3_ADDR_POOL_SIZE; i++) begin
+                test3_phase_addr_used[test3_addr_pool[i]] = 1'b1;
+            end
+
             if (assoc_debug_enabled(active_assoc_idx)) begin
-                $display("TEST3 PHASE ADDR POOL: assoc=%0d burst_len=%0d phase=%0d pool_size=%0d seed=%h min_word=%0d max_word=%0d",
+                $display("TEST3 PHASE ADDR POOL: assoc=%0d burst_len=%0d phase=%0d pool_size=%0d seed=%h base_line=%0d min_word=%0d max_word=%0d",
                          active_assoc_value,
                          burst_len,
                          phase_idx,
                          TEST3_ADDR_POOL_SIZE,
                          pool_seed,
+                         base_line,
                          test3_addr_pool[0],
                          test3_addr_pool[TEST3_ADDR_POOL_SIZE-1]);
             end
@@ -814,8 +844,14 @@ function automatic int find_free_slot;
     endtask
 
     task automatic print_report(input int test_id);
+        real avg_hit_read_latency;
         begin
             calculate_expected_mem_counts();
+            if (hit_read_latency_count == 0)
+                avg_hit_read_latency = 0.0;
+            else
+                avg_hit_read_latency =
+                    real'(hit_read_latency_total) / real'(hit_read_latency_count);
 
             if (print_report_en(test_id)) begin
                 $display("==================================================");
@@ -829,6 +865,8 @@ function automatic int find_free_slot;
                 $display("Read responses                       = %0d", total_read_responses);
                 $display("CPU hit responses                    = %0d", hit_count);
                 $display("CPU miss responses                   = %0d", miss_count);
+                $display("Hit read latency samples             = %0d", hit_read_latency_count);
+                $display("Average hit read latency cycles      = %0.2f", avg_hit_read_latency);
                 $display("Write miss responses                 = %0d", write_miss_count);
                 $display("Read miss responses                  = %0d", read_miss_count);
                 $display("Data checks performed                = %0d", data_check_count);

@@ -13,6 +13,8 @@
             miss_count             = 0;
             write_miss_count       = 0;
             read_miss_count        = 0;
+            hit_read_latency_total = 0;
+            hit_read_latency_count = 0;
             data_check_count       = 0;
             data_error_count       = 0;
             duplicate_resp_errors  = 0;
@@ -21,6 +23,7 @@
             for (int i = 0; i < cpu_resp_count_by_seq.size(); i++) begin
                 cpu_resp_count_by_seq[i] = 0;
                 read_done_by_seq[i]      = 1'b0;
+                request_issue_cycle_valid_by_seq[i] = 1'b0;
             end
 
             for (int s = 0; s < CPU_SLOT_COUNT; s++) begin
@@ -107,6 +110,11 @@
 
                         if (!cpu_resp_hit)
                             read_miss_count = read_miss_count + 1;
+                        else if (request_issue_cycle_valid_by_seq[resp_seq]) begin
+                            hit_read_latency_total =
+                                hit_read_latency_total + (current_cycle() - request_issue_cycle_by_seq[resp_seq]);
+                            hit_read_latency_count = hit_read_latency_count + 1;
+                        end
 
                         if (!expected_valid_by_seq[resp_seq] || read_done_by_seq[resp_seq]) begin
                             unexpected_resp_errors = unexpected_resp_errors + 1;

@@ -25,8 +25,6 @@ module Flag_Data_Array #(
     input  logic [SET_INDEX_W-1:0]    refill_waddr,
     input  logic [TAG_WIDTH-1:0]       refill_tag,
     input  logic [LINE_WIDTH-1:0]     refill_line,
-    input  logic                      refill_dirty,
-    input  logic                      refill_eviction,
 
     input  logic                      alloc_wen,
     input  logic [SET_INDEX_W-1:0]    alloc_waddr,
@@ -44,12 +42,11 @@ module Flag_Data_Array #(
     logic                      dirty_mem      [0:DEPTH-1];
     logic [WORDS_PER_LINE-1:0] word_valid_mem [0:DEPTH-1];
     logic [TAG_WIDTH-1:0]      tag_mem        [0:DEPTH-1];
-    logic                      read_refill_pending_mem [0:DEPTH-1];
-    logic                      read_refill_merge_mem   [0:DEPTH-1];
+
 
     logic [WORDS_PER_LINE-1:0] cpu_word_mask;
     logic                      refill_current_match;
-    logic                      refill_full_overwrite;
+
 
     always_comb begin
         cpu_word_mask = '0;
@@ -58,10 +55,6 @@ module Flag_Data_Array #(
         refill_current_match =
             (tag_mem[refill_waddr] == refill_tag);
 
-        refill_full_overwrite =
-            refill_eviction ||
-            (read_refill_pending_mem[refill_waddr] &&
-             !read_refill_merge_mem[refill_waddr]);
     end
 
     always_ff @(posedge clk) begin
@@ -72,13 +65,9 @@ module Flag_Data_Array #(
             word_valid <= '0;
 
             for (int i = 0; i < DEPTH; i++) begin
-                data_mem[i]       <= '0;
                 allocated_mem[i]  <= 1'b0;
                 dirty_mem[i]      <= 1'b0;
                 word_valid_mem[i] <= '0;
-                tag_mem[i]        <= '0;
-                read_refill_pending_mem[i] <= 1'b0;
-                read_refill_merge_mem[i]   <= 1'b0;
             end
         end
         else begin
@@ -90,27 +79,16 @@ module Flag_Data_Array #(
             if (refill_wen && refill_current_match) begin
                 allocated_mem[refill_waddr] <= 1'b1;
 
-                if (refill_full_overwrite) begin
-                    data_mem[refill_waddr]       <= refill_line;
-                    dirty_mem[refill_waddr]      <=
-                        refill_dirty | read_refill_merge_mem[refill_waddr];
-                    word_valid_mem[refill_waddr] <= '1;
-                end
-                else begin
-                    for (int w = 0; w < WORDS_PER_LINE; w++) begin
-                        if (!word_valid_mem[refill_waddr][w]) begin
+            
+                for (int w = 0; w < WORDS_PER_LINE; w++) begin
+                     if (!word_valid_mem[refill_waddr][w]) begin
                             data_mem[refill_waddr][w*DATA_WIDTH +: DATA_WIDTH]
                             <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
-                        end
                     end
-
-                    word_valid_mem[refill_waddr] <= '1;
-                    dirty_mem[refill_waddr]      <=
-                        dirty_mem[refill_waddr] | refill_dirty;
                 end
 
-                read_refill_pending_mem[refill_waddr] <= 1'b0;
-                read_refill_merge_mem[refill_waddr]   <= 1'b0;
+                word_valid_mem[refill_waddr] <= '1;
+            
             end
 
             if (alloc_wen) begin
@@ -118,9 +96,6 @@ module Flag_Data_Array #(
                 dirty_mem[alloc_waddr]      <= 1'b0;
                 word_valid_mem[alloc_waddr] <= '0;
                 tag_mem[alloc_waddr]        <= alloc_tag;
-                read_refill_pending_mem[alloc_waddr] <=
-                    !(cpu_word_wen && cpu_replace && (cpu_waddr == alloc_waddr));
-                read_refill_merge_mem[alloc_waddr] <= 1'b0;
             end
 
             if (cpu_word_wen) begin
@@ -129,43 +104,28 @@ module Flag_Data_Array #(
 
                 allocated_mem[cpu_waddr] <= 1'b1;
                 dirty_mem[cpu_waddr]     <= 1'b1;
-                if (!cpu_replace && read_refill_pending_mem[cpu_waddr]) begin
-                    read_refill_merge_mem[cpu_waddr] <= 1'b1;
-                end
+                
+                
 
-                if (cpu_replace) begin
-                    word_valid_mem[cpu_waddr] <= cpu_word_mask;
-                end
-                else begin
-                    word_valid_mem[cpu_waddr][cpu_word_id] <= 1'b1;
-                end
             end
 
-            if (refill_wen && refill_current_match && (refill_waddr == raddr)) begin
+            if (refill_wen && (refill_waddr == raddr)) begin
                 allocated <= 1'b1;
-                dirty     <= refill_full_overwrite
-                             ? (refill_dirty | read_refill_merge_mem[refill_waddr])
-                             : (dirty_mem[refill_waddr] | refill_dirty);
 
-                if (refill_full_overwrite) begin
-                    rline      <= refill_line;
-                    word_valid <= '1;
-                end
-                else begin
-                    for (int w = 0; w < WORDS_PER_LINE; w++) begin
-                        if (!word_valid_mem[refill_waddr][w]) begin
+          
+                for (int w = 0; w < WORDS_PER_LINE; w++) begin
+                    if (!word_valid_mem[refill_waddr][w]) begin
                             rline[w*DATA_WIDTH +: DATA_WIDTH]
                             <= refill_line[w*DATA_WIDTH +: DATA_WIDTH];
-                        end
                     end
-
-                    word_valid <= '1;
                 end
+
+                word_valid <= '1;
+                
             end
 
             if (alloc_wen && (alloc_waddr == raddr)) begin
                 allocated  <= 1'b1;
-                dirty      <= 1'b0;
                 word_valid <= '0;
             end
 
@@ -173,13 +133,12 @@ module Flag_Data_Array #(
                 rline[cpu_word_id*DATA_WIDTH +: DATA_WIDTH] <= cpu_wdata;
                 allocated <= 1'b1;
                 dirty     <= 1'b1;
-
-                if (cpu_replace) begin
-                    word_valid <= cpu_word_mask;
-                end
-                else begin
-                    word_valid[cpu_word_id] <= 1'b1;
-                end
+            end
+            if (cpu_replace) begin
+                    word_valid_mem[cpu_waddr] <= cpu_word_mask;
+            end
+            else begin
+                    word_valid_mem[cpu_waddr][cpu_word_id] <= 1'b1;
             end
         end
     end

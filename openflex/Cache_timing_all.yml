@@ -21,8 +21,9 @@ files:
   - ../src/FIFO.sv
   - ../src/FIFO_Almost.sv
   - ../src/FIFO_FWFT.sv
+  - ../src/FIFO_NF.sv
   - ../src/Flag_Array.sv
-  - ../src/Flag_Data_Array.sv
+  - ../src/Flag_Tag_Data_Array.sv
   - ../src/Hit_compare.sv
   - ../src/Memory_Request_Arbirter.sv
   - ../src/Memory_Request_Unit.sv
@@ -45,7 +46,6 @@ files:
   - ../src/Replacement.sv
   - ../src/Reservation_Station.sv
   - ../src/Response_Unit.sv
-  - ../src/Tag_Array.sv
   - ../src/Victim_Select.sv
 
 parameters:
