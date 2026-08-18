@@ -12,3 +12,45 @@ openflex/
 *.vcd
 transcript
 modelsim.ini
+
+# --- ASIC flow ---------------------------------------------------------------
+# Everything under asic/PPA/ is regenerable tool output (reports, netlists,
+# work databases, logs). Only the collected results table is tracked.
+asic/PPA/**
+!asic/PPA/RESULTS.md
+
+# Compiled standard-cell database, rebuilt by run_dc.sh when absent.
+asic/libraries/sky130_fd_sc_hd/db/
+asic/libraries/sky130_fd_sc_hd/*.log
+asic/libraries/sky130_fd_sc_hd/*.out
+
+# Tool droppings. The launchers now run inside asic/PPA/<tool>/assoc_<N>/work,
+# so these should no longer appear at the repository root -- kept as a backstop.
+alib-*
+moduleparamid
+.pbs_*/
+cds.lib
+lc_output.txt
+lc_command.log
+genus.cmd*
+genus.log*
+genus.history*
+command.log
+default.svf
+*.mr
+*.pvl
+*.syn
+*.svf
+
+*.sdc.gz
+*.v.gz
+*.hdb
+*.db
+*.dbs
+*.snapshot
+
+# Per-associativity OpenFLEX build directories. timing.sh gives each run its own
+# so the sweep can execute in parallel; all of it is regenerable Vivado output.
+openflex/.build_assoc*/
+openflex/timing_assoc*_stdout.log
+*.bak

@@ -9,6 +9,10 @@ set -o pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
 
+# OpenFLEX is installed in the user's local bin on this system. Add it here so
+# the script also works from terminals that do not preload ~/.local/bin.
+export PATH="$HOME/.local/bin:$PATH"
+
 ASSOC="${1:-8}"
 
 case "$ASSOC" in
@@ -38,11 +42,32 @@ CONFIG_TEMPLATE="$SCRIPT_DIR/Cache_timing_all.yml"
 RUN_CONFIG="$SCRIPT_DIR/.Cache_timing_assoc${ASSOC}.yml"
 TRANSCRIPT="$SCRIPT_DIR/timing_assoc${ASSOC}_transcript"
 RUN_LOG="$SCRIPT_DIR/timing_assoc${ASSOC}.log"
-BUILD_OUTPUTS="$SCRIPT_DIR/build_vivado/outputs"
 
-mkdir -p "$POWER_DIR" "$OUTPUTS_DIR"
+# Each associativity builds in its OWN directory so several runs can execute at
+# the same time.
+#
+# OpenFLEX creates its build directory with a bare relative path
+# (config.py: pathlib.Path("build_vivado").mkdir), so it lands in whatever
+# directory the process happens to be started from. Every run used to start from
+# openflex/, which meant they all shared one build_vivado - and since this
+# script copies whatever it finds in build_vivado/outputs into
+# PPA/assoc_<N>/outputs, two concurrent runs would not just collide, they would
+# quietly file one run's results under the other's associativity.
+#
+# Starting each run in its own directory isolates the build. The catch is that
+# config.py also resolves the `files:` list with os.path.abspath against the
+# process working directory, so the generated config must carry ABSOLUTE RTL
+# paths - relative ones would resolve against the new directory and vanish.
+BUILD_DIR="$SCRIPT_DIR/.build_assoc${ASSOC}"
+BUILD_OUTPUTS="$BUILD_DIR/build_vivado/outputs"
 
-sed -E "s/^([[:space:]]*ASSOC:).*/\1 [$ASSOC]/" \
+mkdir -p "$POWER_DIR" "$OUTPUTS_DIR" "$BUILD_DIR"
+
+# Rewrite the ASSOC line, and make every relative .sv path absolute so the
+# config still resolves from inside $BUILD_DIR.
+sed -E \
+    -e "s/^([[:space:]]*ASSOC:).*/\1 [$ASSOC]/" \
+    -e "s|^([[:space:]]*-[[:space:]]+)([^/[:space:]][^[:space:]]*\.sv)[[:space:]]*$|\1$SCRIPT_DIR/\2|" \
     "$CONFIG_TEMPLATE" > "$RUN_CONFIG"
 
 # Start each run from a clean table/log so stale rows cannot survive.
@@ -57,7 +82,7 @@ sed -E "s/^([[:space:]]*ASSOC:).*/\1 [$ASSOC]/" \
 
 cat "$TRANSCRIPT"
 
-openflex "$RUN_CONFIG" -c "$CSV_PATH" 2>&1 | tee -a "$TRANSCRIPT"
+( cd "$BUILD_DIR" && openflex "$RUN_CONFIG" -c "$CSV_PATH" ) 2>&1 | tee -a "$TRANSCRIPT"
 status=${PIPESTATUS[0]}
 
 cp "$TRANSCRIPT" "$RUN_LOG"
