@@ -30,7 +30,11 @@ module Test_Complete #(
     localparam int TEST2_NUM_READS   = 10000;
 
     // Test3 sweeps burst lengths to measure miss rate under controlled locality.
-    localparam int TEST3_ADDR_POOL_SIZE       = 500;
+    // Scales with capacity so the pool stays ~2x the cache's line count
+    // and Test3 keeps producing sustained capacity misses at any size.
+    // Evaluates to exactly 500 at the 4KB baseline (256 lines).
+    localparam int TEST3_ADDR_POOL_SIZE       =
+        ((CACHE_BYTES / LINE_BYTES) * 500) / 256;
     localparam int TEST3_REQUESTS_PER_SWEEP   = 10000;
     localparam int TEST3_NUM_BURST_LENGTHS    = 10;
     localparam int TEST3_TOTAL_REQUESTS       = TEST3_REQUESTS_PER_SWEEP * TEST3_NUM_BURST_LENGTHS;
@@ -48,9 +52,11 @@ module Test_Complete #(
     localparam int TEST6_NUM_LINES    = 100;
 
     localparam int TEST7_NUM_CYCLES   = 1000;
-    localparam int TEST8_NUM_CYCLES   = 1000;
+    // Line-stride replacement stress: scale with capacity so the stride
+    // still overflows the cache (=1000 at the 4KB baseline).
+    localparam int TEST8_NUM_CYCLES   = ((CACHE_BYTES / LINE_BYTES) * 1000) / 256;
     localparam int TEST9_NUM_CYCLES   = 1000;
-    localparam int TEST10_NUM_CYCLES  = 1000;
+    localparam int TEST10_NUM_CYCLES  = ((CACHE_BYTES / LINE_BYTES) * 1000) / 256;
 
     localparam bit TEST1_PRINT_CPU_REQS   = 1'b0;
     localparam bit TEST1_PRINT_CPU_RESPS  = 1'b0;

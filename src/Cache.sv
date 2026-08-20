@@ -247,7 +247,14 @@ module Cache #(
         .clk             (clk),
         .rst             (rst),
 
-        .lookup_set      (dec_set_id),
+        // PLRU is a lookahead: victim computed combinationally from
+        // lookup_set, registered, consumed the NEXT cycle. Feed it the S0
+        // index (same wire the arrays read with) so the registered victim
+        // corresponds to the request that reaches S1 when it is consumed.
+        // (Was dec_set_id - the S1 set - which delivered the PREVIOUS
+        // request's set's victim to the compare stage: policy-only bug,
+        // measured as the 16KB associativity-miss inversion.)
+        .lookup_set      (array_rindex),
         .replacement_way (replacement_way),
 
         .update_valid    (replacement_update_valid),
