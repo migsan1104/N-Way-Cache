@@ -81,3 +81,36 @@ already the correct 1R1W shell around each bank.
 4. Innovus: place as hard blocks (halo, pin access, power straps).
 5. Verification: unchanged harness — ./verify_all.sh 4/4 at the chosen
    CACHE_BYTES, run for both USE_SRAM_MACRO settings. Testbench untouched.
+
+## Corner inventory & derate derivation (2026-08-20)
+
+Full .lib inventory for sram_1rw1r_32_256_8_sky130 (nothing else exists
+in the PDK tree — no SS at 1.6V, no SS at 100C anywhere):
+
+| Corner | clk->dout access |
+|---|---|
+| FF_1p8V_25C | 0.535 ns |
+| SS_1p8V_25C | **0.654 ns** (the only slow lib) |
+| TT_1p7V_25C | 0.630 ns |
+| TT_1p8V_25C | 0.595 ns |
+| TT_1p9V_25C | 0.563 ns |
+| TT_1p8V_0C  | 0.455 ns |
+| TT_1p8V_100C | 7.834 ns — **BROKEN, do not use** (13x out of family,
+  tables load-independent; bad OpenRAM characterization) |
+
+Prebuilt sky130_sram_1kbyte/2kbyte variants: TT_1p8V_25C only (confirms
+earlier survey).
+
+Measured sensitivities from the TT family:
+- Voltage: +5.7%/-0.1V (0.563 -> 0.595 -> 0.630) => 1.8V->1.6V ~ +12%.
+- Temperature: 0C->25C = +31% (+1.2%/degC) — huge, but the only usable
+  temp data (100C lib is garbage). Linear to 100C ~ +90%.
+
+DECISION: keep signoff at ss_100C_1v60 for cells (preserves the whole
+campaign's baseline comparability); use macro SS_1p8V_25C with a blanket
+x2.0 derate on macro arcs (0.654 -> ~1.31 ns effective access,
+enveloping +12% V and +90% T with margin). Even so derated, the macro
+consumes ~1.3 ns of the 3.5 ns period — the wall stays in the
+surrounding logic, so the corner mismatch is documented pessimism, not a
+result-changer. PLE/physical-aware synthesis is orthogonal (models
+wires, not device PVT).
