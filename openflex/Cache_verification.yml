@@ -12,7 +12,7 @@ files:
   - ../src/FIFO_FWFT.sv
   - ../src/FIFO_NF.sv
   - ../src/Flag_Tag_Data_Array.sv
-  - /apps/cds/IC618/local/opdk/share/pdk/sky130A/libs.ref/sky130_sram_macros/verilog/sram_1rw1r_32_256_8_sky130.v
+  - ../extra_rtl/sram_1rw1r_32_256_8_sky130_sim.v
   - ../src/MSHR_Entry.sv
   - ../src/MSHR_File.sv
   - ../src/MSHR_Mux.sv
