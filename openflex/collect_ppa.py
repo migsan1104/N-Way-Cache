@@ -21,6 +21,7 @@ import sys
 ASSOCS = [1, 2, 4, 8, 16]
 
 I_CACHE_BYTES, I_ASSOC, I_FMAX, I_LUT, I_REG = 0, 1, 2, 3, 9
+I_LUTRAM, I_BRAM = 7, 19  # LUT-as-Memory used; Block RAM Tile used
 
 
 def read_csv_row(ppa_dir, assoc):
@@ -43,6 +44,8 @@ def read_csv_row(ppa_dir, assoc):
         "assoc": row_assoc,
         "fmax": float(r[I_FMAX]),
         "lut": int(r[I_LUT]),
+        "lutram": int(r[I_LUTRAM]),
+        "bram": int(r[I_BRAM]),
         "reg": int(r[I_REG]),
         "mtime": os.path.getmtime(path),
     }
@@ -104,15 +107,15 @@ def collect(ppa_dir):
 
 
 def markdown(rows):
-    head = ("| Associativity (ways) | Fmax (MHz) | LUTs (Used) | FFs/REGs (Used) "
-            "| Dynamic Power (W) | Static Power (W) | Total Power (W) |")
-    sep = "|---:|---:|---:|---:|---:|---:|---:|"
+    head = ("| Associativity (ways) | Fmax (MHz) | LUTs (Used) | LUTRAM (Used) | BRAM (Used) "
+            "| FFs/REGs (Used) | Dynamic Power (W) | Static Power (W) | Total Power (W) |")
+    sep = "|---:|---:|---:|---:|---:|---:|---:|---:|---:|"
     out = [head, sep]
     best = max(rows, key=lambda r: r["fmax"]) if rows else None
     for r in rows:
         f = f"**{r['fmax']:.1f}**" if r is best else f"{r['fmax']:.1f}"
         out.append(
-            f"| {r['assoc']} | {f} | {r['lut']:,} | {r['reg']:,} | "
+            f"| {r['assoc']} | {f} | {r['lut']:,} | {r['lutram']:,} | {r['bram']:,} | {r['reg']:,} | "
             f"{r.get('dynamic', float('nan')):.3f} | {r.get('static', float('nan')):.3f} | "
             f"{r.get('total', float('nan')):.3f} |")
     return "\n".join(out)
@@ -126,9 +129,11 @@ def make_png(rows, path, cache_kb):
     bg, fg, grid = "#0d1526", "#ffffff", "#2b3a52"
     hdr = "#16233b"
 
-    cols = ["Associativity\n(ways)", "Fmax\n(MHz)", "LUTs\n(Used)", "FFs/REGs\n(Used)",
+    cols = ["Associativity\n(ways)", "Fmax\n(MHz)", "LUTs\n(Used)", "LUTRAM\n(Used)",
+            "BRAM\n(Used)", "FFs/REGs\n(Used)",
             "Dynamic Power\n(W)", "Static Power\n(W)", "Total Power\n(W)"]
-    cells = [[f"{r['assoc']}", f"{r['fmax']:.1f}", f"{r['lut']:,}", f"{r['reg']:,}",
+    cells = [[f"{r['assoc']}", f"{r['fmax']:.1f}", f"{r['lut']:,}", f"{r['lutram']:,}",
+              f"{r['bram']:,}", f"{r['reg']:,}",
               f"{r.get('dynamic', 0):.3f}", f"{r.get('static', 0):.3f}",
               f"{r.get('total', 0):.3f}"] for r in rows]
 

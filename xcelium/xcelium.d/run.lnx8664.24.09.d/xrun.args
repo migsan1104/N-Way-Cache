@@ -11,9 +11,9 @@ filelist.f
 -top
 Test_Complete
 -defparam
-Test_Complete.CPU_REQ_VALID_PROBABILITY=0.8
+Test_Complete.CPU_REQ_VALID_PROBABILITY=1
 -defparam
-Test_Complete.CPU_RESP_READY_PROBABILITY=0.8
+Test_Complete.CPU_RESP_READY_PROBABILITY=1
 -defparam
 Test_Complete.TOGGLE_ASSOC_DEBUG_1=0
 -defparam

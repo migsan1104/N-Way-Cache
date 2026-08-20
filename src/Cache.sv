@@ -117,7 +117,6 @@ module Cache #(
 
   
     logic [ASSOC-1:0]             cpu_write_wen;
-    logic [ASSOC-1:0]             cpu_write_replace;
    
     logic [SET_INDEX_W-1:0]       cpu_write_set_id;
     logic [WORD_OFFSET_W-1:0]     cpu_write_word_id;
@@ -231,7 +230,6 @@ module Cache #(
                 .alloc_tag       (alloc_tag),
 
                 .cpu_word_wen    (cpu_write_wen[way_gen]),
-                .cpu_replace     (cpu_write_replace[way_gen]),
                 .cpu_waddr       (cpu_write_set_id),
                 .cpu_word_id     (cpu_write_word_id),
                 .cpu_wdata       (cpu_write_wdata)
@@ -315,7 +313,6 @@ module Cache #(
 
      
         .cpu_write_wen            (cpu_write_wen),
-        .cpu_write_replace        (cpu_write_replace),
         
         .cpu_write_set_id         (cpu_write_set_id),
         .cpu_write_word_id        (cpu_write_word_id),

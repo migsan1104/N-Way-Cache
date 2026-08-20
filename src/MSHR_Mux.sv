@@ -37,11 +37,20 @@ module MSHR_Mux #(
     end
 
     always_ff @(posedge clk) begin
+        if(rst) begin
+            refill_wen     <= 1'b0;
+            refill_set_id  <= '0;
+            refill_tag     <= '0;
+            refill_way     <= '0;
+            refill_line    <= '0;
+        end
+        else begin
         refill_wen <= found;
         refill_line      <= entry_fill_line[sel];
         refill_set_id    <= entry_set_id[sel];
         refill_tag       <= entry_tag[sel];
         refill_way       <= entry_way[sel];
+        end
         
     end
 

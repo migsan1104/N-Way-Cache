@@ -31,7 +31,6 @@ module Flag_Data_Array #(
     input  logic [TAG_WIDTH-1:0]       alloc_tag,
 
     input  logic                      cpu_word_wen,
-    input  logic                      cpu_replace,
     input  logic [SET_INDEX_W-1:0]    cpu_waddr,
     input  logic [WORD_OFFSET_W-1:0]  cpu_word_id,
     input  logic [DATA_WIDTH-1:0]     cpu_wdata
@@ -44,14 +43,10 @@ module Flag_Data_Array #(
     logic [TAG_WIDTH-1:0]      tag_mem        [0:DEPTH-1];
 
 
-    logic [WORDS_PER_LINE-1:0] cpu_word_mask;
     logic                      refill_current_match;
 
 
     always_comb begin
-        cpu_word_mask = '0;
-        cpu_word_mask[cpu_word_id] = 1'b1;
-
         refill_current_match =
             (tag_mem[refill_waddr] == refill_tag);
 
@@ -104,8 +99,7 @@ module Flag_Data_Array #(
 
                 allocated_mem[cpu_waddr] <= 1'b1;
                 dirty_mem[cpu_waddr]     <= 1'b1;
-                
-                
+                word_valid_mem[cpu_waddr][cpu_word_id] <= 1'b1;
 
             end
 
@@ -133,12 +127,7 @@ module Flag_Data_Array #(
                 rline[cpu_word_id*DATA_WIDTH +: DATA_WIDTH] <= cpu_wdata;
                 allocated <= 1'b1;
                 dirty     <= 1'b1;
-            end
-            if (cpu_replace) begin
-                    word_valid_mem[cpu_waddr] <= cpu_word_mask;
-            end
-            else begin
-                    word_valid_mem[cpu_waddr][cpu_word_id] <= 1'b1;
+                word_valid[cpu_word_id] <= 1'b1;
             end
         end
     end

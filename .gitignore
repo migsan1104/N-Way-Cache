@@ -54,3 +54,6 @@ default.svf
 openflex/.build_assoc*/
 openflex/timing_assoc*_stdout.log
 *.bak
+
+# Private optimization lab notebook (see optimizations.md header).
+optimizations.md

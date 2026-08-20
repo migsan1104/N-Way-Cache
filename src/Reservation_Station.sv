@@ -10,9 +10,9 @@
 // No oldest-age comparator.
 // Issue picks first valid entry that is not in_progress.
 //
-// Same-line READ misses can merge into cpu_ids / word_ids.
-// WRITE misses do not merge.
-// ============================================================
+// Same-line READ and Write misses can merge into cpu_ids / word_ids.
+// 
+
 
 module Reservation_Station #(
     parameter int LINE_ADDR_WIDTH = 16,
@@ -107,18 +107,15 @@ module Reservation_Station #(
     logic [COUNT_W-1:0] tail_idx_after_retire;
     logic almost_full;
 
-    logic same_line_found;
-    logic [RS_ID_WIDTH-1:0] same_line_idx;
+    logic [RS_DEPTH-1:0] same_line_match;
+    logic [RS_DEPTH-1:0] same_line_merge_ok;
+    logic [RS_DEPTH-1:0] merge_sel;
     logic can_merge;
-
-    logic retire_match_found;
-    logic [RS_ID_WIDTH-1:0] retire_match_idx;
 
     logic alloc_fire;
     logic issue_fire;
 
     logic [RS_ID_WIDTH-1:0] issue_update_idx;
-    logic [RS_ID_WIDTH-1:0] merge_update_idx;
 
     always_comb begin
         valid_count = '0;
@@ -134,40 +131,54 @@ module Reservation_Station #(
     assign alloc_fire = alloc_valid;
     assign issue_fire = issue_valid && issue_accept;
 
+    // Compare the incoming miss against every live entry. The valid gate
+    // matters: retiring shifts entries down without clearing line_addr, so a
+    // dead entry still holds a stale address. Matching it would merge a new
+    // miss into an entry that will never issue, losing the request.
     always_comb begin
-        same_line_found = 1'b0;
-        same_line_idx   = '0;
-
         for (int i = 0; i < RS_DEPTH; i++) begin
-            if (rs[i].valid &&
-                (rs[i].line_addr == alloc_line_addr) &&
-                !same_line_found) begin
-                same_line_found = 1'b1;
-                same_line_idx   = RS_ID_WIDTH'(i);
-            end
+            same_line_match[i] =
+                rs[i].valid && (rs[i].line_addr == alloc_line_addr);
         end
     end
 
+    // An entry can take another waiter only if it matches and its list is not
+    // full. At most one bit of this can ever be set: a duplicate entry is only
+    // created because the newest match was already full, and a full entry
+    // stays full until it retires - so among duplicates, only the newest can
+    // have room. That one-hot property is what lets the merge path skip the
+    // priority encoder entirely; the assertion below guards it.
     always_comb begin
-        retire_match_found = 1'b0;
-        retire_match_idx   = '0;
-
         for (int i = 0; i < RS_DEPTH; i++) begin
-            if (rs[i].valid &&
-                (rs[i].mshr_id == retire_mshr_id) &&
-                !retire_match_found) begin
-                retire_match_found = 1'b1;
-                retire_match_idx   = RS_ID_WIDTH'(i);
-            end
+            same_line_merge_ok[i] =
+                same_line_match[i] &&
+                (rs[i].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));
         end
     end
+
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            assert ($onehot0(same_line_merge_ok))
+                else $error("RS: same_line_merge_ok not one-hot (%b)",
+                            same_line_merge_ok);
+        end
+    end
+`endif
+
 
     assign dispatch_valid = retire_valid;
 
-    assign can_merge =
-        same_line_found &&
-        !(dispatch_valid && retire_match_found && (same_line_idx == retire_match_idx)) &&
-        (rs[same_line_idx].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));
+    // Retire shifts every entry down one slot, so the merge select shifts with
+    // it. If the mergeable entry is rs[0] and it is retiring this very cycle,
+    // the shift drops the bit and can_merge falls to 0 - the request simply
+    // allocates a fresh entry instead of merging into one that no longer
+    // exists. (The old index arithmetic wrapped 0-1 around to 15 here and
+    // scribbled on an unrelated entry.)
+    assign merge_sel = dispatch_valid ? (same_line_merge_ok >> 1)
+                                      : same_line_merge_ok;
+
+    assign can_merge = |merge_sel;
 
     always_comb begin
         issue_valid = 1'b0;
@@ -197,12 +208,12 @@ module Reservation_Station #(
     assign issue_victim_line  = rs[issue_rs_id].victim_line;
     assign issue_victim_word_valid = rs[issue_rs_id].victim_word_valid;
 
-    assign dispatch_cpu_id_count = rs[retire_match_idx].cpu_id_count;
+    assign dispatch_cpu_id_count = rs[0].cpu_id_count;
 
     always_comb begin
         for (int i = 0; i < MAX_WAITERS; i++) begin
-            dispatch_cpu_ids[i]  = rs[retire_match_idx].cpu_ids[i];
-            dispatch_word_ids[i] = rs[retire_match_idx].word_ids[i];
+            dispatch_cpu_ids[i]  = rs[0].cpu_ids[i];
+            dispatch_word_ids[i] = rs[0].word_ids[i];
         end
     end
 
@@ -213,9 +224,7 @@ module Reservation_Station #(
 
         if (dispatch_valid) begin
             for (int i = 0; i < RS_DEPTH-1; i++) begin
-                if (i >= retire_match_idx) begin
-                    rs_next[i] = rs_next[i+1];
-                end
+                    rs_next[i] = rs[i+1];    
             end
 
             rs_next[RS_DEPTH-1].valid        = 1'b0;
@@ -226,7 +235,7 @@ module Reservation_Station #(
         end
 
         issue_update_idx = issue_rs_id;
-        if (dispatch_valid && (retire_match_idx < issue_rs_id)) begin
+        if (dispatch_valid) begin
             issue_update_idx = issue_rs_id - 1'b1;
         end
 
@@ -235,17 +244,20 @@ module Reservation_Station #(
             rs_next[issue_update_idx].mshr_id     = issue_mshr_id;
         end
 
-        merge_update_idx = same_line_idx;
-        if (dispatch_valid && (retire_match_idx < same_line_idx)) begin
-            merge_update_idx = same_line_idx - 1'b1;
-        end
-
         if (alloc_fire) begin
             if (can_merge) begin
-                rs_next[merge_update_idx].cpu_ids [rs_next[merge_update_idx].cpu_id_count] = alloc_cpu_req_id;
-                rs_next[merge_update_idx].word_ids[rs_next[merge_update_idx].cpu_id_count] = alloc_word_id;
-                rs_next[merge_update_idx].cpu_id_count =
-                    rs_next[merge_update_idx].cpu_id_count + 1'b1;
+                // One-hot select, so each entry decides for itself - no index
+                // arithmetic and no chained dynamic indexing. rs_next already
+                // holds the post-retire state, so its own cpu_id_count is the
+                // right slot to fill.
+                for (int i = 0; i < RS_DEPTH; i++) begin
+                    if (merge_sel[i]) begin
+                        rs_next[i].cpu_ids [rs_next[i].cpu_id_count] = alloc_cpu_req_id;
+                        rs_next[i].word_ids[rs_next[i].cpu_id_count] = alloc_word_id;
+                        rs_next[i].cpu_id_count =
+                            rs_next[i].cpu_id_count + 1'b1;
+                    end
+                end
             end
             else  begin
                 rs_next[tail_idx_after_retire].valid        = 1'b1;

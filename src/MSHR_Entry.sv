@@ -178,7 +178,7 @@ module MSHR_Entry #(
                     wb_count_n     = '0;
                     issue_count_n  = '0;
                     recv_count_n   = '0;
-                    fill_line_n    = '0;
+                  
 
                     if (alloc_victim_dirty)
                         state_n = S_ISSUE_W;

@@ -50,6 +50,8 @@ module Response_Unit #(
     logic miss_fifo_empty;
     logic miss_fifo_rd_en;
     logic [RESP_WIDTH-1:0] miss_fifo_wr_data;
+    logic miss_valid_r;
+    logic [RESP_WIDTH-1:0] miss_fifo_wr_data_r;
     logic [RESP_WIDTH-1:0] miss_fifo_rd_data;
 
     logic choose_miss;
@@ -60,6 +62,16 @@ module Response_Unit #(
 
     assign hit_fifo_wr_data  = {1'b1, hit_id, hit_data};
     assign miss_fifo_wr_data = {1'b0, miss_id, miss_data};
+
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            miss_valid_r <= 1'b0;
+        end
+        else begin
+            miss_valid_r <= miss_valid;
+            miss_fifo_wr_data_r <= miss_fifo_wr_data;
+        end
+    end
 
     FIFO_FWFT #(
         .WIDTH(RESP_WIDTH),
@@ -85,8 +97,8 @@ module Response_Unit #(
         .rst     (rst),
 
 
-        .wr_en   (miss_valid),
-        .wr_data (miss_fifo_wr_data),
+        .wr_en   (miss_valid_r),
+        .wr_data (miss_fifo_wr_data_r),
 
         .empty   (miss_fifo_empty),
         .rd_en   (miss_fifo_rd_en),

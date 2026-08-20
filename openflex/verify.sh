@@ -5,14 +5,18 @@ set -o pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
 
+# OpenFLEX is installed in the user's local bin on this system. Add it here so
+# the script also works from terminals that do not preload ~/.local/bin.
+export PATH="$HOME/.local/bin:$PATH"
+
 QUIET=0
 if [[ "${1:-}" == "--quiet" ]]; then
     QUIET=1
     shift
 fi
 
-CPU_REQ_PROB="${1:-1.0}"
-CPU_RESP_PROB="${2:-1.0}"
+CPU_REQ_PROB="${1:-0.8}"
+CPU_RESP_PROB="${2:-$CPU_REQ_PROB}"
 
 if [[ -f /apps/reconfig/enable_pro ]]; then
     # shellcheck disable=SC1091

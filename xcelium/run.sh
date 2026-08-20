@@ -7,8 +7,8 @@ if [[ "${1:-}" == "--quiet" ]]; then
     shift
 fi
 
-CPU_REQ_PROB="${1:-1.0}"
-CPU_RESP_PROB="${2:-1.0}"
+CPU_REQ_PROB="${1:-0.8}"
+CPU_RESP_PROB="${2:-$CPU_REQ_PROB}"
 
 if ! command -v xrun >/dev/null 2>&1; then
     echo "ERROR: xrun was not found."

@@ -8,8 +8,8 @@ module Test_Complete #(
     parameter int ASSOC       = 0,
 
     // Forward/backpressure knobs. Values are probabilities from 0.0 to 1.0.
-    parameter real CPU_REQ_VALID_PROBABILITY  = 1.0,
-    parameter real CPU_RESP_READY_PROBABILITY = 1.0,
+    parameter real CPU_REQ_VALID_PROBABILITY  = 0.8,
+    parameter real CPU_RESP_READY_PROBABILITY = 0.8,
 
     // Per-associativity debug gates.
     // ASSOC=0 runs every associativity; ASSOC=1/2/4/8/16 runs only that one.
