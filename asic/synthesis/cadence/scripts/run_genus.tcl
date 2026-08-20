@@ -179,15 +179,7 @@ if {[catch {read_physical -lefs $LEF_FILES} msg]} {
 # RTL
 # ---------------------------------------------------------------------------
 note "Reading RTL as SystemVerilog"
-set HDL_DEFINES [list]
-if {$SRAM_MACRO} { lappend HDL_DEFINES SRAM_MACRO_BANKS }
-if {[llength $HDL_DEFINES]} {
-    note "read_hdl defines: $HDL_DEFINES"
-    set read_cmd [list read_hdl -sv -define $HDL_DEFINES]
-} else {
-    set read_cmd [list read_hdl -sv]
-}
-if {[catch {{*}$read_cmd $ABS_RTL_FILES} msg]} {
+if {[catch {read_hdl -sv $ABS_RTL_FILES} msg]} {
     fail "read_hdl failed: $msg"
 }
 
@@ -195,17 +187,27 @@ set ELAB_PARAMETERS [list \
     [list CACHE_BYTES $CACHE_BYTES] \
     [list ASSOC $ASSOC] \
 ]
+if {$SRAM_MACRO} {
+    lappend ELAB_PARAMETERS [list EN_SRAM_MACRO 1]
+}
 
 note "Elaborating $TOP with parameters: $ELAB_PARAMETERS"
 if {[catch {elaborate -parameters $ELAB_PARAMETERS $TOP} msg]} {
     fail "elaboration failed with CACHE_BYTES=$CACHE_BYTES ASSOC=$ASSOC: $msg"
 }
 
-set ELAB_TOP ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}
-if {[catch {current_design $ELAB_TOP} msg]} {
-    if {[catch {current_design $TOP} msg2]} {
-        fail "unable to set current design to $ELAB_TOP or $TOP: $msg ; $msg2"
-    }
+# The elaborated design name encodes every overridden parameter; try the
+# with-macro name first, then the plain one, then the raw top.
+set ELAB_CANDIDATES [list \
+    ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}_EN_SRAM_MACRO1 \
+    ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC} \
+    $TOP]
+set ELAB_SET 0
+foreach cand $ELAB_CANDIDATES {
+    if {![catch {current_design $cand}]} { set ELAB_SET 1; set ELAB_TOP $cand; break }
+}
+if {!$ELAB_SET} {
+    fail "unable to set current design to any of: $ELAB_CANDIDATES"
 }
 
 # ---------------------------------------------------------------------------

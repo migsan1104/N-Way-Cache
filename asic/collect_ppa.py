@@ -165,6 +165,21 @@ def collect(ppa_root, tool):
     return rows
 
 
+# Average hit read latency in CYCLES, measured by the verification suite
+# (Test_Complete FINAL REPORT, full-throughput 1.0/1.0 pressure, Questa and
+# Xcelium averaged, 2026-08-20). Latency in ns = cycles x achieved period;
+# the cycle count is capacity-independent (same pipeline at any CACHE_BYTES).
+AVG_HIT_CYCLES = {1: 4.23, 2: 4.19, 4: 4.15, 8: 4.14, 16: 4.14}
+
+
+def hit_latency_ns(row):
+    fmax = row.get("fmax")
+    cyc = AVG_HIT_CYCLES.get(row.get("assoc"))
+    if not fmax or cyc is None:
+        return None
+    return cyc * 1000.0 / fmax
+
+
 def fmt(v, spec="", dash="-"):
     if v is None:
         return dash
@@ -178,14 +193,15 @@ def markdown(tool, rows):
         return "\n".join(lines)
 
     lines += [
-        "| ASSOC | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | Cell area (um^2) | "
-        "Cells | Sequential | Macros | Total power (W) | Violating paths |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| ASSOC | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | Hit latency (ns) | "
+        "Cell area (um^2) | Cells | Sequential | Macros | Total power (W) | Violating paths |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
         lines.append(
             f"| {r['assoc']} | {fmt(r.get('period'), '.3f')} | {fmt(r.get('slack'), '.3f')} | "
-            f"{fmt(r.get('fmax'), '.1f')} | {fmt(r.get('area'), ',.0f')} | "
+            f"{fmt(r.get('fmax'), '.1f')} | {fmt(hit_latency_ns(r), '.1f')} | "
+            f"{fmt(r.get('area'), ',.0f')} | "
             f"{fmt(r.get('cells'), ',')} | {fmt(r.get('seq'), ',')} | {fmt(r.get('macros'), ',')} | "
             f"{fmt(r.get('total_power'), '.3f')} | {fmt(r.get('violating'), ',')} |")
     lines.append("")
@@ -215,10 +231,11 @@ def make_png(tool, rows, path, cache_kb):
     hdr, best_bg = "#16233b", "#1b2a45"
 
     cols = ["Associativity\n(ways)", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
-            "Cell Area\n(um^2)", "Cells", "Sequential\nCells",
+            "Hit Latency\n(ns)", "Cell Area\n(um^2)", "Cells", "Sequential\nCells",
             "Total Power\n(W)", "Violating\nPaths"]
     cells = [[f"{r['assoc']}", fmt(r.get("period"), ".3f"), fmt(r.get("slack"), ".3f"),
-              fmt(r.get("fmax"), ".1f"), fmt(r.get("area"), ",.0f"),
+              fmt(r.get("fmax"), ".1f"), fmt(hit_latency_ns(r), ".1f"),
+              fmt(r.get("area"), ",.0f"),
               fmt(r.get("cells"), ","), fmt(r.get("seq"), ","),
               fmt(r.get("total_power"), ".3f"), fmt(r.get("violating"), ",")]
              for r in rows]
@@ -239,7 +256,9 @@ def make_png(tool, rows, path, cache_kb):
     fig.text(0.5, 0.965,
              f"{TOOL_LABEL[tool]} Synthesis PPA Scaling by Associativity ({cache_kb} KB)",
              ha="center", va="top", color=fg, fontsize=23, fontweight="bold")
-    fig.text(0.035, 0.875, f"SKY130 HD  |  TT 1.80 V 25 C{target}",
+    fig.text(0.035, 0.875,
+             f"SKY130 HD  |  ss_100C_1v60 setup corner{target}"
+             "  |  hit latency = TB-measured cycles x achieved period",
              ha="left", va="top", color=fg, fontsize=17, fontweight="bold")
     fig.add_artist(plt.Line2D([0.035, 0.975], [0.828, 0.828], color=grid, lw=1.2))
 

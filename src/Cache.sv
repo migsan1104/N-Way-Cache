@@ -11,6 +11,7 @@
 module Cache #(
     parameter int CACHE_BYTES   = 4096,
     parameter int ASSOC         = 4,
+    parameter bit EN_SRAM_MACRO = 1'b0,
 
     localparam int ADDR_WIDTH    = 32,
     localparam int DATA_WIDTH    = 32,
@@ -207,7 +208,8 @@ module Cache #(
                 .DEPTH          (NUM_SETS),
                 .SET_INDEX_W    (SET_INDEX_W),
                 .WORDS_PER_LINE (WORDS_PER_LINE),
-                .WORD_OFFSET_W  (WORD_OFFSET_W)
+                .WORD_OFFSET_W  (WORD_OFFSET_W),
+                .EN_SRAM_MACRO  (EN_SRAM_MACRO)
             ) FLAG_TAG_DATA_ARRAY (
                 .clk             (clk),
                 .rst             (rst),

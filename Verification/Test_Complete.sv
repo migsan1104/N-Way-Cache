@@ -4,7 +4,8 @@ import Test_Complete_pkg::*;
 
 // Single testbench: runs associativity-major, one active DUT/RAM set at a time.
 module Test_Complete #(
-    parameter int CACHE_BYTES = 4096,
+    parameter int CACHE_BYTES = 16384,
+    parameter bit EN_SRAM_MACRO = 1'b1,
     parameter int ASSOC       = 0,
 
     // Forward/backpressure knobs. Values are probabilities from 0.0 to 1.0.
@@ -321,6 +322,7 @@ module Test_Complete #(
 
             Cache #(
                 .CACHE_BYTES (CACHE_BYTES),
+                .EN_SRAM_MACRO (EN_SRAM_MACRO),
                 .ASSOC       (THIS_ASSOC)
             ) DUT (
                 .clk            (clk),

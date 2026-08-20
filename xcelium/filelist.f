@@ -21,3 +21,6 @@
 ../extra_rtl/RAM_ID.sv
 ../Verification/Test_Complete_pkg.sv
 ../Verification/Test_Complete.sv
+
+// SRAM macro simulation model (verification only; ASIC binds the .lib)
+/apps/cds/IC618/local/opdk/share/pdk/sky130A/libs.ref/sky130_sram_macros/verilog/sram_1rw1r_32_256_8_sky130.v

@@ -50,7 +50,8 @@ module Flag_Tag_Data_Array #(
     parameter int SET_INDEX_W    = (DEPTH <= 1) ? 1 : $clog2(DEPTH),
     parameter int WORDS_PER_LINE = LINE_WIDTH / DATA_WIDTH,
     parameter int WORD_OFFSET_W  =
-        (WORDS_PER_LINE <= 1) ? 1 : $clog2(WORDS_PER_LINE)
+        (WORDS_PER_LINE <= 1) ? 1 : $clog2(WORDS_PER_LINE),
+    parameter bit EN_SRAM_MACRO  = 1'b0
 )(
     input  logic                      clk,
     input  logic                      rst,
@@ -167,18 +168,18 @@ module Flag_Tag_Data_Array #(
     // DEPTH 32-256; switch to "block" if CACHE_BYTES scales).
     logic [LINE_WIDTH-1:0] rline_raw;
 
-    // SRAM macro binding (ASIC flow only). The Genus flow passes
-    // -define SRAM_MACRO_BANKS; simulation and FPGA builds never define
-    // it, so they always elaborate the behavioral template below and
-    // their results are unchanged. The macro branch is taken only when
-    // the bank geometry matches the hard macro exactly (256 x 32, i.e.
-    // 16KB ASSOC=4); any other geometry falls back to behavioral - the
-    // flow fails the run if it expected macros and found none.
-`ifdef SRAM_MACRO_BANKS
-    localparam bit USE_SRAM_MACRO = (DEPTH == 256) && (DATA_WIDTH == 32);
-`else
-    localparam bit USE_SRAM_MACRO = 1'b0;
-`endif
+    // SRAM macro binding, gated by the EN_SRAM_MACRO parameter (a
+    // parameter, not a define, so every tool can drive it: Genus via
+    // elaborate -parameters, simulators via the testbench, FPGA never
+    // sets it). The macro branch is taken only when the geometry
+    // matches the hard macro exactly (256 x 32, i.e. 16KB ASSOC=4);
+    // any other geometry falls back to behavioral - the Genus flow
+    // fails the run if it expected macros and found none. The
+    // simulation model for the macro lives in the VERIFICATION file
+    // lists only (xcelium/filelist.f, Cache_verification.yml); timing
+    // and ASIC lists bind the real macro views instead.
+    localparam bit USE_SRAM_MACRO =
+        EN_SRAM_MACRO && (DEPTH == 256) && (DATA_WIDTH == 32);
 
     generate
         for (genvar gw = 0; gw < WORDS_PER_LINE; gw++) begin : g_bank
