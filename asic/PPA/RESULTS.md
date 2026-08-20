@@ -1,24 +1,10 @@
-### Cadence Genus
+# ASIC synthesis PPA results
 
-| ASSOC | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | Cell area (um^2) | Cells | Sequential | Macros | Total power (W) | Violating paths |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 2.000 | -1.381 | 295.7 | 2,287,635 | 282,515 | 46,585 | 0 | 1.212 | 43,864 |
-| 2 | 2.000 | -1.272 | 305.6 | 2,423,165 | 286,570 | 47,334 | 0 | 1.239 | 45,566 |
-| 4 | 2.000 | -1.276 | 305.3 | 2,361,137 | 288,242 | 48,342 | 0 | 1.270 | 46,629 |
-| 8 | 2.000 | -1.041 | 328.8 | 2,443,901 | 298,673 | 49,625 | 0 | 1.312 | 46,628 |
-| 16 | 2.000 | -1.255 | 307.2 | 2,709,735 | 336,337 | 52,874 | 0 | 1.447 | 49,380 |
+The project's capacity target moved to 16KB (2026-08-20); the previous 4KB
+tables were retired with it (they survive in git history). The 16KB five-way
+Genus + DC sweep and the first SRAM-macro run are in flight; this file is
+regenerated from their reports by:
 
-_No configuration closes timing at its target; worst is ASSOC=1 at -1.381 ns._
-
-### Synopsys Design Compiler
-
-| ASSOC | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | Cell area (um^2) | Cells | Sequential | Macros | Total power (W) | Violating paths |
-|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 2.000 | -1.590 | 278.6 | 2,129,487 | 249,795 | 50,078 | 0 | 1.043 | 44,851 |
-| 2 | 2.000 | -1.360 | 297.6 | 2,094,878 | 247,704 | 50,849 | 0 | 1.059 | 45,684 |
-| 4 | 2.000 | -1.270 | 305.8 | 2,248,449 | 262,572 | 51,907 | 0 | 1.086 | 46,360 |
-| 8 | 2.000 | -1.200 | 312.5 | 2,222,607 | 263,482 | 53,048 | 0 | 1.113 | 47,577 |
-| 16 | 2.000 | -1.240 | 308.6 | 2,390,762 | 290,586 | 55,038 | 0 | 1.158 | 48,908 |
-
-_No configuration closes timing at its target; worst is ASSOC=1 at -1.590 ns._
-
+```bash
+cd asic && ./collect_ppa.py --markdown PPA/RESULTS.md --png ..
+```

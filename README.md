@@ -182,19 +182,21 @@ The `cacheN.csv` file will store the timing and utilization table for that assoc
 
 This structure will make it easy to compare associativity choices without overwriting results from other configurations. For example, `assoc_4` and `assoc_8` can each keep their own timing reports, utilization reports, route reports, and power history.
 
-Current results (4 KB cache, XCU250-FIGD2104-2L-E, out-of-context, all five measured on the same RTL revision):
+Current results (16 KB cache, XCU250-FIGD2104-2L-E, out-of-context, all five measured on the same
+RTL revision, 2026-08-20):
 
-| Associativity (ways) | Fmax (MHz) | LUTs (Used) | FFs/REGs (Used) | Dynamic Power (W) | Static Power (W) | Total Power (W) |
-|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 221.2 | 55,817 | 42,237 | 3.769 | 3.017 | 6.786 |
-| 2 | 264.9 | 55,395 | 42,636 | 3.756 | 3.016 | 6.772 |
-| 4 | **267.5** | **55,057** | 43,023 | 3.323 | 3.008 | **6.331** |
-| 8 | 232.0 | 56,082 | 43,541 | 4.032 | 3.022 | 7.054 |
-| 16 | 232.2 | 57,312 | 44,805 | 3.626 | 3.014 | 6.640 |
+| Associativity (ways) | Fmax (MHz) | LUTs (Used) | LUTRAM (Used) | FFs/REGs (Used) | Dynamic Power (W) | Static Power (W) | Total Power (W) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | **326.6** | 26,349 | 3,448 | 10,826 | 1.618 | 2.975 | 4.592 |
+| 2 | 301.0 | 30,329 | 3,448 | 11,691 | 1.884 | 2.980 | 4.863 |
+| 4 | 282.3 | 26,331 | 3,514 | 12,609 | 1.514 | 2.973 | 4.486 |
+| 8 | 269.8 | **26,203** | 3,578 | 13,955 | 1.477 | 2.972 | **4.449** |
+| 16 | 299.9 | 27,679 | 3,580 | 16,466 | **1.475** | 2.972 | 4.449 |
 
-Four-way leads on frequency, LUT count, and total power simultaneously. Utilization is nearly flat
-across the sweep (55.1k-57.3k LUTs, a 4% spread), so at 4 KB associativity costs very little area on
-this device and the choice is driven by Fmax and power rather than by resource count.
+Fmax is U-shaped in associativity at this capacity: direct-mapped leads outright, and sixteen-way
+beats four- and eight-way because halving the per-way set depth shortens the flag-write decode that
+dominates the worst paths (the one cone the data-bank SRAM macros will not absorb). Utilization is
+nearly flat (26.2k-30.3k LUTs), so the choice at 16 KB is driven by frequency and power.
 
 These numbers are regenerated with `openflex/collect_ppa.py`, which reads each `cache<N>.csv` plus
 the newest post-route power report, cross-checks every Fmax against the `WNS` in that same
@@ -203,7 +205,7 @@ the folder it landed in.
 
 Current PPA visualization:
 
-![FPGA cache PPA scaling results](FPGA_Cache_PPA_Scaling_4KB_Updated.png)
+![FPGA cache PPA scaling results](FPGA_Cache_PPA_Scaling_16KB.png)
 
 Multiple cache configurations will be evaluated, including different associativities, cache sizes, and architectural optimizations. These measurements will guide architectural optimization and allow quantitative comparison of design tradeoffs.
 
@@ -243,41 +245,14 @@ the FPGA sweep. From `asic/`:
 
 Results land in `asic/PPA/<genus|dc>/assoc_N/`.
 
-Current results (4 KB cache, SKY130 HD, TT 1.80 V 25 C, 2.000 ns target):
+Current status (16 KB cache, SKY130 HD, ss_100C_1v60, 3.500 ns target, physically-aware Genus +
+DC): the full five-associativity sweep at 16 KB is being re-measured on the current RTL (the
+project's capacity target moved from 4 KB to 16 KB with the SRAM-macro work — see `asic/MACROS.md`).
+Alongside the standard-cell sweep, the 16 KB ASSOC=4 configuration synthesizes with 16
+`sram_1rw1r_32_256_8` hard macros (`ASIC_SRAM_MACRO=1`, macro lib SS_1p8V_25C with a x2.0 derived
+timing derate).
 
-**Cadence Genus**
-
-| Associativity (ways) | Fmax (MHz) | WNS (ns) | Cell Area (um^2) | Cells | Sequential Cells | Total Power (W) | Violating Paths |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 295.7 | -1.381 | **2,287,635** | **282,515** | **46,585** | **1.212** | **43,864** |
-| 2 | 305.6 | -1.272 | 2,423,165 | 286,570 | 47,334 | 1.239 | 45,566 |
-| 4 | 305.3 | -1.276 | 2,361,137 | 288,242 | 48,342 | 1.270 | 46,629 |
-| 8 | **328.8** | **-1.041** | 2,443,901 | 298,673 | 49,625 | 1.312 | 46,628 |
-| 16 | 307.2 | -1.255 | 2,709,735 | 336,337 | 52,874 | 1.447 | 49,380 |
-
-**Synopsys Design Compiler**
-
-| Associativity (ways) | Fmax (MHz) | WNS (ns) | Cell Area (um^2) | Cells | Sequential Cells | Total Power (W) | Violating Paths |
-|---:|---:|---:|---:|---:|---:|---:|---:|
-| 1 | 278.6 | -1.590 | 2,129,487 | 249,795 | **50,078** | **1.043** | **44,851** |
-| 2 | 297.6 | -1.360 | **2,094,878** | **247,704** | 50,849 | 1.059 | 45,684 |
-| 4 | 305.8 | -1.270 | 2,248,449 | 262,572 | 51,907 | 1.086 | 46,360 |
-| 8 | **312.5** | **-1.200** | 2,222,607 | 263,482 | 53,048 | 1.113 | 47,577 |
-| 16 | 308.6 | -1.240 | 2,390,762 | 290,586 | 55,038 | 1.158 | 48,908 |
-
-No configuration closes timing at the 2.000 ns target, so the Fmax column is what each critical path
-would support rather than a met constraint. Both tools independently rank eight-way fastest
-(328.8 MHz on Genus, 312.5 MHz on DC), which disagrees with the FPGA sweep, where four-way led.
-The disagreement is informative rather than contradictory: LUT-based logic absorbs the wide way
-comparison differently than standard cells do, so the FPGA result should not be assumed to carry
-into the ASIC flow.
-
-Unlike the FPGA sweep, where utilization was nearly flat across associativity, ASIC area and power
-scale monotonically with way count. On Genus, moving from one way to eight costs 6.8% cell area and
-8.3% power to buy 11.2% frequency; sixteen ways costs 18.4% area over one way and gives back
-frequency. That makes eight-way the cost-effective stopping point on both tools.
-
-These tables are regenerated with `asic/collect_ppa.py`, which parses each tool's QoR, area, and
+The tables are regenerated with `asic/collect_ppa.py`, which parses each tool's QoR, area, and
 power reports into a common column set, writes `asic/PPA/RESULTS.md`, and with `--png` renders the
 charts below:
 
@@ -287,9 +262,9 @@ charts below:
 
 Current synthesis PPA visualization:
 
-![Cadence Genus synthesis PPA scaling](ASIC_Genus_Synthesis_PPA_4KB.png)
+![Cadence Genus synthesis PPA scaling](ASIC_Genus_Synthesis_PPA_16KB.png)
 
-![Synopsys Design Compiler synthesis PPA scaling](ASIC_DC_Synthesis_PPA_4KB.png)
+![Synopsys Design Compiler synthesis PPA scaling](ASIC_DC_Synthesis_PPA_16KB.png)
 
 The ASIC implementation phase will connect the architectural design decisions made earlier in the project to their physical consequences in timing, power, area, and layout complexity.
 

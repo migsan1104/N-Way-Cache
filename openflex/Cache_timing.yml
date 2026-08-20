@@ -25,5 +25,5 @@ files:
   - ../src/Response_Unit.sv
 
 parameters:
-  CACHE_BYTES: [4096]
+  CACHE_BYTES: [16384]
   ASSOC: [8]
