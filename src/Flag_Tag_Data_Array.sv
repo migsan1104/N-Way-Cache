@@ -167,11 +167,21 @@ module Flag_Tag_Data_Array #(
     // DEPTH 32-256; switch to "block" if CACHE_BYTES scales).
     logic [LINE_WIDTH-1:0] rline_raw;
 
+    // SRAM macro binding (ASIC flow only). The Genus flow passes
+    // -define SRAM_MACRO_BANKS; simulation and FPGA builds never define
+    // it, so they always elaborate the behavioral template below and
+    // their results are unchanged. The macro branch is taken only when
+    // the bank geometry matches the hard macro exactly (256 x 32, i.e.
+    // 16KB ASSOC=4); any other geometry falls back to behavioral - the
+    // flow fails the run if it expected macros and found none.
+`ifdef SRAM_MACRO_BANKS
+    localparam bit USE_SRAM_MACRO = (DEPTH == 256) && (DATA_WIDTH == 32);
+`else
+    localparam bit USE_SRAM_MACRO = 1'b0;
+`endif
+
     generate
         for (genvar gw = 0; gw < WORDS_PER_LINE; gw++) begin : g_bank
-
-            (* ram_style = "distributed" *)
-            logic [DATA_WIDTH-1:0] bank [0:DEPTH-1];
 
             logic                   cpu_owns_c;
             logic                   bank_wen_c;
@@ -187,12 +197,38 @@ module Flag_Tag_Data_Array #(
                 cpu_owns_c ? cpu_wdata
                            : refill_line_r[gw*DATA_WIDTH +: DATA_WIDTH];
 
-            always_ff @(posedge clk) begin
-                if (bank_wen_c) begin
-                    bank[bank_waddr_c] <= bank_wdata_c;
-                end
+            if (USE_SRAM_MACRO) begin : g_sram
+                // OpenRAM 1RW+1R hard macro: port 0 write-only (csb/web
+                // active low, full word mask), port 1 the every-cycle
+                // sync read. Same read-during-write story as the
+                // behavioral RAM: a colliding word is word_valid=0 to
+                // its reader, so an undefined collision value is never
+                // consumed.
+                sram_1rw1r_32_256_8_sky130 u_sram (
+                    .clk0   (clk),
+                    .csb0   (~bank_wen_c),
+                    .web0   (~bank_wen_c),
+                    .wmask0 (4'hF),
+                    .addr0  (bank_waddr_c),
+                    .din0   (bank_wdata_c),
+                    .dout0  (),
+                    .clk1   (clk),
+                    .csb1   (1'b0),
+                    .addr1  (raddr),
+                    .dout1  (rline_raw[gw*DATA_WIDTH +: DATA_WIDTH])
+                );
+            end
+            else begin : g_flops
+                (* ram_style = "distributed" *)
+                logic [DATA_WIDTH-1:0] bank [0:DEPTH-1];
 
-                rline_raw[gw*DATA_WIDTH +: DATA_WIDTH] <= bank[raddr];
+                always_ff @(posedge clk) begin
+                    if (bank_wen_c) begin
+                        bank[bank_waddr_c] <= bank_wdata_c;
+                    end
+
+                    rline_raw[gw*DATA_WIDTH +: DATA_WIDTH] <= bank[raddr];
+                end
             end
 
         end

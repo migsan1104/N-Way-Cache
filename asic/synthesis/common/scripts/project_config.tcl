@@ -6,7 +6,7 @@
 # a sweep can be run without editing this file:
 #
 #   ASIC_ASSOC              associativity              (default 8)
-#   ASIC_CACHE_BYTES        cache size in bytes        (default 4096)
+#   ASIC_CACHE_BYTES        cache size in bytes        (default 16384)
 #   ASIC_CLOCK_PERIOD_NS    reported clock target      (default 3.500)
 #   ASIC_RUN_STAMP          run directory stamp        (default: generated)
 #   ASIC_STOP_AFTER_SETUP   1 = stop before synthesis   (default 0)
@@ -33,7 +33,7 @@ proc config_env {name default} {
 
 set TOP Cache
 
-set CACHE_BYTES [config_env ASIC_CACHE_BYTES 4096]
+set CACHE_BYTES [config_env ASIC_CACHE_BYTES 16384]
 set ASSOC [config_env ASIC_ASSOC 8]
 
 if {![string is integer -strict $ASSOC] || $ASSOC < 1} {
@@ -97,6 +97,23 @@ set CELL_LEF [config_env ASIC_CELL_LEF \
     [file join $STDCELL_ROOT lef sky130_fd_sc_hd.lef]]
 
 # ---------------------------------------------------------------------------
+# Optional SRAM hard macro for the data banks (ASIC_SRAM_MACRO=1).
+# Corner decision recorded in asic/MACROS.md (2026-08-20): the macro's only
+# slow lib is SS_1p8V_25C; signoff cells stay at ss_100C_1v60 and the V/T gap
+# is enveloped by a x2.0 late derate on the macro instances (data-derived
+# from the macro's TT sensitivity family). The TT_1p8V_100C lib is BROKEN
+# (7.8 ns garbage) - never link it.
+set SRAM_MACRO [config_env ASIC_SRAM_MACRO 0]
+set SRAM_MACRO_ROOT [config_env ASIC_SRAM_MACRO_ROOT \
+    /apps/cds/IC618/local/opdk/share/pdk/sky130A/libs.ref/sky130_sram_macros]
+set SRAM_MACRO_CELL sram_1rw1r_32_256_8_sky130
+set SRAM_MACRO_LIB [config_env ASIC_SRAM_MACRO_LIB \
+    [file join $SRAM_MACRO_ROOT lib ${SRAM_MACRO_CELL}_SS_1p8V_25C.lib]]
+set SRAM_MACRO_LEF [config_env ASIC_SRAM_MACRO_LEF \
+    [file join $SRAM_MACRO_ROOT lef ${SRAM_MACRO_CELL}.lef]]
+set SRAM_MACRO_DERATE [config_env ASIC_SRAM_MACRO_DERATE 2.0]
+
+# ---------------------------------------------------------------------------
 # Floorplan (drives physical-layout estimation, not a real floorplan)
 # ---------------------------------------------------------------------------
 set FP_SITE [config_env ASIC_FP_SITE unithd]
@@ -138,5 +155,6 @@ set WORK_DIR [file join $OUT_DIR work]
 # Basename shared by every artifact a run produces, so netlists from different
 # configurations can never be confused with one another.
 set RUN_TAG ${TOP}_${CACHE_BYTES}B_assoc${ASSOC}
+if {$SRAM_MACRO} { set RUN_TAG ${RUN_TAG}_sram }
 
 set STOP_AFTER_SETUP [config_env ASIC_STOP_AFTER_SETUP 0]
