@@ -11,7 +11,11 @@
 // Issue picks first valid entry that is not in_progress.
 //
 // Same-line READ and Write misses can merge into cpu_ids / word_ids.
-// 
+//
+// Victim data (dirty/tag/word_valid/line) does NOT shift: it lives in
+// a static circular side-buffer (see "Victim side-buffer" below), and
+// slot ownership is implied by queue position.
+//
 
 
 module Reservation_Station #(
@@ -90,11 +94,6 @@ module Reservation_Station #(
         logic [DATA_WIDTH-1:0]      wdata;
         logic [WORD_OFFSET_W-1:0]   word_id;
 
-        logic                       victim_dirty;
-        logic [TAG_WIDTH-1:0]       victim_tag;
-        logic [LINE_WIDTH-1:0]      victim_line;
-        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
-
         logic [WAITER_COUNT_W-1:0]  cpu_id_count;
         logic [CPU_ID_WIDTH-1:0]    cpu_ids  [MAX_WAITERS];
         logic [WORD_OFFSET_W-1:0]   word_ids [MAX_WAITERS];
@@ -102,6 +101,21 @@ module Reservation_Station #(
 
     rs_entry_t rs [RS_DEPTH];
     rs_entry_t rs_next [RS_DEPTH];
+
+    // ---- Victim side-buffer (Entry 8) ---------------------------------
+    // Victim data is write-once at alloc, read-once at issue, so it lives
+    // in a STATIC circular buffer instead of shifting with the queue. The
+    // RS's hard-coded FIFO discipline (append at tail, retire always rs[0]
+    // via the shift) makes slot ownership pure arithmetic: rs[i]'s slot is
+    // vbuf_head_r + i. head advances on retire (that IS the free), tail on
+    // new-entry alloc; merges create no entry and consume no slot. The
+    // natural pointer wrap requires RS_DEPTH be a power of two (asserted).
+    localparam int VBUF_W = 1 + TAG_WIDTH + (LINE_WIDTH/DATA_WIDTH) + LINE_WIDTH;
+
+    (* ram_style = "distributed" *)
+    logic [VBUF_W-1:0] vbuf [0:RS_DEPTH-1];
+
+    logic [RS_ID_WIDTH-1:0] vbuf_head_r, vbuf_tail_r;
 
     logic [COUNT_W-1:0] valid_count;
     logic [COUNT_W-1:0] tail_idx_after_retire;
@@ -203,10 +217,9 @@ module Reservation_Station #(
     assign issue_wdata        = rs[issue_rs_id].wdata;
     assign issue_word_id      = rs[issue_rs_id].word_id;
 
-    assign issue_victim_dirty = rs[issue_rs_id].victim_dirty;
-    assign issue_victim_tag   = rs[issue_rs_id].victim_tag;
-    assign issue_victim_line  = rs[issue_rs_id].victim_line;
-    assign issue_victim_word_valid = rs[issue_rs_id].victim_word_valid;
+    assign {issue_victim_dirty, issue_victim_tag,
+            issue_victim_word_valid, issue_victim_line} =
+        vbuf[RS_ID_WIDTH'(vbuf_head_r + issue_rs_id)];
 
     assign dispatch_cpu_id_count = rs[0].cpu_id_count;
 
@@ -271,12 +284,6 @@ module Reservation_Station #(
                 rs_next[tail_idx_after_retire].wdata        = alloc_wdata;
                 rs_next[tail_idx_after_retire].word_id      = alloc_word_id;
 
-                rs_next[tail_idx_after_retire].victim_dirty = alloc_victim_dirty;
-                rs_next[tail_idx_after_retire].victim_tag   = alloc_victim_tag;
-                rs_next[tail_idx_after_retire].victim_line  = alloc_victim_line;
-                rs_next[tail_idx_after_retire].victim_word_valid =
-                    alloc_victim_word_valid;
-
                 rs_next[tail_idx_after_retire].cpu_id_count = WAITER_COUNT_W'(1);
                 rs_next[tail_idx_after_retire].cpu_ids[0]   = alloc_cpu_req_id;
                 rs_next[tail_idx_after_retire].word_ids[0]  = alloc_word_id;
@@ -298,5 +305,46 @@ module Reservation_Station #(
             end
         end
     end
+
+    // One write port, no reset, no other drivers: LUTRAM-inferable.
+    always_ff @(posedge clk) begin
+        if (alloc_fire && !can_merge) begin
+            vbuf[vbuf_tail_r] <= {alloc_victim_dirty, alloc_victim_tag,
+                                  alloc_victim_word_valid, alloc_victim_line};
+        end
+    end
+
+    always_ff @(posedge clk or posedge rst) begin
+        if (rst) begin
+            vbuf_head_r <= '0;
+            vbuf_tail_r <= '0;
+        end
+        else begin
+            if (dispatch_valid) begin
+                vbuf_head_r <= vbuf_head_r + 1'b1;
+            end
+            if (alloc_fire && !can_merge) begin
+                vbuf_tail_r <= vbuf_tail_r + 1'b1;
+            end
+        end
+    end
+
+`ifndef SYNTHESIS
+    initial begin
+        assert (RS_DEPTH == (1 << RS_ID_WIDTH))
+            else $fatal(1, "RS: RS_DEPTH must be a power of two (vbuf wrap)");
+    end
+
+    // Slot arithmetic sanity: pointer occupancy tracks valid_count mod
+    // RS_DEPTH (full and empty both read 0 - never disambiguated here).
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            assert (RS_ID_WIDTH'(vbuf_tail_r - vbuf_head_r) ==
+                    RS_ID_WIDTH'(valid_count))
+                else $error("RS: vbuf desync (head %0d tail %0d count %0d)",
+                            vbuf_head_r, vbuf_tail_r, valid_count);
+        end
+    end
+`endif
 
 endmodule

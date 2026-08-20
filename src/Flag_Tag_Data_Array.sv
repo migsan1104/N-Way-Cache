@@ -138,16 +138,22 @@ module Flag_Tag_Data_Array #(
         end
     end
 
+    // line/idx are pure capture registers - only pending decides whether
+    // anything drains - so they load on RAW refill_wen (shallow MSHR cone),
+    // keeping the S3 compare cone (alloc_wen inside refill_guard_ok_c) off
+    // their wide clock enable. The guard survives only in pending's D.
+    // Coupling: a failed-guard refill must ZERO pending, else stale pending
+    // bits would drain the newly captured line at the new index. Any
+    // abandoned words stay word_valid=0 and re-fetch on a later miss.
     always_ff @(posedge clk) begin
         if (rst) begin
             refill_bank_pending_r <= '0;
         end
-        else if (refill_guard_ok_c) begin
-            // A new refill loads over whatever was pending. Any
-            // abandoned words stay invalid and re-fetch later.
+        else if (refill_wen) begin
             refill_set_idx_r      <= refill_waddr;
-            refill_bank_pending_r <= ~refill_words_valid_c;
             refill_line_r         <= refill_line;
+            refill_bank_pending_r <=
+                refill_guard_ok_c ? ~refill_words_valid_c : '0;
         end
         else begin
             refill_bank_pending_r <= refill_pending_next_c;
