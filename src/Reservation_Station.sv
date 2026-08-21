@@ -114,6 +114,17 @@ module Reservation_Station #(
         logic [DATA_WIDTH-1:0]      wdata;
         logic [WORD_OFFSET_W-1:0]   word_id;
 
+        // Entry 19a: the victim's dirty bit lives IN the entry, not in
+        // the vbuf meta RAM. The MSHR FSM branches on dirty at the issue
+        // edge (S_ISSUE_W vs S_ISSUE_R), and Entry 18's measurement put
+        // the meta RAM read on that state path (A4 paths #3-9, -1.53..
+        // -1.58: grant -> slot mux -> RAMD32 -> state_reg/D). One bit in
+        // the struct rides the same AND-OR issue mux as line_addr/way -
+        // a delivery path the census shows is cheap. Same source, same
+        // write condition, same lifetime as the meta bit it replaces:
+        // identical value every cycle, bit-identical by construction.
+        logic                       victim_dirty;
+
         logic [WAITER_COUNT_W-1:0]  cpu_id_count;
         logic [CPU_ID_WIDTH-1:0]    cpu_ids  [MAX_WAITERS];
         logic [WORD_OFFSET_W-1:0]   word_ids [MAX_WAITERS];
@@ -135,7 +146,9 @@ module Reservation_Station #(
     // (dirty/tag/word_valid, read once at issue) and per-word DATA banks
     // (read one word per writeback beat through wb_*). The line data
     // itself never crosses to the MSHR entries any more.
-    localparam int VBUF_META_W = 1 + TAG_WIDTH + WORDS_PER_LINE;
+    // (Entry 19a moved the dirty bit into the rs entry itself - the FSM
+    // branches on it at the issue edge, so it must not wait on this RAM.)
+    localparam int VBUF_META_W = TAG_WIDTH + WORDS_PER_LINE;
 
     logic [RS_ID_WIDTH-1:0] vbuf_head_r, vbuf_tail_r;
 
@@ -396,19 +409,21 @@ module Reservation_Station #(
     end
 
     always_comb begin
-        issue_line_addr = '0;
-        issue_way       = '0;
-        issue_write     = 1'b0;
-        issue_wdata     = '0;
-        issue_word_id   = '0;
+        issue_line_addr    = '0;
+        issue_way          = '0;
+        issue_write        = 1'b0;
+        issue_wdata        = '0;
+        issue_word_id      = '0;
+        issue_victim_dirty = 1'b0;
 
         for (int i = 0; i < RS_DEPTH; i++) begin
             if (issue_grant_c[i]) begin
-                issue_line_addr |= rs[i].line_addr;
-                issue_way       |= rs[i].way;
-                issue_write     |= rs[i].write;
-                issue_wdata     |= rs[i].wdata;
-                issue_word_id   |= rs[i].word_id;
+                issue_line_addr    |= rs[i].line_addr;
+                issue_way          |= rs[i].way;
+                issue_write        |= rs[i].write;
+                issue_wdata        |= rs[i].wdata;
+                issue_word_id      |= rs[i].word_id;
+                issue_victim_dirty |= rs[i].victim_dirty;   // Entry 19a
             end
         end
     end
@@ -504,6 +519,10 @@ module Reservation_Station #(
                 rs_next[tail_idx_after_retire].cpu_id_count = WAITER_COUNT_W'(1);
                 rs_next[tail_idx_after_retire].cpu_ids[0]   = alloc_cpu_req_id;
                 rs_next[tail_idx_after_retire].word_ids[0]  = alloc_word_id;
+
+                // Entry 19a: same write condition as the vbuf (non-merge
+                // alloc only - a merge never touches victim state).
+                rs_next[tail_idx_after_retire].victim_dirty = alloc_victim_dirty;
             end
         end
     end
@@ -574,12 +593,11 @@ module Reservation_Station #(
     always_ff @(posedge clk) begin
         if (alloc_fire && !can_merge) begin
             vbuf_meta[vbuf_tail_r] <=
-                {alloc_victim_dirty, alloc_victim_tag,
-                 alloc_victim_word_valid};
+                {alloc_victim_tag, alloc_victim_word_valid};
         end
     end
 
-    assign {issue_victim_dirty, issue_victim_tag,
+    assign {issue_victim_tag,
             issue_victim_word_valid} = vbuf_meta[vbuf_issue_addr_c];
 
     // Line data: one bank per word (the FTDA discipline), each the
