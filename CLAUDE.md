@@ -140,7 +140,7 @@ by design (a larger coherence/memory hierarchy owns that in the target RISC-V sy
 
 Three stages, no mid-pipeline stalls. Backpressure exists only at `cpu_req_ready`, which is
 `hit_resp_ready && mshr_alloc_ready` — the hit-FIFO not-full AND the reservation-station not
-almost-full. The RS almost-full margin (`MSHR_AF=3` of `RS_DEPTH=16`) is what absorbs the requests
+almost-full. The RS almost-full margin (`MSHR_AF=3` of `RS_DEPTH=8`, paired to `MSHR_COUNT=4`) is what absorbs the requests
 already in flight in the pipe when the brakes go on.
 
 - **S0 `Address_Decode`** — splits tag/set/word combinationally, drives `array_rindex` into the
@@ -167,7 +167,7 @@ different tag in the meantime. Read ports carry same-cycle bypasses for alloc an
 
 ### Miss path
 
-`Reservation_Station` (16 entries, `rs[0]` oldest, shift-down on retire) → `MSHR_File`
+`Reservation_Station` (8 entries, `rs[0]` oldest, shift-down on retire) → `MSHR_File`
 (4 `MSHR_Entry` FSMs) → `MSHR_Request_Arbiter` → single memory port.
 
 - **RS** merges misses to the same line into one entry holding up to `MAX_WAITERS=4` `(cpu_id, word_id)`

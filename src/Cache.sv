@@ -400,7 +400,15 @@ module Cache #(
         .LINE_WIDTH       (LINE_WIDTH),
         .CPU_ID_WIDTH     (CPU_ID_WIDTH),
         .MSHR_ID_WIDTH    (MSHR_ID_WIDTH),
-        .MISSQ_DEPTH      (16),
+        // RS depth 8 is PAIRED to MSHR_COUNT=4 (adopted 2026-08-21):
+        // measured occupancy ceiling is 8 at any depth, so 16 paid CAM/
+        // vbuf/fanout in the WNS-owning cone for slots never used. At
+        // depth 8 the almost-full brake engages routinely, so every
+        // regression now exercises the cpu_req_fire backpressure path.
+        // AF=3 keeps one spare slot (pipe carries 2 after ready falls;
+        // measured high-water 7/8). Revisit if MSHR_COUNT scales
+        // (plausible rule: MISSQ_DEPTH = 2 x MSHR_COUNT).
+        .MISSQ_DEPTH      (8),
         .MSHR_AF          (3),
         .MAX_WAITERS      (WORDS_PER_LINE)
     ) MSHR_FILE (
