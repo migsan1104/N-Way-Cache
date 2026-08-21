@@ -92,13 +92,34 @@ module MSHR_File #(
 
     rs_issue_entry_t rs_issue_entry;
 
-    // Entry 15: victim data arrives on a per-entry vbuf copy, one read
-    // port per MSHR entry - the copies are identical, the split is
-    // physical (each read lands beside its consumer).
-    logic                       rs_issue_victim_dirty [MSHR_COUNT];
-    logic [TAG_WIDTH-1:0]       rs_issue_victim_tag   [MSHR_COUNT];
-    logic [LINE_WIDTH-1:0]      rs_issue_victim_line  [MSHR_COUNT];
-    logic [LINE_WIDTH/DATA_WIDTH-1:0] rs_issue_victim_word_valid [MSHR_COUNT];
+    // Entry 18: at issue the RS hands over only victim METADATA plus the
+    // vbuf slot the victim line lives in. The line itself stays in the
+    // RS and is read back one word per granted writeback beat through
+    // the wb_* port below. (This replaced Entry 15/17's per-entry
+    // 155-bit read copies - the copies' routes owned WNS and the pins
+    // needed to keep them real cost more than they saved.)
+    logic                             rs_issue_victim_dirty;
+    logic [TAG_WIDTH-1:0]             rs_issue_victim_tag;
+    logic [LINE_WIDTH/DATA_WIDTH-1:0] rs_issue_victim_word_valid;
+    logic [RS_ID_WIDTH-1:0]           rs_issue_victim_slot;
+
+    // Entry 18 writeback read plumbing. One shared port is enough
+    // because the request arbiter grants at most one memory beat per
+    // cycle: whichever entry it grants, that entry's {slot, word}
+    // coordinates are muxed into the RS (an AND-OR over the grant
+    // one-hot), the vbuf answers combinationally, and the word becomes
+    // the memory write data for the SAME beat. The chain is
+    //   grant -> 5-bit mux -> LUTRAM read -> mem_req_wdata
+    // and it lives entirely on the memory-port side, which no measured
+    // census has ever put near the critical path. There is no
+    // combinational loop: the arbiter's grant depends on req_valid and
+    // its ordering FIFO, never on write data.
+    logic [RS_ID_WIDTH-1:0]   entry_wb_slot [MSHR_COUNT];
+    logic [WORD_OFFSET_W-1:0] entry_wb_word [MSHR_COUNT];
+    logic [RS_ID_WIDTH-1:0]   wb_slot_sel;
+    logic [WORD_OFFSET_W-1:0] wb_word_sel;
+    logic                     wb_active;
+    logic [DATA_WIDTH-1:0]    vbuf_wb_data;
 
     logic rs_issue_valid;
     logic rs_issue_accept;
@@ -150,8 +171,7 @@ module MSHR_File #(
         .MSHR_ID_WIDTH  (MSHR_ID_WIDTH),
         .RS_DEPTH       (MISSQ_DEPTH),
         .MSHR_AF        (MSHR_AF),
-        .MAX_WAITERS    (MAX_WAITERS),
-        .VBUF_RD_PORTS  (MSHR_COUNT)
+        .MAX_WAITERS    (MAX_WAITERS)
     ) RES_STATION (
         .clk                (clk),
         .rst                (rst),
@@ -187,8 +207,13 @@ module MSHR_File #(
 
         .issue_victim_dirty (rs_issue_victim_dirty),
         .issue_victim_tag   (rs_issue_victim_tag),
-        .issue_victim_line  (rs_issue_victim_line),
         .issue_victim_word_valid (rs_issue_victim_word_valid),
+        .issue_victim_slot  (rs_issue_victim_slot),
+
+        .wb_active          (wb_active),
+        .wb_slot            (wb_slot_sel),
+        .wb_word            (wb_word_sel),
+        .wb_victim_word     (vbuf_wb_data),
 
         .retire_valid       (rs_retire_valid),
         .retire_mshr_id     (rs_retire_mshr_id),
@@ -317,6 +342,40 @@ module MSHR_File #(
     assign issue_pending = entry_issue_pending;
 
     // ============================================================
+    // Entry 18: victim writeback data, read at grant time
+    //
+    // issue_done is the arbiter's grant one-hot for THIS cycle. Mux the
+    // granted entry's victim coordinates into the RS vbuf and drive the
+    // answer onto every req_wdata lane - the arbiter's own data mux then
+    // selects the granted lane, so the value that reaches the memory
+    // port is exactly the granted entry's victim word. Lanes that are
+    // not granted, and read beats (which carry no write data), see a
+    // don't-care - same as the old register-mux design, where ungranted
+    // lanes carried their own stale victim slices.
+    // ============================================================
+
+    always_comb begin
+        wb_slot_sel = '0;
+        wb_word_sel = '0;
+        for (int k = 0; k < MSHR_COUNT; k++) begin
+            if (issue_done[k]) begin
+                wb_slot_sel |= entry_wb_slot[k];
+                wb_word_sel |= entry_wb_word[k];
+            end
+        end
+    end
+
+    // A grant for a WRITE beat is the only cycle the read matters -
+    // this arms the RS-side slot-liveness assertion (sim-only there).
+    assign wb_active = |(issue_done & req_write);
+
+    always_comb begin
+        for (int k = 0; k < MSHR_COUNT; k++) begin
+            req_wdata[k] = vbuf_wb_data;
+        end
+    end
+
+    // ============================================================
     // MSHR entries
     // ============================================================
 
@@ -335,7 +394,8 @@ module MSHR_File #(
                 .DATA_WIDTH      (DATA_WIDTH),
                 .LINE_WIDTH      (LINE_WIDTH),
                 .MSHR_ID_WIDTH   (MSHR_ID_WIDTH),
-                .ENTRY_ID        (i)
+                .ENTRY_ID        (i),
+                .VBUF_SLOT_W     (RS_ID_WIDTH)
             ) ENTRY (
                 .clk                (clk),
                 .rst                (rst),
@@ -348,10 +408,10 @@ module MSHR_File #(
                 .alloc_tag          (rs_issue_entry.tag),
                 .alloc_way          (rs_issue_entry.way),
 
-                .alloc_victim_dirty (rs_issue_victim_dirty[i]),
-                .alloc_victim_tag   (rs_issue_victim_tag[i]),
-                .alloc_victim_line  (rs_issue_victim_line[i]),
-                .alloc_victim_word_valid (rs_issue_victim_word_valid[i]),
+                .alloc_victim_dirty (rs_issue_victim_dirty),
+                .alloc_victim_tag   (rs_issue_victim_tag),
+                .alloc_victim_slot  (rs_issue_victim_slot),
+                .alloc_victim_word_valid (rs_issue_victim_word_valid),
 
                 .issue_done         (issue_done[i]),
 
@@ -364,8 +424,10 @@ module MSHR_File #(
                 .req_valid          (req_valid[i]),
                 .req_write          (req_write[i]),
                 .req_addr           (req_addr[i]),
-                .req_wdata          (req_wdata[i]),
                 .req_mshr_id        (req_id[i]),
+
+                .wb_slot            (entry_wb_slot[i]),
+                .wb_word            (entry_wb_word[i]),
 
                 .line_addr          (entry_line_addr[i]),
                 .set_id             (entry_set_id[i]),

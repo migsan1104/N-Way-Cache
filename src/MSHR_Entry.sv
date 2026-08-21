@@ -4,6 +4,10 @@
 // Keeps victim_word_valid so dirty victim writeback only writes
 // valid victim words.
 //
+// Entry 18: holds a POINTER to the victim line (its RS vbuf slot),
+// not a copy - writeback beats read the vbuf one word at a time.
+// See the vbuf section of Reservation_Station.sv for the full story.
+//
 // Removed:
 //   - alloc_write / alloc_wdata storage
 //   - write_r / wdata_r
@@ -24,7 +28,10 @@ module MSHR_Entry #(
     parameter int DATA_WIDTH      = 32,
     parameter int LINE_WIDTH      = 128,
     parameter int MSHR_ID_WIDTH   = 2,
-    parameter int ENTRY_ID        = 0
+    parameter int ENTRY_ID        = 0,
+
+    // Entry 18: width of a Reservation Station vbuf slot id.
+    parameter int VBUF_SLOT_W     = 4
 )(
     input  logic clk,
     input  logic rst,
@@ -37,9 +44,13 @@ module MSHR_Entry #(
     input  logic [TAG_WIDTH-1:0]       alloc_tag,
     input  logic [WAY_INDEX_W-1:0]     alloc_way,
 
+    // Entry 18: the victim LINE stays in the RS vbuf; this entry latches
+    // only the slot it lives in and reads it back one word per writeback
+    // beat (wb_slot/wb_word out, data muxed onto the memory port at the
+    // file level).
     input  logic                       alloc_victim_dirty,
     input  logic [TAG_WIDTH-1:0]       alloc_victim_tag,
-    input  logic [LINE_WIDTH-1:0]      alloc_victim_line,
+    input  logic [VBUF_SLOT_W-1:0]     alloc_victim_slot,
     input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
 
     input  logic                       issue_done,
@@ -53,8 +64,13 @@ module MSHR_Entry #(
     output logic                       req_valid,
     output logic                       req_write,
     output logic [ADDR_WIDTH-1:0]      req_addr,
-    output logic [DATA_WIDTH-1:0]      req_wdata,
     output logic [MSHR_ID_WIDTH-1:0]   req_mshr_id,
+
+    // Entry 18: coordinates of the victim word this entry would write
+    // back this cycle. The file muxes the GRANTED entry's coordinates
+    // into the vbuf read port and drives the memory write data from it.
+    output logic [VBUF_SLOT_W-1:0]     wb_slot,
+    output logic [WORD_OFFSET_W-1:0]   wb_word,
 
     output logic [LINE_ADDR_WIDTH-1:0] line_addr,
     output logic [SET_INDEX_W-1:0]     set_id,
@@ -87,8 +103,19 @@ module MSHR_Entry #(
     logic [WORD_OFFSET_W-1:0] read_issue_word_id;
     logic [WORD_OFFSET_W-1:0] read_recv_word_id;
 
+    // Entry 18: the victim's DATA is not copied here. Before this entry,
+    // a 128-bit victim_line_r register captured the whole line at alloc
+    // and req_wdata muxed words out of it - four such copies (one per
+    // MSHR) plus their 155-bit RS->MSHR capture routes owned the worst
+    // timing path in every measured build. The insight: the line already
+    // lives in the RS victim buffer, it is write-once, and the memory
+    // port only ever consumes it ONE WORD PER BEAT - so a copy buys
+    // nothing a pointer doesn't. victim_slot_r is that pointer. The tag
+    // and word_valid mask stay as registers: they are ~25 bits, and the
+    // FSM needs them combinationally every writeback cycle (address
+    // formation, beat skipping).
     logic [TAG_WIDTH-1:0] victim_tag_r, victim_tag_n;
-    logic [LINE_WIDTH-1:0] victim_line_r, victim_line_n;
+    logic [VBUF_SLOT_W-1:0] victim_slot_r, victim_slot_n;
     logic [WORDS_PER_LINE-1:0] victim_word_valid_r, victim_word_valid_n;
     logic [LINE_ADDR_WIDTH-1:0] victim_line_addr;
 
@@ -133,8 +160,14 @@ module MSHR_Entry #(
            line_addr,
            read_issue_word_id};
 
-    assign req_wdata =
-        victim_line_r[wb_word_id * DATA_WIDTH +: DATA_WIDTH];
+    // Entry 18: instead of driving write data from a local copy, expose
+    // WHERE the word lives (slot) and WHICH word this beat wants. These
+    // are continuously valid whenever req_valid could be granted; the
+    // file-level mux reads the vbuf for whichever entry the arbiter
+    // grants this cycle. The read replaces a register mux with a shallow
+    // LUTRAM lookup on the memory-port side, where nothing is critical.
+    assign wb_slot = victim_slot_r;
+    assign wb_word = wb_word_id;
 
     assign word_id         = miss_word_id_r;
     assign fill_line       = fill_line_r;
@@ -154,7 +187,7 @@ module MSHR_Entry #(
         way_n          = way;
 
         victim_tag_n   = victim_tag_r;
-        victim_line_n  = victim_line_r;
+        victim_slot_n  = victim_slot_r;
         victim_word_valid_n = victim_word_valid_r;
 
         fill_line_n    = fill_line_r;
@@ -172,7 +205,7 @@ module MSHR_Entry #(
                     way_n          = alloc_way;
 
                     victim_tag_n   = alloc_victim_tag;
-                    victim_line_n  = alloc_victim_line;
+                    victim_slot_n  = alloc_victim_slot;
                     victim_word_valid_n = alloc_victim_word_valid;
 
                     wb_count_n     = '0;
@@ -267,7 +300,7 @@ module MSHR_Entry #(
         way            <= way_n;
 
         victim_tag_r   <= victim_tag_n;
-        victim_line_r  <= victim_line_n;
+        victim_slot_r  <= victim_slot_n;
         victim_word_valid_r <= victim_word_valid_n;
 
         fill_line_r    <= fill_line_n;

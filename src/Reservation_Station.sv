@@ -32,11 +32,7 @@ module Reservation_Station #(
     parameter int MSHR_AF         = 7,
     parameter int MAX_WAITERS     = 4,
 
-    // Entry 15, piece 2: one victim-buffer copy per consumer (MSHR
-    // entry), so each read lands beside the entry that captures it
-    // instead of one 155-bit net spanning all of them.
-    parameter int VBUF_RD_PORTS   = 4,
-
+    localparam int WORDS_PER_LINE = LINE_WIDTH / DATA_WIDTH,
     localparam int RS_ID_WIDTH    = (RS_DEPTH <= 1) ? 1 : $clog2(RS_DEPTH),
     localparam int WAITER_COUNT_W = $clog2(MAX_WAITERS + 1),
     localparam int COUNT_W        = $clog2(RS_DEPTH + 1)
@@ -79,10 +75,23 @@ module Reservation_Station #(
     output logic [DATA_WIDTH-1:0]      issue_wdata,
     output logic [WORD_OFFSET_W-1:0]   issue_word_id,
 
-    output logic                       issue_victim_dirty      [VBUF_RD_PORTS],
-    output logic [TAG_WIDTH-1:0]       issue_victim_tag        [VBUF_RD_PORTS],
-    output logic [LINE_WIDTH-1:0]      issue_victim_line       [VBUF_RD_PORTS],
-    output logic [LINE_WIDTH/DATA_WIDTH-1:0] issue_victim_word_valid [VBUF_RD_PORTS],
+    // Entry 18: the victim LINE never leaves the vbuf. At issue the MSHR
+    // entry receives only the small metadata (dirty/tag/word_valid) plus
+    // the vbuf SLOT the victim lives in; it reads the line back one word
+    // per writeback beat through the wb_* port below.
+    output logic                       issue_victim_dirty,
+    output logic [TAG_WIDTH-1:0]       issue_victim_tag,
+    output logic [WORDS_PER_LINE-1:0]  issue_victim_word_valid,
+    output logic [RS_ID_WIDTH-1:0]     issue_victim_slot,
+
+    // Entry 18 writeback read port (combinational, shared by all MSHR
+    // entries - the request arbiter grants one writeback beat per cycle,
+    // so one port suffices). wb_active is consumed only by the sim-only
+    // liveness assertion at the bottom.
+    input  logic                       wb_active,
+    input  logic [RS_ID_WIDTH-1:0]     wb_slot,
+    input  logic [WORD_OFFSET_W-1:0]   wb_word,
+    output logic [DATA_WIDTH-1:0]      wb_victim_word,
 
     input  logic                       retire_valid,
     input  logic [MSHR_ID_WIDTH-1:0]   retire_mshr_id,
@@ -121,7 +130,12 @@ module Reservation_Station #(
     // vbuf_head_r + i. head advances on retire (that IS the free), tail on
     // new-entry alloc; merges create no entry and consume no slot. The
     // natural pointer wrap requires RS_DEPTH be a power of two (asserted).
-    localparam int VBUF_W = 1 + TAG_WIDTH + (LINE_WIDTH/DATA_WIDTH) + LINE_WIDTH;
+    //
+    // Entry 18 split the buffer in two: a small META array
+    // (dirty/tag/word_valid, read once at issue) and per-word DATA banks
+    // (read one word per writeback beat through wb_*). The line data
+    // itself never crosses to the MSHR entries any more.
+    localparam int VBUF_META_W = 1 + TAG_WIDTH + WORDS_PER_LINE;
 
     logic [RS_ID_WIDTH-1:0] vbuf_head_r, vbuf_tail_r;
 
@@ -509,36 +523,35 @@ module Reservation_Station #(
         end
     end
 
-    // Entry 15, piece 2 / Entry 17: VBUF_RD_PORTS identical copies of
-    // the buffer, every one written by the same alloc on the same edge,
-    // each read by exactly one MSHR entry. A replicated RAM written
-    // identically IS the original RAM - behavior unchanged, only the
-    // 155-bit read route shrinks (0.45-0.49 ns of the measured worst
-    // path).
+    // ---- Entry 18: the victim line stays vbuf-resident ----------------
+    // History, because two entries died teaching this: the issue-time
+    // read used to hand the FULL 155-bit victim record to the allocating
+    // MSHR entry, which registered it into victim_line_r - four 128-bit
+    // capture registers and the 155-bit RS->MSHR routes that owned WNS
+    // on every measured build. Entry 15/17 tried to fix the ROUTE
+    // physically (replicated read copies; then DONT_TOUCH + pinned
+    // address trees to stop opt_design re-merging the provably
+    // equivalent nets) - the pins won their cone and lost the placement
+    // war (A4 -8.8%). Entry 18 deletes the route instead of pinning it:
     //
-    // Entry 17 post-mortem of the Entry 15 attempt, for the record: the
-    // copies' read outputs are PROVABLY EQUIVALENT nets, and opt_design
-    // merged them back into one driver and swept the redundant storage
-    // - the measurement showed ENTRY[0] and ENTRY[1] reading the same
-    // g_vbuf[2] cells and LUTAsMem unchanged to the digit. `keep` is a
-    // synthesis attribute; surviving IMPLEMENTATION-stage optimization
-    // takes DONT_TOUCH, on both the read data and each copy's address.
+    //   - At issue the MSHR entry gets only the METADATA (dirty, tag,
+    //     word_valid - the writeback address and beat-skip mask) plus
+    //     the victim's vbuf SLOT number.
+    //   - During S_ISSUE_W it reads the line back ONE WORD PER BEAT
+    //     through the wb_* port - which is the granularity the memory
+    //     port consumes anyway. The 128-bit capture registers and their
+    //     routes cease to exist; each read is genuinely distinct
+    //     (slot, word, cycle), so there is nothing for the tools to
+    //     "helpfully" merge and nothing to pin.
     //
-    // Each copy also owns its OWN address tree (Entry 17): four real
-    // copies sharing one address net would multiply that net's fanout
-    // by four (156 -> ~620 pins); a private tree per copy keeps the
-    // fanout at one copy's pins and places beside its RAM. The tree is
-    // the pinned two-tier masked-OR (the Entry 15 piece-1 discipline):
-    // kept per-4-slot partials, one final OR - the measured 3-LUT
-    // serial OR chain becomes 2 pinned levels.
-    // ---- ISOLATION EXPERIMENT (2026-08-21) ----------------------------
-    // Entry 17's pins (per-copy DONT_TOUCH read nets + private pinned
-    // address trees) are TEMPORARILY reverted to the Entry 15 shape to
-    // attribute the E16+E17 measured regression (A4 -8.8% / A8 -5.5%,
-    // global placement damage) between the two entries. In this shape
-    // the tools re-merge the copies (the known Entry 15 outcome) - that
-    // is the point: this build is "Entry 16 only" physically. Entry 17's
-    // pinned form is preserved in git history and notebook Entry 17.
+    // Correctness rests on the Entry 8 slot invariant: a live entry's
+    // physical slot (vbuf_head_r + rs index) never moves - retire is
+    // always rs[0], which advances head exactly as every survivor's
+    // index decrements - and an entry retires only at its own refill,
+    // long after its writeback drained. The slot's content is
+    // write-once at alloc (merges write nothing), so a beat read at
+    // grant time returns exactly what an issue-time capture would have.
+    // Same values on the same cycles: bit-identical by construction.
     logic [RS_ID_WIDTH-1:0] vbuf_issue_addr_c;
 
     always_comb begin
@@ -550,26 +563,48 @@ module Reservation_Station #(
         end
     end
 
+    assign issue_victim_slot = vbuf_issue_addr_c;
+
+    // Metadata: one small array, read once at issue. Single copy - at
+    // 1+TAG_WIDTH+WORDS_PER_LINE bits fanning to four consumers this is
+    // not a route worth engineering.
+    (* ram_style = "distributed" *)
+    logic [VBUF_META_W-1:0] vbuf_meta [0:RS_DEPTH-1];
+
+    always_ff @(posedge clk) begin
+        if (alloc_fire && !can_merge) begin
+            vbuf_meta[vbuf_tail_r] <=
+                {alloc_victim_dirty, alloc_victim_tag,
+                 alloc_victim_word_valid};
+        end
+    end
+
+    assign {issue_victim_dirty, issue_victim_tag,
+            issue_victim_word_valid} = vbuf_meta[vbuf_issue_addr_c];
+
+    // Line data: one bank per word (the FTDA discipline), each the
+    // canonical single-write-port distributed-RAM template. The wb read
+    // muxes one word out by wb_word - a DATA_WIDTH-wide 4:1 after four
+    // shallow reads, on the memory-port side where nothing is critical.
+    logic [DATA_WIDTH-1:0] vbuf_wb_word_c [WORDS_PER_LINE];
+
     generate
-        for (genvar gv = 0; gv < VBUF_RD_PORTS; gv++) begin : g_vbuf
-            // One write port, no reset, no other drivers: LUTRAM-
-            // inferable.
+        for (genvar gw = 0; gw < WORDS_PER_LINE; gw++) begin : g_vbuf_data
             (* ram_style = "distributed" *)
-            logic [VBUF_W-1:0] vbuf [0:RS_DEPTH-1];
+            logic [DATA_WIDTH-1:0] vbuf_data [0:RS_DEPTH-1];
 
             always_ff @(posedge clk) begin
                 if (alloc_fire && !can_merge) begin
-                    vbuf[vbuf_tail_r] <=
-                        {alloc_victim_dirty, alloc_victim_tag,
-                         alloc_victim_word_valid, alloc_victim_line};
+                    vbuf_data[vbuf_tail_r] <=
+                        alloc_victim_line[gw * DATA_WIDTH +: DATA_WIDTH];
                 end
             end
 
-            assign {issue_victim_dirty[gv], issue_victim_tag[gv],
-                    issue_victim_word_valid[gv], issue_victim_line[gv]} =
-                vbuf[vbuf_issue_addr_c];
+            assign vbuf_wb_word_c[gw] = vbuf_data[wb_slot];
         end
     endgenerate
+
+    assign wb_victim_word = vbuf_wb_word_c[wb_word];
 
     always_ff @(posedge clk or posedge rst) begin
         if (rst) begin
@@ -600,6 +635,19 @@ module Reservation_Station #(
                     RS_ID_WIDTH'(valid_count))
                 else $error("RS: vbuf desync (head %0d tail %0d count %0d)",
                             vbuf_head_r, vbuf_tail_r, valid_count);
+        end
+    end
+
+    // Entry 18 slot liveness: a granted writeback beat must read a slot
+    // inside the live window [head, head+valid_count) - the arithmetic
+    // proof of the "a live entry's slot never moves" invariant, checked
+    // on every real beat ("RS E18").
+    always_ff @(posedge clk) begin
+        if (!rst && wb_active) begin
+            assert (COUNT_W'(RS_ID_WIDTH'(wb_slot - vbuf_head_r)) <
+                    valid_count)
+                else $error("RS E18: wb read of dead slot %0d (head %0d count %0d)",
+                            wb_slot, vbuf_head_r, valid_count);
         end
     end
 
