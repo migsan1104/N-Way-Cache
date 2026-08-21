@@ -54,6 +54,17 @@ module Compare_Select_Replace #(
 
     input  logic [WAY_INDEX_W-1:0]     replacement_way,
 
+    // S0-phase inputs (Entry 10): the write-grant precompute. s0_* refer
+    // to the request one stage BEHIND in_* - the one addressing the
+    // arrays right now, whose grants register at this cycle's edge.
+    input  logic                       s0_valid,
+    input  logic                       s0_write,
+    input  logic [TAG_WIDTH-1:0]       s0_tag,
+    input  logic [SET_INDEX_W-1:0]     s0_set_id,
+    input  logic [ASSOC-1:0]           s0_line_match,
+    input  logic [ASSOC-1:0]           s0_allocated,
+    input  logic [WAY_INDEX_W-1:0]     s0_replacement_way,
+
     output logic                       out_valid,
     output logic                       out_write,
     output logic                       out_hit,
@@ -226,34 +237,91 @@ module Compare_Select_Replace #(
     // victim capture).
     assign miss_way_c = onehot_to_idx(miss_way_onehot);
 
-    // ---- Piece 2: array write enables, straight from the one-hots -------
-    // This was the main event - the old encode->decode round trip:
-    //   way_hit_c -> priority-encoded binary hit_way_c (~8 serial levels)
-    //   -> 2:1 index mux vs miss_way_c
-    //   -> dynamic-index decode back to ASSOC enable bits (~3 levels)
-    // i.e. ~12 levels after way_hit_c, on the enables that fan out to
-    // every data_bank write port in Flag_Tag_Data_Array - the dominant
-    // critical cone on both meters (Genus out_tag->data_bank; 565/1000
-    // FPGA worst post-route paths).
-    // Now each way's enable comes from that way's OWN bits - no shared
-    // index anywhere (~5 levels after way_hit_c: the miss_c OR-tree,
-    // a 2:1 select, an AND):
-    //   - a write lands in the hit way, or on a miss in the victim way
-    //     (write-allocate: the word goes into the array immediately);
-    //   - allocation fires only on a true line miss (!line_found_c),
-    //     never on a partial-line read miss - which is exactly what
-    //     preserves the one-hot invariant this file depends on.
-    // in_write is valid-qualified upstream (Address_Decode registers
-    // out_write <= accept && in_write), so no extra in_valid gate is
-    // needed here - same reachable behavior as the old code.
+    // ---- Piece 2: array write enables, precomputed in S0 (Entry 10) -----
+    // The write-side decision needs NO word_valid or dirty bit: a write
+    // hits on tag match alone, and alloc fires only when no line matches
+    // - where way_hit_c is necessarily 0, so miss_c degenerates to
+    // in_valid. Every ingredient - the request's tag, tag_mem/
+    // allocated_mem at the S0 read index (the s0_* array taps), the PLRU
+    // lookup - exists combinationally in S0. So the finished one-hot
+    // grants REGISTER at the S0->S1 edge, and S1's array writes fire
+    // from flops instead of an ~11-level cone fanning out to every flag
+    // CE and bank write-port mux (the out_tag -> word_valid_mem and
+    // out_tag -> g_bank populations, the walls on both meters).
+    //
+    // The one hazard: the request ahead of us allocs our set on the very
+    // edge our grants register. Alloc is the ONLY same-edge writer of
+    // tag_mem/allocated_mem (CPU writes and refill drains touch only
+    // word_valid/dirty/data), so the patch below is the whole fold - it
+    // is the registered-grant mirror of FTDA's read-after-allocation
+    // bypass, and alloc_wen is already a flop, so the patch select is
+    // register-fed. One-hot survives the patch: if the elder alloc's tag
+    // equals ours, no other way can also match (the elder would have
+    // merged into that way instead of allocating).
+    logic [ASSOC-1:0] s0_match_eff_c;
+    logic [ASSOC-1:0] s0_allocated_eff_c;
+    logic             s0_line_found_c;
+    logic [ASSOC-1:0] s0_free_onehot;
+    logic [ASSOC-1:0] s0_repl_onehot;
+    logic             s0_has_free_c;
+    logic [ASSOC-1:0] s0_victim_onehot_c;
+
     always_comb begin
         for (int i = 0; i < ASSOC; i++) begin
-            cpu_write_wen[i] =
-                in_write &&
-                (miss_c ? miss_way_onehot[i] : way_hit_c[i]);
+            if (alloc_wen[i] && (in_set_id == s0_set_id)) begin
+                s0_allocated_eff_c[i] = 1'b1;
+                s0_match_eff_c[i]     = (in_tag == s0_tag);
+            end
+            else begin
+                s0_allocated_eff_c[i] = s0_allocated[i];
+                s0_match_eff_c[i]     = s0_line_match[i];
+            end
+        end
+    end
 
-            alloc_wen[i] =
-                miss_c && !line_found_c && miss_way_onehot[i];
+    assign s0_line_found_c = |s0_match_eff_c;
+
+    // First-free / victim select, same prefix-AND form as piece 3, on
+    // the patched allocated view. s0_replacement_way is the pre-register
+    // PLRU lookup - the identical value replacement_way holds when this
+    // request reaches S1, so victim choice matches the old S1 form
+    // exactly (including the accepted Entry-6 off-by-one).
+    generate
+        for (genvar gs = 0; gs < ASSOC; gs++) begin : g_s0_free
+            if (gs == 0) begin : g_first
+                assign s0_free_onehot[0] = !s0_allocated_eff_c[0];
+            end
+            else begin : g_rest
+                assign s0_free_onehot[gs] =
+                    !s0_allocated_eff_c[gs] &&
+                    (&s0_allocated_eff_c[gs-1:0]);
+            end
+        end
+    endgenerate
+
+    assign s0_repl_onehot     = ASSOC'(1'b1) << s0_replacement_way;
+    assign s0_has_free_c      = !(&s0_allocated_eff_c);
+    assign s0_victim_onehot_c = s0_has_free_c ? s0_free_onehot
+                                              : s0_repl_onehot;
+
+    // s0_write arrives valid-qualified from Cache.sv (cpu_req_valid &&
+    // cpu_req_write), mirroring Address_Decode's out_write register -
+    // same reachable behavior as the old combinational form.
+    always_ff @(posedge clk) begin
+        if (rst) begin
+            cpu_write_wen <= '0;
+            alloc_wen     <= '0;
+        end
+        else begin
+            for (int i = 0; i < ASSOC; i++) begin
+                cpu_write_wen[i] <=
+                    s0_write &&
+                    (s0_line_found_c ? s0_match_eff_c[i]
+                                     : s0_victim_onehot_c[i]);
+
+                alloc_wen[i] <=
+                    s0_valid && !s0_line_found_c && s0_victim_onehot_c[i];
+            end
         end
     end
 
@@ -308,6 +376,37 @@ module Compare_Select_Replace #(
             assert ($onehot0(line_match_c))
                 else $error("CSR: line_match_c not one-hot (%b)",
                             line_match_c);
+        end
+    end
+
+    // Entry 10 equivalence check (sim-only; every synthesis flow defines
+    // SYNTHESIS): the registered S0 grants must equal, cycle for cycle,
+    // what the retired S1 combinational forms compute from the bypassed
+    // array read - the strongest possible statement that the precompute
+    // is bit-identical. The reference terms (way_hit_c, miss_c,
+    // miss_way_onehot) all still exist for the read path above.
+    logic [ASSOC-1:0] ref_cpu_write_wen_c;
+    logic [ASSOC-1:0] ref_alloc_wen_c;
+
+    always_comb begin
+        for (int i = 0; i < ASSOC; i++) begin
+            ref_cpu_write_wen_c[i] =
+                in_write && (miss_c ? miss_way_onehot[i] : way_hit_c[i]);
+
+            ref_alloc_wen_c[i] =
+                miss_c && !line_found_c && miss_way_onehot[i];
+        end
+    end
+
+    always_ff @(posedge clk) begin
+        if (!rst) begin
+            assert (cpu_write_wen == ref_cpu_write_wen_c)
+                else $error("CSR E10: cpu_write_wen %b != S1 ref %b",
+                            cpu_write_wen, ref_cpu_write_wen_c);
+
+            assert (alloc_wen == ref_alloc_wen_c)
+                else $error("CSR E10: alloc_wen %b != S1 ref %b",
+                            alloc_wen, ref_alloc_wen_c);
         end
     end
 `endif

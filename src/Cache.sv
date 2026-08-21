@@ -123,6 +123,12 @@ module Cache #(
     logic [WORD_OFFSET_W-1:0]     cpu_write_word_id;
     logic [DATA_WIDTH-1:0]        cpu_write_wdata;
 
+    // S0 write-grant precompute nets (Entry 10)
+    logic [TAG_WIDTH-1:0]         array_rtag;
+    logic [ASSOC-1:0]             way_s0_line_match;
+    logic [ASSOC-1:0]             way_s0_allocated;
+    logic [WAY_INDEX_W-1:0]       plru_lookup_way;
+
     logic [WAY_INDEX_W-1:0]       replacement_way;
     logic                         replacement_update_valid;
     logic [SET_INDEX_W-1:0]       replacement_update_set;
@@ -158,6 +164,9 @@ module Cache #(
 
     assign cpu_req_ready = hit_resp_ready && mshr_alloc_ready;
 
+    logic cpu_req_fire;
+    assign cpu_req_fire = cpu_req_valid;
+
     assign miss_select_line_addr = {miss_select_tag, miss_select_set_id};
 
     Address_Decode #(
@@ -171,13 +180,14 @@ module Cache #(
         .clk            (clk),
         .rst            (rst),
 
-        .in_valid       (cpu_req_valid),
+        .in_valid       (cpu_req_fire),
         .in_write       (cpu_req_write),
         .in_addr        (cpu_req_addr),
         .in_wdata       (cpu_req_wdata),
         .in_cpu_req_id  (cpu_req_id),
 
         .array_raddr    (array_rindex),
+        .array_rtag     (array_rtag),
 
         .out_valid      (dec_valid),
         .out_write      (dec_write),
@@ -215,6 +225,10 @@ module Cache #(
                 .rst             (rst),
 
                 .raddr           (array_rindex),
+
+                .s0_tag          (array_rtag),
+                .s0_line_match   (way_s0_line_match[way_gen]),
+                .s0_allocated    (way_s0_allocated[way_gen]),
 
                 .rline           (way_line[way_gen]),
                 .rtag            (way_tag[way_gen]),
@@ -258,6 +272,7 @@ module Cache #(
         // measured as the 16KB associativity-miss inversion.)
         .lookup_set      (array_rindex),
         .replacement_way (replacement_way),
+        .lookup_way_c    (plru_lookup_way),
 
         .update_valid    (replacement_update_valid),
         .update_set      (replacement_update_set),
@@ -295,6 +310,16 @@ module Cache #(
         .way_word_valid           (way_word_valid),
 
         .replacement_way          (replacement_way),
+
+        // S0 write-grant precompute (Entry 10). s0_write mirrors
+        // Address_Decode's out_write register (accept && in_write).
+        .s0_valid                 (cpu_req_fire),
+        .s0_write                 (cpu_req_fire && cpu_req_write),
+        .s0_tag                   (array_rtag),
+        .s0_set_id                (array_rindex),
+        .s0_line_match            (way_s0_line_match),
+        .s0_allocated             (way_s0_allocated),
+        .s0_replacement_way       (plru_lookup_way),
 
         .out_valid                (cmp_valid),
         .out_write                (cmp_write),
@@ -373,6 +398,11 @@ module Cache #(
         .alloc_ready          (mshr_alloc_ready),
 
         .alloc_line_addr      (miss_select_line_addr),
+
+        // Entry 11: the compare-stage request's line address, one cycle
+        // ahead of miss_select_line_addr - same {tag, set} construction.
+        .pre_line_addr        ({dec_tag, dec_set_id}),
+
         .alloc_word_id        (miss_select_word_id),
         .alloc_way            (miss_select_way),
 

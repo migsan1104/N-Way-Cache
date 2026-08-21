@@ -43,6 +43,11 @@ module Address_Decode #(
 
     output logic [SET_INDEX_W-1:0]  array_raddr,
 
+    // S0-phase tag of the request currently addressing the arrays
+    // (Entry 10): the write-grant precompute compares it against the
+    // arrays' combinational tag read in the same cycle.
+    output logic [TAG_WIDTH-1:0]    array_rtag,
+
     output logic                    out_valid,
     output logic                    out_write,
     output logic [DATA_WIDTH-1:0]   out_wdata,
@@ -74,6 +79,7 @@ module Address_Decode #(
     endgenerate
 
     assign array_raddr = set_id_c;
+    assign array_rtag  = tag_c;
 
     always_ff @(posedge clk) begin
         if (rst) begin

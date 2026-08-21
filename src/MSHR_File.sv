@@ -34,6 +34,11 @@ module MSHR_File #(
     output logic                       alloc_ready,
 
     input  logic [LINE_ADDR_WIDTH-1:0] alloc_line_addr,
+
+    // Compare-stage line address, one cycle ahead of alloc_line_addr
+    // (Entry 11) - pass-through for the RS same-line CAM precompute.
+    input  logic [LINE_ADDR_WIDTH-1:0] pre_line_addr,
+
     input  logic [WORD_OFFSET_W-1:0]   alloc_word_id,
     input  logic [WAY_INDEX_W-1:0]     alloc_way,
 
@@ -83,14 +88,17 @@ module MSHR_File #(
         logic [WORD_OFFSET_W-1:0]   word_id;
         logic [TAG_WIDTH-1:0]       tag;
         logic [WAY_INDEX_W-1:0]     way;
-
-        logic                       victim_dirty;
-        logic [TAG_WIDTH-1:0]       victim_tag;
-        logic [LINE_WIDTH-1:0]      victim_line;
-        logic [LINE_WIDTH/DATA_WIDTH-1:0] victim_word_valid;
     } rs_issue_entry_t;
 
     rs_issue_entry_t rs_issue_entry;
+
+    // Entry 15: victim data arrives on a per-entry vbuf copy, one read
+    // port per MSHR entry - the copies are identical, the split is
+    // physical (each read lands beside its consumer).
+    logic                       rs_issue_victim_dirty [MSHR_COUNT];
+    logic [TAG_WIDTH-1:0]       rs_issue_victim_tag   [MSHR_COUNT];
+    logic [LINE_WIDTH-1:0]      rs_issue_victim_line  [MSHR_COUNT];
+    logic [LINE_WIDTH/DATA_WIDTH-1:0] rs_issue_victim_word_valid [MSHR_COUNT];
 
     logic rs_issue_valid;
     logic rs_issue_accept;
@@ -142,7 +150,8 @@ module MSHR_File #(
         .MSHR_ID_WIDTH  (MSHR_ID_WIDTH),
         .RS_DEPTH       (MISSQ_DEPTH),
         .MSHR_AF        (MSHR_AF),
-        .MAX_WAITERS    (MAX_WAITERS)
+        .MAX_WAITERS    (MAX_WAITERS),
+        .VBUF_RD_PORTS  (MSHR_COUNT)
     ) RES_STATION (
         .clk                (clk),
         .rst                (rst),
@@ -151,6 +160,7 @@ module MSHR_File #(
         .alloc_ready        (alloc_ready),
 
         .alloc_line_addr    (alloc_line_addr),
+        .pre_line_addr      (pre_line_addr),
         .alloc_word_id      (alloc_word_id),
         .alloc_way          (alloc_way),
         .alloc_write        (alloc_write),
@@ -175,10 +185,10 @@ module MSHR_File #(
    
         .issue_word_id      (rs_issue_entry.word_id),
 
-        .issue_victim_dirty (rs_issue_entry.victim_dirty),
-        .issue_victim_tag   (rs_issue_entry.victim_tag),
-        .issue_victim_line  (rs_issue_entry.victim_line),
-        .issue_victim_word_valid (rs_issue_entry.victim_word_valid),
+        .issue_victim_dirty (rs_issue_victim_dirty),
+        .issue_victim_tag   (rs_issue_victim_tag),
+        .issue_victim_line  (rs_issue_victim_line),
+        .issue_victim_word_valid (rs_issue_victim_word_valid),
 
         .retire_valid       (rs_retire_valid),
         .retire_mshr_id     (rs_retire_mshr_id),
@@ -338,10 +348,10 @@ module MSHR_File #(
                 .alloc_tag          (rs_issue_entry.tag),
                 .alloc_way          (rs_issue_entry.way),
 
-                .alloc_victim_dirty (rs_issue_entry.victim_dirty),
-                .alloc_victim_tag   (rs_issue_entry.victim_tag),
-                .alloc_victim_line  (rs_issue_entry.victim_line),
-                .alloc_victim_word_valid (rs_issue_entry.victim_word_valid),
+                .alloc_victim_dirty (rs_issue_victim_dirty[i]),
+                .alloc_victim_tag   (rs_issue_victim_tag[i]),
+                .alloc_victim_line  (rs_issue_victim_line[i]),
+                .alloc_victim_word_valid (rs_issue_victim_word_valid[i]),
 
                 .issue_done         (issue_done[i]),
 

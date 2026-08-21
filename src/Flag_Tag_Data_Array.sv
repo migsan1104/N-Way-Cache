@@ -7,10 +7,11 @@
 //     2R3W with bit-granular updates and same-edge priorities; no RAM
 //     primitive has this port profile, and it feeds the S1 compare cone.
 //
-//   TAG memory   (tag_mem) - FLOPS at this size.
-//     2R1W (pipeline read + refill-guard read), 800b/way, head of the
-//     tag-compare critical cone: flop access wins. Revisit if
-//     CACHE_BYTES scales ~8x.
+//   TAG memory   (tag_bank) - LUTRAM, EXPLICITLY BANKED 64 deep
+//     (Entry 16). 2R1W (pipeline read + refill-guard read). At 16KB
+//     depths Vivado was already banking the inferred array into
+//     64-deep RAMD64Es; writing the banks down in RTL is what lets the
+//     S0 compare run per bank BEFORE the bank mux (see the S0 tap).
 //
 //   DATA memory  (one bank per line word) - RAM-SHAPED (Entry 5).
 //     Each bank is a true 1R1W simple-dual-port memory: one sync read
@@ -58,6 +59,14 @@ module Flag_Tag_Data_Array #(
 
     input  logic [SET_INDEX_W-1:0]    raddr,
 
+    // S0 write-grant taps (Entry 10): combinational reads at the S0
+    // index, alongside rtag/allocated's D - the compare sits directly
+    // on the existing tag-read mux, and only one bit per way leaves
+    // the array.
+    input  logic [TAG_WIDTH-1:0]      s0_tag,
+    output logic                      s0_line_match,
+    output logic                      s0_allocated,
+
     output logic [LINE_WIDTH-1:0]     rline,
     output logic [TAG_WIDTH-1:0]      rtag,
     output logic                      allocated,
@@ -79,11 +88,122 @@ module Flag_Tag_Data_Array #(
     input  logic [DATA_WIDTH-1:0]     cpu_wdata
 );
 
-    // ---- Metadata (flops) --------------------------------------------
-    logic [TAG_WIDTH-1:0]      tag_mem        [0:DEPTH-1];
+    // ---- Metadata ----------------------------------------------------
+    // Tags are explicitly banked 64 deep (Entry 16) - the RAMD64E
+    // geometry Vivado banks by anyway. Flags stay flat (1-4 bits wide;
+    // their read muxes are not on the measured cone).
+    localparam int BANK_DEPTH  = (DEPTH < 64) ? DEPTH : 64;
+    localparam int TAG_NBANKS  = DEPTH / BANK_DEPTH;
+    localparam int BANK_ADDR_W = (BANK_DEPTH <= 1) ? 1 : $clog2(BANK_DEPTH);
+    localparam int BANK_SEL_W  = (TAG_NBANKS <= 1) ? 1 : $clog2(TAG_NBANKS);
+
     logic                      allocated_mem  [0:DEPTH-1];
     logic                      dirty_mem      [0:DEPTH-1];
     logic [WORDS_PER_LINE-1:0] word_valid_mem [0:DEPTH-1];
+
+    // Bank-select slices of the three addresses that touch tags. These
+    // are raw address MSBs through zero logic - ready at cycle start,
+    // which is exactly what lets the S0 select below come LAST.
+    logic [BANK_SEL_W-1:0] r_bank_sel_c;
+    logic [BANK_SEL_W-1:0] alloc_bank_sel_c;
+    logic [BANK_SEL_W-1:0] refill_bank_sel_c;
+
+    generate
+        if (TAG_NBANKS == 1) begin : g_tag_one_bank
+            assign r_bank_sel_c      = '0;
+            assign alloc_bank_sel_c  = '0;
+            assign refill_bank_sel_c = '0;
+        end
+        else begin : g_tag_bank_sel
+            assign r_bank_sel_c      = raddr[SET_INDEX_W-1:BANK_ADDR_W];
+            assign alloc_bank_sel_c  = alloc_waddr[SET_INDEX_W-1:BANK_ADDR_W];
+            assign refill_bank_sel_c = refill_waddr[SET_INDEX_W-1:BANK_ADDR_W];
+        end
+    endgenerate
+
+    // ---- S0 write-grant taps (Entry 10, restructured by Entry 16) -----
+    //
+    // Was: select-then-compare - tag_mem[raddr] muxed the banks (23 bits
+    // wide), THEN one wide equality that Vivado folded into a CARRY8.
+    // The measured A8 worst path charged 0.13 ns for the bank combine
+    // and 0.35 ns just to EXIT the carry column (carry chains live in
+    // rigid slice columns; the consumer sat 11 rows away).
+    //
+    // Now: compare-then-select. Each bank's read output is compared
+    // against s0_tag IN PARALLEL, the instant that bank's read settles
+    // - and the mux that survives is ONE bit wide, steered by address
+    // MSBs that are ready at cycle start. The equality itself is
+    // chunked into kept 6-bit partials + one AND: same two levels the
+    // carry gave, minus the carry column and its exit route. The keep
+    // is load-bearing (the Entry 15 lesson): without it synthesis
+    // re-folds the reduction into CARRY8 and the restructure silently
+    // never happens. Compare-then-select computes the same boolean as
+    // select-then-compare, so this is bit-identical by construction -
+    // armed end-to-end by the CSR E10 grant-equivalence assertion.
+    localparam int TAG_NCHUNK = (TAG_WIDTH + 5) / 6;
+
+    logic [TAG_NBANKS-1:0]  s0_bank_match_c;
+
+    // Per-bank read data, collected for the two whole-tag consumers
+    // (the rtag pipeline read and the refill guard).
+    logic [TAG_WIDTH-1:0] bank_rtag_c        [TAG_NBANKS];
+    logic [TAG_WIDTH-1:0] bank_refill_rtag_c [TAG_NBANKS];
+
+    // Each bank is its OWN 1-D array with a DECODED write enable - the
+    // canonical single-write-port distributed-RAM template, per bank.
+    // (Entry 16 attempt 1 used one 2-D array written through two
+    // dynamic indices; that shape is outside Vivado's RAM-inference
+    // pattern and the whole array fell back to FLOPS - tag_bank_reg
+    // cells in the post-place netlist, ~22-24k of them. The bank-select
+    // compare below is constant per instance and register-fed: it costs
+    // nothing on any measured cone.)
+    generate
+        for (genvar gb = 0; gb < TAG_NBANKS; gb++) begin : g_tag_banks
+            (* ram_style = "distributed" *)
+            logic [TAG_WIDTH-1:0] bank_tags [0:BANK_DEPTH-1];
+
+            logic bank_alloc_wen_c;
+
+            assign bank_alloc_wen_c =
+                alloc_wen && (alloc_bank_sel_c == BANK_SEL_W'(gb));
+
+            always_ff @(posedge clk) begin
+                if (bank_alloc_wen_c) begin
+                    bank_tags[alloc_waddr[BANK_ADDR_W-1:0]] <= alloc_tag;
+                end
+            end
+
+            assign bank_rtag_c[gb] =
+                bank_tags[raddr[BANK_ADDR_W-1:0]];
+            assign bank_refill_rtag_c[gb] =
+                bank_tags[refill_waddr[BANK_ADDR_W-1:0]];
+
+            // ---- ISOLATION EXPERIMENT (2026-08-21) --------------------
+            // The (* keep *) anchor is TEMPORARILY dropped to test whether
+            // these last remaining pins are the A8 E16-only regression
+            // (334.6 vs E15's 379.1; census: every class ~0.3 ns worse
+            // together = placement-damage signature, and these anchors are
+            // the only pins left in the build). If Fmax recovers, the
+            // "keep is load-bearing" claim above is wrong for this shape
+            // (it was proven on the E13 prefix-OR, not on chunked eq).
+            // Check the post-synth netlist for CARRY8 re-folding either way.
+            logic [TAG_NCHUNK-1:0] eq_partial_c;
+
+            for (genvar gc = 0; gc < TAG_NCHUNK; gc++) begin : g_chunk
+                localparam int LO = gc * 6;
+                localparam int HI = (LO + 6 > TAG_WIDTH) ? TAG_WIDTH
+                                                         : LO + 6;
+                assign eq_partial_c[gc] =
+                    (bank_rtag_c[gb][HI-1:LO] == s0_tag[HI-1:LO]);
+            end
+
+            assign s0_bank_match_c[gb] = &eq_partial_c;
+        end
+    endgenerate
+
+    assign s0_line_match = allocated_mem[raddr] &&
+                           s0_bank_match_c[r_bank_sel_c];
+    assign s0_allocated  = allocated_mem[raddr];
 
     // ---- Refill drain state (extends Entry 4's registered decision) --
     // Binary set index now - the RAM write port takes a binary address,
@@ -100,7 +220,7 @@ module Flag_Tag_Data_Array #(
     // Cycle-R guard: tag check + same-edge-alloc kill (Entry 4).
     assign refill_guard_ok_c =
         refill_wen &&
-        (refill_tag == tag_mem[refill_waddr]) &&
+        (refill_tag == bank_refill_rtag_c[refill_bank_sel_c]) &&
         !(alloc_wen && (alloc_waddr == refill_waddr));
 
     // Words already valid, including a CPU write landing this edge
@@ -279,7 +399,7 @@ module Flag_Tag_Data_Array #(
             end
         end
         else begin
-            rtag       <= tag_mem[raddr];
+            rtag       <= bank_rtag_c[r_bank_sel_c];
             allocated  <= allocated_mem[raddr];
             dirty      <= dirty_mem[raddr];
             word_valid <= word_valid_mem[raddr];
@@ -298,7 +418,8 @@ module Flag_Tag_Data_Array #(
                 allocated_mem[alloc_waddr]  <= 1'b1;
                 dirty_mem[alloc_waddr]      <= 1'b0;
                 word_valid_mem[alloc_waddr] <= '0;
-                tag_mem[alloc_waddr]        <= alloc_tag;
+                // tag write lives in the per-bank blocks (g_tag_banks) -
+                // separate always_ff, same edge, same NBA semantics.
             end
 
             // CPU write: flag side (data went through the bank port).
