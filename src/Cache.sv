@@ -164,8 +164,21 @@ module Cache #(
 
     assign cpu_req_ready = hit_resp_ready && mshr_alloc_ready;
 
+    // A request is ACCEPTED only when valid and ready are both high
+    // (Contract A-loose: the producer may hold, replace, or retract an
+    // un-accepted offer; payload is sampled only at acceptance). The
+    // pipeline must consume cpu_req_fire, never raw cpu_req_valid: a
+    // compliant CPU holds valid through !ready cycles, and an ungated
+    // pipe re-processes that held request every cycle (ghost merges
+    // overflow the RS waiter list, duplicate responses corrupt ordering).
+    // This path was latent-broken: cpu_req_ready never deasserts under
+    // current traffic (RS occupancy peaks at 8 vs the AF=3 threshold of
+    // 13; the hit FIFO never fills), so no regression exercised it until
+    // the 2026-08-21 MSHR_AF=11 probe failed on every RTL generation
+    // back to the pre-campaign baseline. Full story: optimizations.md,
+    // "The handshake bug".
     logic cpu_req_fire;
-    assign cpu_req_fire = cpu_req_valid;
+    assign cpu_req_fire = cpu_req_valid && cpu_req_ready;
 
     assign miss_select_line_addr = {miss_select_tag, miss_select_set_id};
 
