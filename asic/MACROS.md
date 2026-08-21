@@ -115,6 +115,59 @@ surrounding logic, so the corner mismatch is documented pessimism, not a
 result-changer. PLE/physical-aware synthesis is orthogonal (models
 wires, not device PVT).
 
+## How the derate is implemented (TCL, not RTL)
+
+A derate lives entirely on the ANALYSIS side. The SystemVerilog never
+knows about it — RTL describes logic, libraries describe delay, and a
+derate is an instruction to the TIMER: "multiply these instances'
+library delays before checking slack." Two files implement ours:
+
+1. The knob — `asic/synthesis/common/scripts/project_config.tcl`:
+
+       set SRAM_MACRO_DERATE [config_env ASIC_SRAM_MACRO_DERATE 2.0]
+
+   `config_env` means an environment variable overrides the default, so
+   a sensitivity experiment is `ASIC_SRAM_MACRO_DERATE=1.5 ./run_genus.sh 4`
+   — no file edits.
+
+2. The application — `asic/synthesis/cadence/scripts/run_genus.tcl`,
+   right after `init_design` (the derate needs the design + MMMC views
+   loaded before there are instances to scope to):
+
+       set MACRO_INSTS [get_db insts -if ".base_cell.name == $SRAM_MACRO_CELL"]
+       set_timing_derate -delay_corner ss_corner -late $SRAM_MACRO_DERATE $MACRO_INSTS
+
+   Read it piece by piece:
+   - `get_db insts -if ...` collects EXACTLY the macro instances (by
+     library cell name). Scoping matters: the standard cells' lib is
+     already honest at ss_100C_1v60 — derating them too would be double
+     pessimism. Only the instances whose library lies about our corner
+     get the multiplier.
+   - `-late` scales the LATE (max-delay) arcs, which is what SETUP
+     checks read. That is the failure mode a too-optimistic lib hides:
+     the macro is really slower than its 25C/1.8V numbers, so we
+     inflate max delay. (`-early` would scale min-delay arcs for HOLD;
+     at synthesis we only close setup. When this reaches Innovus/Tempus
+     hold analysis, note the asymmetry: for hold, a SLOW macro is
+     conservative, so the missing early derate is safe-side — but
+     document it, don't discover it.)
+   - `-delay_corner ss_corner` binds the derate to the analysis corner,
+     which is how one MMMC setup could carry different derates per
+     corner if more corners existed.
+
+   Two guards make the mechanism un-skippable: the run FAILS if zero
+   macro instances elaborated (a silent flop fallback would otherwise
+   report flop-bank numbers under an `_sram` run tag), and FAILS if
+   `set_timing_derate` itself errors — a run can never quietly drop
+   the pessimism and report clean timing.
+
+The principle to carry to any flow: parameters of the SILICON go in
+RTL; parameters of the ANALYSIS go in the run scripts, scoped as
+narrowly as the lie they compensate for, guarded so they cannot
+silently vanish. And the endgame of the OpenRAM section below is that
+this whole subsection becomes historical: a lib characterized AT the
+signoff corner needs no derate at all.
+
 ## Custom macros with OpenRAM (2026-08-21)
 
 Everything above is about living with the four macros the PDK ships.
@@ -216,6 +269,17 @@ klayout binaries are NOT installed (klayout DECKS are in the PDK).
    and the three file lists get the new sim models per the CLAUDE.md
    sync rule.
 
-STATUS 2026-08-21: steps 1-5 done; calibration run in flight
-(environment bootstrap + generation + HSPICE char). Diff verdict
-pending — this section to be updated with the result either way.
+**Simulator finding (2026-08-21, follow-along correction):** HSPICE
+CANNOT characterize against this PDK — the open_pdks sky130 device
+models are ngspice-dialect ({l}/{w} parameter braces on device lines)
+and HSPICE rejects the first model file at parse. This is a model-
+dialect mismatch, not a tool bug: the open PDK's models target the
+open simulators. OpenRAM's self-provisioned conda env ships ngspice
+AND Xyce for exactly this reason — use `spice_name = "ngspice"` (the
+pairing the vendored libs themselves were characterized with). The
+generation half (GDS/LEF/netlist) succeeded on the first attempt; only
+characterization needed the simulator swap.
+
+STATUS 2026-08-21: steps 1-5 done (with the ngspice correction above);
+calibration characterization re-launched. Diff verdict pending — this
+section to be updated with the result either way.
