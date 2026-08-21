@@ -114,3 +114,108 @@ consumes ~1.3 ns of the 3.5 ns period — the wall stays in the
 surrounding logic, so the corner mismatch is documented pessimism, not a
 result-changer. PLE/physical-aware synthesis is orthogonal (models
 wires, not device PVT).
+
+## Custom macros with OpenRAM (2026-08-21)
+
+Everything above is about living with the four macros the PDK ships.
+This section is about not having to. The macros in the inventory are
+themselves OpenRAM products — OpenRAM (UCSC/VLSIDA) is the open-source
+memory compiler, and for SKY130 it is the de-facto standard: there is
+no commercial compiler ecosystem for this PDK, and every SKY130 shuttle
+that uses SRAM uses OpenRAM output. Generating our own is not a new
+tool provenance; it is taking control of the one we already depend on.
+
+### Why bother — four problems one generation run solves
+
+1. **A8/A16 waste.** At 16KB the only slow-corner macro is 256 deep;
+   A8's banks are 128 (50% used, 2x SRAM area), A16's are 64 (25%, 4x).
+2. **The x2.0 derate.** Characterize AT ss/1.60V/100C and the corner
+   gap this whole file's decision section exists to bridge disappears —
+   for every config, including the current exact-fit A4.
+3. **A1/A2 compromises.** Exact-fit parts exist only TT-only; the
+   multi-corner part needs depth cascades. Generated macros give exact
+   fit at the honest corner with zero glue.
+4. **A fair sweep table.** One compiler, one bitcell, one
+   characterization method across all five rows — the associativity
+   comparison measures architecture, not library luck.
+
+### The target family (16KB; banks = ASSOC x 4, depth = 1024/ASSOC)
+
+| ASSOC | Instances | Macro to generate | Per-instance | Notes |
+|---|---|---|---|---|
+| 1  | 4  | 32x1024 | 4 KB  | deepest: worst access time (real physics, belongs in the table) |
+| 2  | 8  | 32x512  | 2 KB  | |
+| 4  | 16 | 32x256  | 1 KB  | doubles as the calibration reference |
+| 8  | 32 | 32x128  | 512 B | the config that motivated all of this |
+| 16 | 64 | 32x64   | 256 B | 64-instance floorplan; per-macro periphery overhead peaks |
+
+Total bitcells are constant; instance count doubles per step while size
+halves. Few/big macros pay in bitline delay, many/small in periphery
+area and floorplanning — a real axis of the associativity trade-off the
+uniform family finally makes visible.
+
+### The trust problem, and the calibration gate
+
+The obvious objection: the broken TT_1p8V_100C lib above IS an OpenRAM
+characterization — why trust our own? Answer: don't trust it, test it.
+Phase 0 regenerates the EXACT vendored geometry (32x256, 1RW+1R, byte
+mask) and characterizes it with HSPICE at the vendored lib's own corner
+(SS_1p8V_25C). Diff the arcs. If they track the known-good lib, the
+method inherits its credibility at geometries and corners the vendor
+never shipped; if they don't, the sub-project stops having cost a day.
+Nothing downstream gets built until this gate passes.
+
+Honest limits of the claim, for any writeup: these are custom MACROS,
+not custom BITCELLS (we instantiate the foundry's sky130_fd_bd_sram
+cell, as everyone does), and nothing is silicon-validated. DRC/LVS of
+generated layout is owed before any GDS-level claim (netgen must be
+built from source; magic is on the server).
+
+### Follow-along: reproducing the setup (as done 2026-08-21)
+
+Toolchain facts discovered on the way, so nobody re-derives them:
+the server PDK at `/apps/cds/IC618/local/opdk/share/pdk/sky130A` is a
+FULL open_pdks build (libs.tech has ngspice models, magicrc, netgen
+setup — everything OpenRAM's sky130 tech asserts on); HSPICE lives at
+`/apps/syn/hspice/hspice/bin/hspice`, on PATH after
+`source /apps/settings`, license checkout verified. ngspice/netgen/
+klayout binaries are NOT installed (klayout DECKS are in the PDK).
+
+1. Install (user-space, no root):
+       pip3 install --user openram          # got 1.2.48
+2. Assemble a WRITABLE PDK_ROOT (the server PDK is read-only; the
+   bitcell clone must land next to sky130A):
+       mkdir -p ~/pdk_openram
+       ln -sfn /apps/cds/IC618/local/opdk/share/pdk/sky130A ~/pdk_openram/sky130A
+3. Fetch the SRAM bitcell library + raw skywater-pdk (submodules
+   sky130_fd_pr, sky130_fd_sc_hd) and install cell views into the
+   package's technology tree:
+       export PDK_ROOT=$HOME/pdk_openram
+       export OPENRAM_HOME=$HOME/.local/lib/python3.9/site-packages/openram/compiler
+       cd $HOME/.local/lib/python3.9/site-packages/openram
+       make sky130-pdk && make sky130-install
+   (First run also self-provisions a conda env with OpenRAM's tool
+   dependencies — expect a long download once.)
+4. Write a config — the Phase-0 calibration one is checked in at
+   `asic/openram/calib_32x256.py` (word_size=32, num_words=256,
+   num_rw_ports=1, num_r_ports=1, write_size=8, spice_name="hspice",
+   analytical_delay=False, corners = SS/1.8V/25C to match the vendored
+   lib; check_lvsdrc=False for timing-only calibration).
+5. Run:
+       source /apps/settings         # brings hspice onto PATH
+       export PDK_ROOT / OPENRAM_HOME / OPENRAM_TECH as above
+       cd asic/openram
+       python3 $HOME/.local/lib/python3.9/site-packages/openram/sram_compiler.py calib_32x256.py
+   HSPICE characterization is the long phase (hours-scale). Output
+   lands in `calib_out/` — the .lib is the artifact; diff its arcs
+   against `.../sky130_sram_macros/lib/sram_1rw1r_32_256_8_sky130_SS_1p8V_25C.lib`.
+6. Phase 1 (gated on the diff): rerun with num_words = 64/128/512/1024
+   and corners = ss/1.60V/100C (+ TT_1p8V_25C as a cross-check lib),
+   then integrate per the checklist above — the generate branch in
+   FTDA generalizes from `DEPTH == 256` to per-depth exact-fit cells,
+   and the three file lists get the new sim models per the CLAUDE.md
+   sync rule.
+
+STATUS 2026-08-21: steps 1-5 done; calibration run in flight
+(environment bootstrap + generation + HSPICE char). Diff verdict
+pending — this section to be updated with the result either way.
