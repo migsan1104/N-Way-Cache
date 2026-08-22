@@ -29,6 +29,21 @@ tech_name = "sky130"
 analytical_delay = False
 spice_name = "ngspice"
 
+# SIMULATOR: ngspice-41 from ~/ngspice41env, NOT the revision-26 build bundled
+# in OpenRAM's miniconda. Measured on the identical 150 ns stimulus:
+#   ngspice-41  1482 s (24.7 min), rc=0, 15273 timepoints, 1 rejected, 48 measures
+#   ngspice-26  7 h 19 m and never finished
+# 26 predates the KLU solver and never engages the num_threads=3 that .spiceinit
+# asks for (pinned at one core; 41 runs ~218%).
+#
+# use_conda=False is what makes the switch take effect. find_exe() searches
+# CONDA_HOME/bin BEFORE $PATH while use_conda is true, so the bundled 26 wins
+# no matter what PATH says; run_openram.sh puts ngspice41env first. Setting
+# spice_exe here would NOT work - characterizer/__init__.py:25 assigns
+# OPTS.spice_exe = "" and then find_exe(), overwriting any config value, the
+# same inert-option trap as process_corners.
+use_conda = False
+
 # Corner selection. WARNING: process_corners/supply_voltages/temperatures
 # are INERT unless a second gate is set - by default OpenRAM ignores them,
 # builds its corner list from a hardcoded nominal "TT", and characterizes

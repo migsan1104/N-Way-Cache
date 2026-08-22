@@ -350,7 +350,63 @@ stimulus, so it should simulate — but that is reasoning, not a tested
 result, and all of Phase 1 depends on it. Check the first generated
 `delay_stim.sp` for `Vvdd vdd 0 1.6` before trusting a Phase-1 lib.
 
-STATUS 2026-08-21: steps 1-5 done (with the ngspice and corner
-corrections above); calibration characterization running — layout
-complete (routing 35 min), now in the TT leg of three. Diff verdict
-pending — this section to be updated with the result either way.
+**Simulator + .spiceinit finding (2026-08-22):** characterization was
+effectively impossible until two things were fixed together. Measured
+on one identical 150 ns stimulus, same netlist, same corner:
+
+| ngspice | `.spiceinit` visible | result |
+|---|---|---|
+| 26 (bundled) | yes | 7 h 19 m, never finished |
+| 41 | **no** | >6.5 h, never finished |
+| 41 | yes | **24.7 min, rc=0**, 15273 timepoints, 48 measures |
+
+**(1) The bundled simulator is ngspice revision 26 (2014).** It predates
+the KLU sparse solver and never engages the `num_threads` its own
+`.spiceinit` asks for — it sits pinned at one core. `conda install -c
+conda-forge ngspice=41` into a SEPARATE env (`~/ngspice41env`; never into
+OpenRAM's miniconda, which running jobs depend on) fixes both.
+
+Switching it is not obvious. Setting `spice_exe` in a config is INERT —
+`characterizer/__init__.py:25` assigns `OPTS.spice_exe = ""` then
+`find_exe()`, overwriting any config value, the same trap as
+`process_corners`. And PATH alone does nothing either: `find_exe()`
+searches `CONDA_HOME/bin` BEFORE `$PATH` while `use_conda` is true, so
+the bundled 26 always wins. The working combination is
+`use_conda = False` in the config (it only skips `install_conda()`,
+already done) plus `~/ngspice41env/bin` first on PATH.
+
+**(2) ngspice reads `.spiceinit` from the directory it RUNS FROM.**
+OpenRAM writes one into `/tmp/openram_*_temp/`, which only helps if
+ngspice's cwd is that temp dir. `run_openram.sh` cds to `asic/openram/`,
+so a copy must live THERE — it is checked in. Without it, three settings
+vanish with no error and no warning: `num_threads` (one core),
+`ngbehavior=hsa`, and `ng_nomodcheck` (skips model-parameter range
+checks across thousands of BSIM4 instances — likely the larger half of
+the loss). `run_openram.sh` now refuses to launch if the file is absent,
+because a silent 15x slowdown is worse than a hard stop.
+
+Diagnosis habit worth keeping: **check `%CPU` on the first simulation.**
+Above 100% means the options landed; 99% means they did not, and you
+learn it in a minute instead of six hours. Confirm the binary with
+`readlink -f /proc/<pid>/exe`, not by reading the command line — OpenRAM
+wraps every call in `bash -c 'source <miniconda>/bin/activate && ...'`,
+so the wrapper's conda path appears even when the simulator is elsewhere.
+
+Xyce is not an escape hatch: it rejects the open_pdks sky130 models at
+parse (`.param line has an unexpected number of fields` in
+`nfet_g5v0d16v0__ss_discrete.corner.spice`), the same failure class as
+HSPICE, and in a 5 V device the SRAM never instantiates. Trimming the
+model library to only the instantiated devices is likewise a dead end as
+attempted: `special_nfet_latch` has no `__ss.corner` file of its own, so
+the obvious trim drops it and ngspice fails with `unknown subckt` before
+running anything. The failure is at least loud.
+
+STATUS 2026-08-22: steps 1-5 done (with the ngspice, corner, and
+`.spiceinit` corrections above). All five geometries plus the
+calibration macro have completed LAYOUT (GDS/LEF/SPICE); layout times
+11.2 / 14.7 / 37.1 / 69.5 / 173.6 min for 32x64/128/256/512/1024.
+Characterization relaunched 10:15 with ngspice-41 + `.spiceinit`;
+expect ~25 min per simulation, 15-30 simulations per corner, so 6-12 h
+per macro with all six running in parallel. No `.lib` has been produced
+yet — a NON-ZERO `.lib` is the only completion signal. Diff verdict
+still pending; this section gets the result either way.
