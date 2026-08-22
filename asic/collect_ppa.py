@@ -88,8 +88,12 @@ def parse_genus(run_dir):
         return None
 
     # Genus reports timing in picoseconds.
-    period_ps = _f(qor, r"^clk\s+([\d.]+)\s*$", cast=float)
-    row = re.search(r"^clk\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(\d+)\s*$", qor, re.M)
+    # MMMC runs prefix these rows with the analysis view ("ss_view  clk  3500.0");
+    # pre-MMMC runs start at "clk". Accept an optional leading view name so both
+    # eras parse - anchoring on ^clk silently yielded None for every MMMC run.
+    period_ps = _f(qor, r"^(?:\S+\s+)?clk\s+([\d.]+)\s*$", cast=float)
+    row = re.search(r"^(?:\S+\s+)?clk\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(\d+)\s*$",
+                    qor, re.M)
     slack_ps = float(row.group(1)) if row else None
     tns_ps = float(row.group(2)) if row else None
     violating = int(row.group(3)) if row else None
@@ -110,7 +114,9 @@ def parse_genus(run_dir):
     # Top-level row of report_area: <instance> [module] cells cell_area net_area total_area
     m = re.search(r"^(Cache\S*)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", area, re.M)
     if m:
-        out["area"] = float(m.group(5))
+        out["area"] = float(m.group(3))        # cell area
+        out["net_area"] = float(m.group(4))    # PLE wire-area estimate
+        out["total_area"] = float(m.group(5))  # cell + net
         out["cells"] = out["cells"] or int(m.group(2))
 
     m = re.search(r"^\s*Subtotal\s+(\S+)\s+(\S+)\s+(\S+)\s+(\S+)", power, re.M)
@@ -127,17 +133,31 @@ def parse_genus(run_dir):
 PARSERS = {"dc": parse_dc, "genus": parse_genus}
 
 
+def _has_qor(run_dir):
+    """A run is only collectable once its final qor.rpt exists."""
+    return os.path.isfile(os.path.join(run_dir, "reports", "qor.rpt"))
+
+
 def resolve_run_dir(assoc_dir):
     """Return the directory whose reports/ should be read for this assoc.
 
     Runs are written to <assoc>/runs/<stamp>/ with a `latest` symlink. Older
     runs wrote straight to <assoc>/reports/, so fall back to that layout.
+
+    `latest` is repointed when a run STARTS, and run_genus.sh creates reports/
+    early (check_design, clocks, ple land before synthesis). So testing for the
+    reports/ directory would make an in-flight run shadow the last completed
+    one and silently empty the table - which it did on 2026-08-21. Test for
+    qor.rpt, which is only written at the end, and otherwise fall back to the
+    newest run that actually finished.
     """
     latest = os.path.join(assoc_dir, "runs", "latest")
-    if os.path.isdir(os.path.join(latest, "reports")):
+    if _has_qor(latest):
         return latest
+    # Skip the `latest` symlink itself: it sorts after the date stamps and
+    # would otherwise be picked as "newest".
     runs = sorted(glob.glob(os.path.join(assoc_dir, "runs", "*")))
-    runs = [r for r in runs if os.path.isdir(os.path.join(r, "reports"))]
+    runs = [r for r in runs if not os.path.islink(r) and _has_qor(r)]
     if runs:
         return runs[-1]
     return assoc_dir
@@ -193,15 +213,18 @@ def markdown(tool, rows):
         return "\n".join(lines)
 
     lines += [
-        "| ASSOC | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | Hit latency (ns) | "
-        "Cell area (um^2) | Cells | Sequential | Macros | Total power (W) | Violating paths |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "| ASSOC | Cache (KB) | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | "
+        "Hit latency (ns) | Cell area (um^2) | Total area (um^2) | Cells | Sequential | "
+        "Macros | Total power (W) | Violating paths |",
+        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
         lines.append(
-            f"| {r['assoc']} | {fmt(r.get('period'), '.3f')} | {fmt(r.get('slack'), '.3f')} | "
+            f"| {r['assoc']} | "
+            f"{fmt(None if r.get('cache_bytes') is None else r['cache_bytes'] // 1024, ',')} | "
+            f"{fmt(r.get('period'), '.3f')} | {fmt(r.get('slack'), '.3f')} | "
             f"{fmt(r.get('fmax'), '.1f')} | {fmt(hit_latency_ns(r), '.1f')} | "
-            f"{fmt(r.get('area'), ',.0f')} | "
+            f"{fmt(r.get('area'), ',.0f')} | {fmt(r.get('total_area'), ',.0f')} | "
             f"{fmt(r.get('cells'), ',')} | {fmt(r.get('seq'), ',')} | {fmt(r.get('macros'), ',')} | "
             f"{fmt(r.get('total_power'), '.3f')} | {fmt(r.get('violating'), ',')} |")
     lines.append("")

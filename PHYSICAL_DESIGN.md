@@ -67,7 +67,211 @@ group them by startpoint -> endpoint pair. A fix is judged by whether its
 After a fix, a new population becomes the wall — timing closure is peeling
 an onion.
 
-## 4. Fanout, clock enables, and why storage placement matters
+## 4. Inside logic synthesis — the stages
+
+§1 treated synthesis as one box. It is really five stages run in order, and
+each can only fix certain kinds of problem. Knowing which stage owns your
+problem is the difference between a fix that works and three hours spent
+waiting for a tool that was never going to save you.
+
+The commands below are our Genus flow
+(`asic/synthesis/cadence/scripts/run_genus.tcl`). Design Compiler and Vivado
+differ in vocabulary, not in shape.
+
+### The five stages
+
+**1. Read and elaborate** — `read_hdl -sv` then `elaborate`.
+
+Parses the SystemVerilog, resolves parameters, unrolls `generate` blocks, and
+builds a **generic netlist**: RTL operators (adders, muxes, comparators) with
+no technology behind them yet. There is no timing at all at this point.
+
+Two things bake in here permanently:
+
+- **Parameters.** `elaborate -parameters {CACHE_BYTES 16384} {ASSOC 4}` renames
+  the design to `Cache_CACHE_BYTES16384_ASSOC4`. That name is your receipt —
+  it is how you confirm after the fact which configuration a run actually
+  built.
+- **Generate branches.** `USE_SRAM_MACRO` picks the macro or the flop banks
+  *here*, before any timing exists. A macro that "didn't bind" was never going
+  to; no later stage adds one. This is why the flow counts macro instances
+  right after elaboration and fails loudly at zero (§10, step 7).
+
+**2. Constrain** — `read_mmmc`, `read_physical -lefs`, `init_design`.
+
+Loads the library set and corners (the analysis view, §7), the SDC (clock
+period, I/O delays, exceptions), and the LEF that makes physical estimation
+possible. An unconstrained design has no target: the tool will cheerfully hand
+back something small and slow. **Every number produced downstream is relative
+to what you set here** — quoting a WNS without naming the period and corner is
+meaningless. There is also an ordering trap: `read_physical` requires the
+design to be timing-initialized already, which is why the script's sequence is
+commented rather than obvious.
+
+**3. Generic synthesis** — `syn_generic -physical`: technology-*independent*
+optimization.
+
+Constant propagation, dead-logic removal, resource sharing, datapath
+architecture selection (which adder topology), and **structuring** — factoring
+common subexpressions out of your logic. Still generic gates; no real cells.
+
+This stage rewrites your coding style, which cuts both ways. It is where
+well-intentioned RTL gets undone: Entry 13 wrote a 3-level prefix-OR and
+subexpression sharing serialized it into 6 levels. **If your careful structure
+vanished between RTL and the netlist, suspect this stage first.**
+
+**4. Technology mapping** — `syn_map -physical`.
+
+Generic operators become **real standard cells** chosen from the `.lib`: which
+gate, which drive strength, which flop. The `-physical` flag means the tool
+also does a coarse placement and uses LEF + PLE (§8) to estimate wire lengths,
+so it can weigh a bigger gate against a longer wire while choosing. Large
+designs are cut into partitions and mapped concurrently (see below).
+
+This is the expensive stage — **5,075 s (85 min)** on our 16KB A4 run.
+
+**5. Incremental optimization** — `syn_opt -spatial`.
+
+The long tail: resize gates, insert repeater chains for fanout, clone
+high-fanout drivers, restructure the worst paths, and *recover area* on paths
+with slack to spare. Most of a run's wall clock lives here.
+
+What it **cannot** do is change your architecture. It buys picoseconds with
+transistors. When a path is long because of a structural mux tree, syn_opt
+grinds for hours and returns almost nothing — which is itself a signal, and a
+valuable one.
+
+Then `write_hdl` + the report suite hand off to P&R (§11).
+
+### Reading a run's trajectory
+
+The stage boundaries are visible as a slack trajectory. From the 16KB ASSOC=4
+flop-bank run of 2026-08-21:
+
+| Moment | WNS @ 3.5 ns | Instances | Cell area |
+|---|---|---|---|
+| after partitioning | -3106 ps | — | — |
+| post-map (`M:Cleanup`) | -2601 ps | 598,120 | 6.45 mm² |
+| 2.5 h into serial `incr_tns` | -2585 ps | — | — |
+| `init_delay`, just after partition assembly | **-3382 ps** | — | — |
+| after the distributed `pbs_iopt` pass | -2326 ps | — | — |
+| **final** (6h18m total) | **-2163 ps** | 693,356 | 7.39 mm² |
+
+Four lessons, and the last two only exist because we watched the whole run
+instead of the first half:
+
+- **Mapping does the heavy lifting; opt does refinement.** -3106 → -2601 came
+  from choosing real cells. Expect the shape of your result to be set by the
+  end of `syn_map`.
+- **Know which phase you are in before concluding opt has given up.** The
+  serial `incr_tns` loop moved 16 ps in 2.5 hours, which looks exactly like a
+  tool out of ideas. It wasn't finished — a *distributed* `pbs_iopt` pass
+  followed and took another 422 ps. Reading "opt has stalled" off one phase is
+  how you kill a run an hour before its best work.
+- **A slack spike at a phase boundary is not a regression.** `init_delay`
+  reported -3382, worse than anything before it, because partitions optimize
+  against allocated *budgets* and assembly re-times the design for real. The
+  budgets flattered; assembly told the truth; the next pass recovered it. Read
+  `init_*` rows as starting points, never as results.
+- **A path that survives every phase is structural.** `order_head_r →
+  mem_req_wdata` — a grant-selected mux tree reading the victim buffer — held
+  WNS through mapping, serial opt, eight partitioned opt jobs, and reassembly.
+  *That* is the signal worth acting on, not the stall. No amount of gate
+  resizing shortens a mux tree; only RTL does.
+
+One more trap: **area goes *up* during opt, not down** — the tool spends
+transistors to buy time. Three measured runs, and note the spread:
+
+| Run | post-map | final | growth |
+|---|---|---|---|
+| 4KB A4 (Entries 1-5) | 2.18 mm² | 2.30 mm² | +5.3% |
+| 16KB A4 (Entries 1-8) | 7.51 mm² | 8.24 mm² | +9.7% |
+| 16KB A4 (E9-E19a) | 6.45 mm² | 7.39 mm² | **+14.6%** |
+
+Budget 5-15%, not a single number, and expect the harder-pressed run to grow
+more — it has more failing paths to buy. The mechanism is visible in the
+instance count: 598,120 cells at post-map became 693,356 final, ~95k of them
+buffers and repeaters inserted to fix fanout. Never quote final area from the
+post-map checkpoint.
+
+### Reading the mapping stage summary
+
+When a partitioned mapping stage finishes, Genus prints a per-partition table.
+Ours had five partitions; the shape to read:
+
+```
+PARTITION                2         5         3         1         4
+PRE_WNS              -2887      -272      -386      -585      -321
+POST_WNS             -2861      -521      -470      -580      -462
+POST_PORT_CNT        18666     18134       575      1015       578
+PRE_AREA           1657145   2400085   1723982   1776948   1722179
+POST_AREA          1024224   1618806   1188626   1246272   1200348
+PRE_LEAK_PWR        292595    770774    518803    541210    518600
+POST_LEAK_PWR       629300    994167    740098    813546    759454
+Total Elapsed         2167      1984      1697      1652      1593
+```
+
+`PRE_*` is the partition entering mapping (generic gates, scored against an
+allocated timing *budget*); `POST_*` is after mapping to real cells. Slack is
+in ps, area in µm², leakage in library power units.
+
+Three things worth looking for:
+
+1. **Which partition owns WNS** — partition 2 here, at -2861. Its
+   `PORT_CNT` tells you what that partition *is*: 18.6k boundary ports means
+   datapath (our 128-bit line plumbing), while the ~600-port partitions are
+   control logic. That is a free structural hint about where your problem
+   lives.
+2. **`POST_AREA` below `PRE_AREA` is normal** (~-30%): generic operators
+   collapse into real cells. **Leakage roughly doubling is also normal** — the
+   mapper bought speed with faster, leakier cells.
+3. **`POST_TNS` worse than `PRE_TNS` is not a regression.** Pre-numbers are
+   scored against per-partition budgets, post-numbers against real mapped
+   delay. `syn_opt` recovers it.
+
+The stage also reports its own parallelism. Our partitions summed to 9,093 s
+of work but `M:Distributed` was 2,171 s ≈ the longest single partition
+(2,167) — they genuinely ran concurrently. `PBS Index: 0.84` scores how evenly
+the cut balanced; near 1.0 is ideal.
+
+### Practical notes for this flow
+
+- **Genus exits 1 on success.** A `write_sdc -view` bug makes the run return a
+  nonzero status even when everything completed. Check for the presence of
+  `reports/`, never `$?`.
+- **`PHYS-1015` spatial fallback is expected.** `opt_spatial_effort` above
+  standard wants probabilistic extraction we don't have (no QRC), so the flow
+  falls back. Not an error.
+- **Checkpoint after mapping.** The script writes a `post_map` database
+  because generic + map are the expensive part. A `syn_opt` that dies can be
+  salvaged by re-reading that db and re-running opt only — we did exactly that
+  on 2026-08-20, turning a lost 3-hour run into a 45-minute recovery.
+- **Read the threading advisory.** The log prints how much time more
+  super-threading servers would have saved (ours claimed 5,780 s with 3, 7,216
+  s with 5). We currently set no `super_thread_servers` at all — free runtime
+  sitting on the table when a run costs four hours.
+
+### The FPGA analogue
+
+Vivado runs the same five ideas under different names: `synth_design`
+(elaborate + generic + map, targeting LUTs and FFs instead of standard cells)
+→ `opt_design` → `place_design` → `phys_opt_design` → `route_design`. The
+mapping target is fixed silicon rather than a cell library, and because Vivado
+routes for real, its numbers are post-route truth while Genus's stop at an
+estimate (§8).
+
+### Which stage owns your problem
+
+| Symptom | Stage that owns it | What to do about it |
+|---|---|---|
+| Macro/branch didn't appear in the netlist | elaborate | It's a parameter or geometry gate. No later stage adds one. |
+| Your careful RTL structure vanished | `syn_generic` | Subexpression sharing re-factored it. Pin with `keep`/`dont_touch` — sparingly; Entry 17 showed accumulated pins become a straitjacket. |
+| Worst path is deep logic (many levels) | your RTL | Precompute a cycle earlier, or re-architect. Opt cannot fix depth. |
+| Worst path is high fanout, few levels | `syn_opt` | It will clone and buffer. If it still can't, move the signal to a shallower source (§5). |
+| WNS barely moves over hours of opt | your RTL | Structural. Opt has done what it can — the fix is upstream. |
+| Area looks wrong | `syn_opt` | You're reading the post-map checkpoint; opt adds ~5%. |
+
+## 5. Fanout, clock enables, and why storage placement matters
 
 The recurring lesson of this campaign, four entries in a row:
 
@@ -86,7 +290,7 @@ used, in increasing strength:
    stopped re-writing on every retire).
 4. **Change the storage primitive** entirely (Entry 5, and the SRAM macros).
 
-## 5. Storage: flops vs RAM primitives vs hard macros
+## 6. Storage: flops vs RAM primitives vs hard macros
 
 A flip-flop is the most expensive way to store a bit: ~20 um^2 in SKY130 HD,
 a clock pin that burns power every cycle, and a write port that needs a
@@ -106,11 +310,11 @@ data bits (our 16KB array).
   The synthesizer treats the macro as a black box with known timing at its
   boundary; P&R treats it as a large fixed rectangle to place around.
 
-Our binding is ASIC-only: the Genus flow passes `-define SRAM_MACRO_BANKS`,
-so FPGA and simulation still elaborate the behavioral banks. Same RTL, two
+Our binding is ASIC-only: the Genus flow sets the `EN_SRAM_MACRO` parameter,
+so the FPGA flow still elaborates the behavioral banks. Same RTL, two
 physical realities, zero divergence in verified behavior.
 
-## 6. PVT corners, Liberty files, and derating
+## 7. PVT corners, Liberty files, and derating
 
 Silicon speed varies with **P**rocess (fab luck), **V**oltage, and
 **T**emperature. A standard-cell library is characterized at specific PVT
@@ -138,7 +342,7 @@ chose x2.0 — provably enveloping the gap. Lesson: a derate should be
 (the macro's TT/100C lib reports 7.8 ns — 13x out of family; we blacklisted
 it). Always sanity-check a .lib against its siblings before trusting it.
 
-## 7. Wire modeling: why synthesis numbers are a floor
+## 8. Wire modeling: why synthesis numbers are a floor
 
 Gates are only half the delay; wires are the other half, and synthesis
 doesn't know where anything is yet. Three levels of truth:
@@ -155,10 +359,10 @@ doesn't know where anything is yet. Three levels of truth:
 
 Rule of thumb we keep re-learning: **post-P&R slack is worse than synthesis
 slack, never better**. Treat every synthesis WNS as a floor on the problem.
-And note: PLE models wires — it does nothing about PVT. Corner choice (§6)
+And note: PLE models wires — it does nothing about PVT. Corner choice (§7)
 and wire modeling are orthogonal knobs.
 
-## 8. FPGA vs ASIC: one RTL, two different verdicts
+## 9. FPGA vs ASIC: one RTL, two different verdicts
 
 The same RTL ranked associativity differently on the two targets (FPGA said
 A4, ASIC said A8; after Entry 5 they disagreed again the other way). Neither
@@ -177,7 +381,7 @@ Use each meter for what it sees: our FPGA runs can't see the Reservation
 Station at all (0 of 1000 worst paths) — only Genus can. Know your meter's
 blind spots before believing a null result.
 
-## 9. Integrating a hard macro — the recipe
+## 10. Integrating a hard macro — the recipe
 
 What "using an SRAM macro" actually takes, in the order that avoids pain.
 This is exactly what this repo did on 2026-08-20; the concrete artifacts are
@@ -198,15 +402,12 @@ in `Flag_Tag_Data_Array.sv`, `asic/synthesis/common/scripts/project_config.tcl`,
    silicon (half-used) or forces ugly banking logic around it.
 
 3. **Bind it conditionally, not unconditionally.** The instantiation lives
-   inside a generate branch selected by a synthesis define plus a geometry
-   check:
+   inside a generate branch selected by a **parameter** plus a geometry check:
 
    ```systemverilog
-   `ifdef SRAM_MACRO_BANKS
-       localparam bit USE_SRAM_MACRO = (DEPTH == 256) && (DATA_WIDTH == 32);
-   `else
-       localparam bit USE_SRAM_MACRO = 1'b0;
-   `endif
+   localparam bit USE_SRAM_MACRO =
+       EN_SRAM_MACRO && (DEPTH == 256) && (DATA_WIDTH == 32);
+
    if (USE_SRAM_MACRO) begin : g_sram
        sram_1rw1r_32_256_8_sky130 u_sram (...);
    end else begin : g_flops
@@ -214,10 +415,19 @@ in `Flag_Tag_Data_Array.sv`, `asic/synthesis/common/scripts/project_config.tcl`,
    end
    ```
 
-   Only the ASIC flow passes `-define SRAM_MACRO_BANKS`; simulation and the
-   FPGA flow never see the macro, so their results are unchanged *by
-   construction* — which you still prove by re-running the regression
-   (define off) and elaborating with the vendor's `.v` model (define on).
+   A parameter, not a `` `define ``, and that choice was forced: the OpenFLEX
+   YAML configs driving the FPGA flow can't pass defines, so a define-gated
+   macro would have been unreachable from one of our two meters. Genus sets it
+   with `elaborate -parameters {EN_SRAM_MACRO 1}`; the FPGA flow leaves it at
+   its `1'b0` default. The geometry terms matter as much as the enable — they
+   are why only 16KB ASSOC=4 binds today (256x32 banks); every other
+   associativity silently falls back to flops, which is what step 7's
+   zero-instance guard exists to catch.
+
+   Note the testbench defaults `EN_SRAM_MACRO=1`, so simulation exercises the
+   macro branch through the vendor's `.v` model rather than avoiding it — the
+   ASSOC=4 DUT runs macros while the other four cover the behavioral banks in
+   the same regression.
 
 4. **Read the macro's Verilog header for pin semantics before wiring.**
    OpenRAM pins are active-low (`csb` chip select, `web` write enable) and
@@ -237,7 +447,7 @@ in `Flag_Tag_Data_Array.sv`, `asic/synthesis/common/scripts/project_config.tcl`,
      and pin locations.
    - `.v` -> simulation only. Never hand a behavioral model to synthesis.
 
-6. **Settle the corner story explicitly** (§6): our macro's only slow lib is
+6. **Settle the corner story explicitly** (§7): our macro's only slow lib is
    SS_1p8V_25C vs cell signoff at ss_100C_1v60, closed with a derived x2.0
    late derate on the macro instances — applied in the flow as
    `set_timing_derate -delay_corner ss_corner -late 2.0 <insts>` (this
@@ -270,7 +480,7 @@ enters at Innovus CTS. The macro integration didn't change this shape — the
 macro's `.lib` simply joined the one existing library set, and its corner gap
 is carried by the derate instead of a second view.
 
-## 10. What P&R (Innovus) adds — the next stage for this project
+## 11. What P&R (Innovus) adds — the next stage for this project
 
 1. **Floorplan**: die size, pin locations, and where the 16 SRAM macros sit.
    Macro placement is the highest-leverage manual decision — bad macro
@@ -286,7 +496,7 @@ is carried by the derate instead of a second view.
 Everything before this point was prediction; P&R is where predictions meet
 geometry.
 
-## 11. Glossary
+## 12. Glossary
 
 | Term | Meaning |
 |---|---|
@@ -301,8 +511,8 @@ geometry.
 | Corner / PVT | one (process, voltage, temperature) characterization point |
 | MMMC | multi-mode multi-corner analysis organization |
 | Derate | multiplier on delays to cover modeling gaps (ours: x2 on macros) |
-| WLM / PLE | statistical vs placement-based wire estimation (§7) |
+| WLM / PLE | statistical vs placement-based wire estimation (§8) |
 | Hard macro | pre-laid-out block (SRAM) placed as one object |
-| CTS | clock-tree synthesis (§10) |
+| CTS | clock-tree synthesis (§11) |
 | STA | static timing analysis — exhaustive path checking, no simulation |
 | DRC / LVS | geometry rules check / layout-vs-schematic equivalence |
