@@ -18,15 +18,35 @@ write_size = 8            # byte-maskable, matching the vendored macro
 
 tech_name = "sky130"
 
-# Spice-based characterization (the whole point) via HSPICE
-# (/apps/syn/hspice, license smoke-tested 2026-08-21).
+# Spice-based characterization (the whole point). NOT hspice: the
+# open_pdks sky130 device models are written in ngspice syntax ({l}/{w}
+# parameter braces on device lines) and HSPICE rejects them at parse
+# (verified 2026-08-21 - first model file, syntax error). OpenRAM's
+# self-provisioned conda env ships ngspice + Xyce for exactly this
+# reason; ngspice + sky130 models is the pairing the vendored libs were
+# characterized with. The calibration diff, not the simulator brand, is
+# the credibility instrument.
 analytical_delay = False
-spice_name = "hspice"
+spice_name = "ngspice"
 
-# Match the vendored lib's corner exactly for the calibration diff.
-process_corners = ["SS"]
+# Corner selection. WARNING: process_corners/supply_voltages/temperatures
+# are INERT unless a second gate is set - by default OpenRAM ignores them,
+# builds its corner list from a hardcoded nominal "TT", and characterizes
+# TT first. That is why attempt 1 emitted a TT-named lib despite asking for
+# SS. Full mechanism (and why only_use_config_corners=True crashes with an
+# UnboundLocalError instead of fixing it) in asic/MACROS.md,
+# "Corner-selection finding". use_specified_corners is the reliable gate:
+# it takes its own branch and characterizes exactly this list.
+#
+# ONE corner (user decision 2026-08-21). Measured cost is ~25 min per ngspice
+# sim and ~15-30 sims per corner = 6-12 h EACH, so the three-corner diff the
+# default path stumbles into (TT, FF, SS at 1p8V/25C) would be a 1-2 day job.
+# SS_1p8V_25C is the corner to keep: it is the lib the ASIC flow actually
+# links today, so the calibration diff measures the arc we depend on.
+process_corners = ["SS"]          # kept for documentation; NOT what binds
 supply_voltages = [1.8]
 temperatures = [25]
+use_specified_corners = [("SS", 1.8, 25)]
 
 # Timing calibration only: layout verification is a later phase
 # (netgen not on server yet; DRC/LVS owed before any GDS-level claim).

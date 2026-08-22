@@ -58,3 +58,9 @@ openflex/timing_assoc*_stdout.log
 # Private optimization lab notebook (see optimizations.md header).
 optimizations.md
 __pycache__/
+
+# OpenRAM generated macro output: multi-MB GDS/SPICE/LIB per macro, fully
+# regenerable from the checked-in configs (asic/openram/*.py) via
+# asic/openram/run_openram.sh. Same policy as asic/PPA output.
+asic/openram/*_out/
+asic/openram/*_run.log

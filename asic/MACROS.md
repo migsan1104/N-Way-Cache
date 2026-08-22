@@ -251,9 +251,12 @@ klayout binaries are NOT installed (klayout DECKS are in the PDK).
    dependencies — expect a long download once.)
 4. Write a config — the Phase-0 calibration one is checked in at
    `asic/openram/calib_32x256.py` (word_size=32, num_words=256,
-   num_rw_ports=1, num_r_ports=1, write_size=8, spice_name="hspice",
-   analytical_delay=False, corners = SS/1.8V/25C to match the vendored
-   lib; check_lvsdrc=False for timing-only calibration).
+   num_rw_ports=1, num_r_ports=1, write_size=8, spice_name="ngspice",
+   analytical_delay=False, corners pinned with `use_specified_corners`
+   to the three the vendor also ships at 1p8V/25C;
+   check_lvsdrc=False for timing-only calibration). See both findings
+   below before editing it — the simulator and the corner gate each
+   have a trap.
 5. Run:
        source /apps/settings         # brings hspice onto PATH
        export PDK_ROOT / OPENRAM_HOME / OPENRAM_TECH as above
@@ -263,7 +266,7 @@ klayout binaries are NOT installed (klayout DECKS are in the PDK).
    lands in `calib_out/` — the .lib is the artifact; diff its arcs
    against `.../sky130_sram_macros/lib/sram_1rw1r_32_256_8_sky130_SS_1p8V_25C.lib`.
 6. Phase 1 (gated on the diff): rerun with num_words = 64/128/512/1024
-   and corners = ss/1.60V/100C (+ TT_1p8V_25C as a cross-check lib),
+   and `use_specified_corners = [("SS", 1.60, 100)]`,
    then integrate per the checklist above — the generate branch in
    FTDA generalizes from `DEPTH == 256` to per-depth exact-fit cells,
    and the three file lists get the new sim models per the CLAUDE.md
@@ -280,6 +283,74 @@ pairing the vendored libs themselves were characterized with). The
 generation half (GDS/LEF/netlist) succeeded on the first attempt; only
 characterization needed the simulator swap.
 
-STATUS 2026-08-21: steps 1-5 done (with the ngspice correction above);
-calibration characterization re-launched. Diff verdict pending — this
-section to be updated with the result either way.
+**Corner-selection finding (2026-08-21):** setting `process_corners`
+in a config does NOTHING on its own. It is gated behind a second
+option that defaults off. From
+`openram/compiler/characterizer/lib.py`, `create_corners()`:
+
+```python
+if OPTS.use_specified_corners == None:
+    if OPTS.only_use_config_corners:          # DEFAULT: False
+        for p in self.process_corners:        # <- the branch that reads your config
+            for v in self.supply_voltages:
+                for t in self.temperatures:
+                    corner_tuples.add((p, v, t))
+    else:                                     # <- the branch you get by default
+        nom_process = "TT"                    # hardcoded, ignores process_corners
+        nom_corner = (nom_process, nom_supply, nom_temperature)
+        ...
+    self.add_corner(*nom_corner)              # "Enforce that nominal corner is first"
+```
+
+Both gates default off (`options.py`: `only_use_config_corners = False`,
+`use_specified_corners = None`), so the default path builds its corner
+list from a hardcoded `nom_process = "TT"` plus a sweep, and
+characterizes TT **first**. That is why attempt 1 emitted a TT-named
+lib despite `process_corners = ["SS"]` — the option was inert, not
+overridden. Symptom to recognize: the generated `delay_stim.sp` opens
+with `* TT process corner` / `.lib "...sky130.lib.spice" tt`. Read that
+file to know what a run is ACTUALLY characterizing; the config is not
+evidence.
+
+What the default path produces here is still useful. With
+`supply_voltages = [1.8]` and `temperatures = [25]`, the temperature
+and supply sweeps collapse onto the nominal and the tuple set dedups to
+three corners — `(TT,1.8,25)` first, then `(FF,1.8,25)` and
+`(SS,1.8,25)`, SS surviving only because `max_process = "SS"` is
+hardcoded in that same branch. Those are EXACTLY the three corners the
+vendor ships at 1p8V/25C, so the calibration gate gets a three-point
+diff instead of the one-point diff it was designed around — a stronger
+result, at 3x the characterization time. The calibration config now
+requests those three explicitly rather than receiving them by accident.
+
+For Phase 1, where only ONE corner is wanted, use
+`use_specified_corners` — **not** `only_use_config_corners`:
+
+```python
+use_specified_corners = [("SS", 1.60, 100)]   # exactly this corner, nothing else
+```
+
+`only_use_config_corners = True` looks like the intended knob and is a
+TRAP: it crashes. In OpenRAM 1.2.48 `create_corners()` assigns
+`nom_corner` only inside the `else` branch, but calls
+`self.add_corner(*nom_corner)` and `corner_tuples.remove(nom_corner)`
+OUTSIDE the inner if/else (lib.py:119 vs 132-133). Take the powerset
+branch and `nom_corner` is unbound —
+`UnboundLocalError: local variable 'nom_corner' referenced before
+assignment` — and even if it were bound, the `remove()` would raise
+`KeyError` whenever the powerset excludes the TT nominal. Verified by
+reading the source 2026-08-21; `nom_corner` appears nowhere else in the
+package. `use_specified_corners` takes a separate branch that skips
+that code entirely, which is why it is the safe one.
+
+Unverified caveat carried into Phase 1: 1.60 V is not in sky130's
+`spice["supply_voltages"] = [1.7, 1.8, 1.9]`. The powerset branch uses
+whatever list you hand it and the voltage only sets `Vvdd` in the
+stimulus, so it should simulate — but that is reasoning, not a tested
+result, and all of Phase 1 depends on it. Check the first generated
+`delay_stim.sp` for `Vvdd vdd 0 1.6` before trusting a Phase-1 lib.
+
+STATUS 2026-08-21: steps 1-5 done (with the ngspice and corner
+corrections above); calibration characterization running — layout
+complete (routing 35 min), now in the TT leg of three. Diff verdict
+pending — this section to be updated with the result either way.
