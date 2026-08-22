@@ -389,6 +389,15 @@ safe_report [file join $REPORT_DIR check_design.rpt]   { check_design }
 safe_report [file join $REPORT_DIR clocks.rpt]         { report_clocks }
 safe_report [file join $REPORT_DIR timing.rpt] \
     "report_timing -max_paths 20 -path_type full -fields {$TIMING_FIELDS}"
+# Deep census. 20 full paths is enough to name the worst cone and nothing more:
+# on the 2026-08-21 A4 runs all 20 landed within 2 ps of each other across four
+# distinct cones, so population sizes were pure guesswork. The FPGA flow has
+# always censused the worst 1000 and grouped by startpoint->endpoint class -
+# that is how a fix gets judged (did its POPULATION disappear?), and the ASIC
+# meter needs the same. -path_type summary keeps one line per path instead of a
+# full hop table, so 1000 paths cost a few hundred KB rather than tens of MB.
+safe_report [file join $REPORT_DIR census.rpt] \
+    "report_timing -max_paths 1000 -path_type summary"
 safe_report [file join $REPORT_DIR qor.rpt]            { report_qor }
 safe_report [file join $REPORT_DIR area.rpt]           { report_area }
 safe_report [file join $REPORT_DIR area_hierarchy.rpt] { report_area -hierarchy }
@@ -449,8 +458,14 @@ if {[catch {write_hdl > $NETLIST_OUT} msg]} {
 }
 
 note "Writing mapped SDC: $SDC_OUT"
+# NOT fatal. This Genus has a write_sdc -view bug that makes the command fail
+# on every run - that is the whole reason a successful run exits 1. Treating it
+# as fatal meant `fail` (which exits) fired here, one line before write_db, so
+# NO completed run ever wrote its final database: db/ held only the post-map
+# checkpoint, and a finished run could never be reopened to ask for deeper
+# reports. The empty SDC is a cosmetic loss; the missing database was not.
 if {[catch {write_sdc > $SDC_OUT} msg]} {
-    fail "write_sdc failed: $msg"
+    puts stderr "WARNING: write_sdc failed (known -view bug, non-fatal): $msg"
 }
 
 note "Writing Genus database: $DB_OUT"
