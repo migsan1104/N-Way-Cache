@@ -55,6 +55,16 @@ supply_voltages = [1.60]
 temperatures = [100]
 use_specified_corners = [("SS", 1.60, 100)]
 
+# Load/slew grid: the 0.25 scales are DROPPED - 2x2 tables, the same grid as
+# the rest of the family (rationale in gen_32x64.py / asic/MACROS.md). This
+# job's first attempt (2026-08-22, full 3x3 grid, 8 h) DID complete, and is the
+# run that exposed the problem: its 1.7 fF column reads 2.616 / 0.318 / 1.809 ns
+# across 1.7 / 6.9 / 27.6 fF (dout moved before s_en, OpenRAM substituted
+# delay_lh). That lib is archived at macros_out/32x128_fullgrid_20260822/ and
+# must not be linked.
+load_scales = [1, 4]
+slew_scales = [1, 8]
+
 # Layout verification is a later phase (netgen not built on this server yet).
 check_lvsdrc = False
 

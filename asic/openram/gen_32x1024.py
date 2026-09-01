@@ -55,6 +55,23 @@ supply_voltages = [1.60]
 temperatures = [100]
 use_specified_corners = [("SS", 1.60, 100)]
 
+# Load/slew grid: the 0.25 scales are DROPPED - 2x2 tables, the same grid as
+# calib_32x256.py and gen_32x64.py. Two independent reasons, both found
+# 2026-08-23 (full writeup in gen_32x64.py and asic/MACROS.md):
+#   slew 0.25 (0.00125 ns): the s_en measure puts its TD exactly on the clock's
+#     falling edge; at a 1.25 ps edge ngspice misses the crossing about half the
+#     time per port (-inf -> parse failure -> assert at delay.py:1359). Killed
+#     the 32x64 run and the calibration's first attempt; a coin flip, not a
+#     circuit failure. No sky130 gate produces a 1.25 ps edge anyway.
+#   load 0.25 (1.7 fF): dout moves before s_en ("captured precharge"), OpenRAM
+#     substitutes delay_lh, and the column comes out non-monotonic
+#     (32x128: 2.616 / 0.318 / 1.809 ns across 1.7 / 6.9 / 27.6 fF). Unlinkable.
+# The first attempt of this job (2026-08-22 10:15, full grid) was killed after
+# ~25 h in the min-period search, before either point was reached, once the
+# 32x128 lib showed what the full grid produces.
+load_scales = [1, 4]
+slew_scales = [1, 8]
+
 # Layout verification is a later phase (netgen not built on this server yet).
 check_lvsdrc = False
 

@@ -52,6 +52,12 @@ module MSHR_File #(
     input  logic [LINE_WIDTH/DATA_WIDTH-1:0] alloc_victim_word_valid,
 
     input  logic [3:0]                 issue_done,
+    // Entry 23: arbiter's order-head entry (pre-qualification).
+    // Entry 31: ONE-HOT over entries, so the wb selects below are an
+    // AND-OR reduce instead of a mux whose index had to be decoded.
+    // Width is the literal 4 for the same reason issue_done above is:
+    // MSHR_COUNT is a localparam declared in the body, after the ports.
+    input  logic [3:0]                 head_oh,
 
     input  logic                       mem_resp_valid,
     input  logic [MSHR_ID_WIDTH-1:0]   mem_resp_id,
@@ -74,7 +80,9 @@ module MSHR_File #(
     output logic [3:0]                 req_valid,
     output logic [3:0]                 req_write,
     output logic [ADDR_WIDTH-1:0]      req_addr  [4],
-    output logic [DATA_WIDTH-1:0]      req_wdata [4],
+    // Entry 23: the victim word for the order-head entry (was four
+    // identical per-entry data lanes).
+    output logic [DATA_WIDTH-1:0]      wb_data,
     output logic [MSHR_ID_WIDTH-1:0]   req_id    [4]
 );
 
@@ -116,6 +124,7 @@ module MSHR_File #(
     // its ordering FIFO, never on write data.
     logic [RS_ID_WIDTH-1:0]   entry_wb_slot [MSHR_COUNT];
     logic [WORD_OFFSET_W-1:0] entry_wb_word [MSHR_COUNT];
+    logic [WORD_OFFSET_W-1:0] entry_wb_word_n [MSHR_COUNT];  // Entry 27b
     logic [RS_ID_WIDTH-1:0]   wb_slot_sel;
     logic [WORD_OFFSET_W-1:0] wb_word_sel;
     logic                     wb_active;
@@ -154,6 +163,10 @@ module MSHR_File #(
 
     logic retire_sel_valid;
     logic [MSHR_ID_WIDTH-1:0] retire_sel_idx;
+    // Entry 30(a): the registered retire broadcast (see the retire
+    // section below for the full story).
+    logic                     retire_valid_r;
+    logic [MSHR_ID_WIDTH-1:0] retire_idx_r;
 
     // ============================================================
     // Reservation Station
@@ -217,6 +230,10 @@ module MSHR_File #(
 
         .retire_valid       (rs_retire_valid),
         .retire_mshr_id     (rs_retire_mshr_id),
+        // Entry 30(b): the pre-registered retire (Entry 30(a)'s D) -
+        // lets the RS's registered merge decision pre-shift for the
+        // retire that will fire alongside its consumption.
+        .retire_valid_next  (retire_sel_valid),
 
         .dispatch_valid        (dispatch_valid),
         .dispatch_cpu_id_count (dispatch_cpu_id_count),
@@ -240,7 +257,9 @@ module MSHR_File #(
         .delayed_miss_data    (delayed_miss_data),
 
         .dispatch_valid       (dispatch_valid),
-        .dispatch_critical_word(entry_word_id[retire_sel_idx]),
+        // Entry 30(a): read at the REGISTERED index - the entry's
+        // registers still hold this request (retire_hold_r).
+        .dispatch_critical_word(entry_word_id[retire_idx_r]),
         .dispatch_cpu_id_count(dispatch_cpu_id_count),
         .dispatch_cpu_ids     (dispatch_cpu_ids),
         .dispatch_word_ids    (dispatch_word_ids),
@@ -288,8 +307,60 @@ module MSHR_File #(
         end
     end
 
-    assign rs_retire_valid   = retire_sel_valid;
-    assign rs_retire_mshr_id = retire_sel_idx;
+    // ============================================================
+    // Entry 30(a): the retire broadcast is REGISTERED.
+    //
+    // retire_sel_* is a priority resolve over the entries' refill
+    // pulses, and everything it used to drive combinationally is WIDE:
+    // the RS shift-down muxes into 8 x 155-bit rs entries, the waiter
+    // dispatch, the vbuf head advance, plus the Dispacher's critical
+    // word - 245 of the top-400 paths of the -729 baseline census
+    // rooted in refill_wen_r / the merge dups (2026-08-24). One
+    // register here lets all of that launch from a clean flop.
+    //
+    // Latency: the RS retire and the CPU miss responses land one cycle
+    // later. Delay_r in Cache.sv goes 5 -> 6 to keep the delayed
+    // memory data aligned with the cycle the Dispacher now sees the
+    // retire (re-derived for this entry; regression is the proof).
+    // The ARRAY refill is deliberately NOT moved - MSHR_Mux still
+    // writes on the pulse cycle - so the refill/retire priority mirror
+    // holds with the retire side exactly one cycle behind.
+    //
+    // Consistency: an entry stays busy through the retire cycle
+    // (retire_hold_r in MSHR_Entry), so it cannot be re-allocated
+    // while its retire - and the entry_word_id read below - is in
+    // flight. RS credit sees the retiring entry one cycle longer:
+    // alloc_ready is conservative by one cycle, never optimistic.
+    //
+    // Reset: NONE, as of Entry 29(e) (2026-08-25). retire_sel_valid is a
+    // priority-OR of the entries' refill_wen_r, every one of which keeps
+    // its reset, so retire_valid_r is a defined 0 from the second reset
+    // edge - the same derivation E29(d) used for MSHR_Mux.refill_wen.
+    // The index is payload and free-runs, consumed only under
+    // retire_valid_r. (Declarations live up with retire_sel_* - the
+    // Dispacher instance reads retire_idx_r above this point.)
+    // ============================================================
+    always_ff @(posedge clk) begin
+        retire_valid_r <= retire_sel_valid;
+        retire_idx_r   <= retire_sel_idx;
+    end
+
+    assign rs_retire_valid   = retire_valid_r;
+    assign rs_retire_mshr_id = retire_idx_r;
+
+`ifndef SYNTHESIS
+    // Entry 30(a) invariant: the entry a registered retire points at
+    // must still be holding its request state (retire_hold_r keeps it
+    // valid). If this fires, the busy extension is broken and the
+    // Dispacher may read a re-allocated entry's critical word.
+    always_ff @(posedge clk) begin
+        if (!rst && retire_valid_r) begin
+            assert (entry_valid[retire_idx_r])
+                else $error("MSHR E30a: retire in flight for entry %0d but it is no longer valid",
+                            retire_idx_r);
+        end
+    end
+`endif
 
     // ============================================================
     // Memory response demux
@@ -342,38 +413,70 @@ module MSHR_File #(
     assign issue_pending = entry_issue_pending;
 
     // ============================================================
-    // Entry 18: victim writeback data, read at grant time
+    // Entry 18 / Entry 23: victim writeback data, read for the HEAD
     //
-    // issue_done is the arbiter's grant one-hot for THIS cycle. Mux the
-    // granted entry's victim coordinates into the RS vbuf and drive the
-    // answer onto every req_wdata lane - the arbiter's own data mux then
-    // selects the granted lane, so the value that reaches the memory
-    // port is exactly the granted entry's victim word. Lanes that are
-    // not granted, and read beats (which carry no write data), see a
-    // don't-care - same as the old register-mux design, where ungranted
-    // lanes carried their own stale victim slices.
+    // Entry 18 read the vbuf at the GRANTED entry's {slot, word}: an
+    // AND-OR over the arbiter's issue_done one-hot. That one-hot carries
+    // found_req = order_count != 0 && req_pending[head] && req_valid[head],
+    // and req_valid reaches into each entry's FSM state and beat-skip
+    // mask - four LUT levels in front of the RAM address on FPGA, the
+    // 32-path `order_head_r -> mem_req_wdata` class on ASIC.
+    //
+    // Entry 23: the arbiter only ever grants the order-HEAD entry, so on
+    // every cycle a write beat issues, the granted entry IS head_idx.
+    // Read the vbuf at the head's coordinates - two 4:1 muxes of
+    // registers - and let the grant drop out of the data path. Cycles
+    // without a grant read a don't-care (no beat; RAM_ID consumes wdata
+    // only on valid && write). One word leaves on wb_data; the arbiter
+    // no longer muxes four identical lanes. Same value on every cycle
+    // that matters: bit-identical by construction.
     // ============================================================
 
+    // Entry 27b STRUCK FOR GOOD 2026-08-24 (both revisions measured):
+    //   rev 1 (word pre-read at next-cycle coords): -2377 - the address
+    //     serialized arbiter pop/insert + FSM-counter-D (grant reach) +
+    //     the full vbuf mux into one cycle.
+    //   rev 2 (full-LINE pre-read at next head's slot, word select next
+    //     cycle): -1614 - no grant reach, no word mux, and STILL the
+    //     design wall: the head_idx_n front (order_head_r 800 ps CLK->Q
+    //     + pop compare + insert + order_q_n mux) plus the 8:1 x 128b
+    //     line read does not fit either.
+    // Meanwhile the plain Entry 23 read below closed at -729 in the
+    // same stack (run 20260824_091117). The pre-read idea is dead:
+    // nothing useful fits behind head_idx_n in one cycle. head_idx_n
+    // itself is GONE as of Entry 31 - the one-hot queue has no
+    // next-state form to export. entry_wb_word_n / MSHR_Entry.wb_word_n
+    // remain as unloaded 27b residue, to be swept separately.
+    // Entry 31: entry_wb_slot[head_idx] / entry_wb_word[head_idx] were
+    // the second of the three serial indirections on the -911 cone -
+    // a 4:1 mux whose select was itself muxed out of order_q one level
+    // up. With the head arriving pre-decoded these are AND-OR reduces
+    // straight off flops.
+    //
+    // Accumulate discipline (the Entry 30(b) trap): initialise, then
+    // |= in order; each read sees only what this activation wrote.
+    //
+    // head_oh is all-zero on an empty queue, which reads 0 on both -
+    // a defined don't-care. The encoded form used to read a stale
+    // index instead. Neither is consumed: a beat only leaves on a
+    // grant (see wb_active below), and RAM_ID consumes wdata only on
+    // valid && write.
     always_comb begin
         wb_slot_sel = '0;
         wb_word_sel = '0;
-        for (int k = 0; k < MSHR_COUNT; k++) begin
-            if (issue_done[k]) begin
-                wb_slot_sel |= entry_wb_slot[k];
-                wb_word_sel |= entry_wb_word[k];
-            end
+        for (int i = 0; i < MSHR_COUNT; i++) begin
+            wb_slot_sel |= entry_wb_slot[i] & {RS_ID_WIDTH{head_oh[i]}};
+            wb_word_sel |= entry_wb_word[i] & {WORD_OFFSET_W{head_oh[i]}};
         end
     end
 
     // A grant for a WRITE beat is the only cycle the read matters -
     // this arms the RS-side slot-liveness assertion (sim-only there).
+    // Still keyed on the GRANT, not the head: it must fire exactly when
+    // a beat is issued.
     assign wb_active = |(issue_done & req_write);
 
-    always_comb begin
-        for (int k = 0; k < MSHR_COUNT; k++) begin
-            req_wdata[k] = vbuf_wb_data;
-        end
-    end
+    assign wb_data = vbuf_wb_data;   // Entry 23 read (27b struck)
 
     // ============================================================
     // MSHR entries
@@ -428,6 +531,7 @@ module MSHR_File #(
 
                 .wb_slot            (entry_wb_slot[i]),
                 .wb_word            (entry_wb_word[i]),
+                .wb_word_n          (entry_wb_word_n[i]),
 
                 .line_addr          (entry_line_addr[i]),
                 .set_id             (entry_set_id[i]),

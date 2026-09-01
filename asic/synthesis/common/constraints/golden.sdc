@@ -68,11 +68,42 @@ set_clock_transition 0.150 [get_clocks clk]
 # ---------------------------------------------------------------------------
 # I/O timing
 # ---------------------------------------------------------------------------
-# Budget 20% of the clock period at each boundary (0.20 * 3.500 = 0.700 ns).
-# This is the standard block-level placeholder: it reserves a fifth of the cycle
-# for whatever logic sits upstream and downstream of this cache in the RISC-V
-# core, leaving 60% of the period for the cache itself. Replace with real
-# numbers once the surrounding blocks have been budgeted.
+# The cache has no parent block yet, so these numbers cannot be extracted from
+# a real neighbour. They are instead derived from a stated INTERFACE CONTRACT:
+# every input arrives from a flop in the adjacent block, and every output is
+# captured by a flop in the adjacent block, with no combinational logic on
+# either side of the boundary. That contract is what the rest of the design
+# already assumes - mem_resp_ready is hardwired to 1 because the surrounding
+# memory hierarchy owns backpressure, and a memory controller or L2 bus
+# interface registers its request inputs as a matter of course.
+#
+# The two directions are NOT symmetric, because they are made of different
+# things. Do not "simplify" them back to one percentage.
+#
+# INPUT 0.700 = the CLK->Q of the driving flop. Measured, not assumed: across
+# the worst-20 launch flops of the 16 KB ASSOC=4 run, CLK->Q ranges 725 ps
+# (11.7 fF load) to 827 ps (34.5 fF) at this corner - essentially independent
+# of load, because at ss_100C_1v60 a flop simply costs that much. 0.700 is
+# therefore the tightest input assumption that can be defended, and is if
+# anything slightly optimistic; set_driving_cell below adds ~113 ps on top,
+# which restores the honesty. There is no headroom to recover here.
+#
+# OUTPUT 0.300 = the destination flop's SETUP plus wire and skew margin - NOT
+# a mirror of CLK->Q, which is the launch cost and is already spent inside
+# this block's own data paths. Setup measures 110-247 ps in this run's own
+# reports, so 0.300 covers a registered destination with a little margin.
+# The previous value here was 0.700, chosen as a flat 20% of the period; that
+# silently assumed roughly half a nanosecond of combinational logic in the
+# consumer, which the interface contract above says is not there. It cost
+# ~400 ps on every output path and pulled port-bounded cones into a false tie
+# with the design's real internal critical path.
+#
+# Both numbers are replaced by extracted budgets once the surrounding blocks
+# exist. Note also that the FPGA out-of-context flow answers this question
+# differently on purpose: openflex/rtl/Cache_timing.sv registers every port,
+# so that meter sees a ZERO I/O budget and measures internal logic only. The
+# two flows are deliberately not solving the same problem - signoff and
+# RTL-comparison are different questions.
 #
 # Every port is constrained. The clock port is the only input excluded, because
 # it is the timing reference rather than a data input. Note that rst IS given an
@@ -82,7 +113,7 @@ set_clock_transition 0.150 [get_clocks clk]
 set_input_delay 0.700 -clock [get_clocks clk] \
     [remove_from_collection [all_inputs] [get_ports clk]]
 
-set_output_delay 0.700 -clock [get_clocks clk] [all_outputs]
+set_output_delay 0.300 -clock [get_clocks clk] [all_outputs]
 
 # ---------------------------------------------------------------------------
 # Boundary drive and load

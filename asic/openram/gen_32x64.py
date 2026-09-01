@@ -55,6 +55,33 @@ supply_voltages = [1.60]
 temperatures = [100]
 use_specified_corners = [("SS", 1.60, 100)]
 
+# Load/slew grid: the 0.25 scales are DROPPED, same trim as calib_32x256.py.
+# Attempt 1 (2026-08-22, 2h06m in) died at the (0.25, 0.25) point - slew
+# 0.00125 ns, load 1.7225 fF - in delay.py:1359 "Couldn't run a simulation".
+# DIAGNOSED 2026-08-23 from the surviving /tmp/openram_*_1157547_temp/timing.lis:
+# the read itself was CORRECT (Q, Q_bar and dout all measured at the right
+# value on both ports), but the s_en measurement
+#     .meas tran delay_sen1 TRIG v(clk1) VAL=0.8 FALL=1 TD=185.859375n ...
+# came back "-inf ... trig=inf": ngspice did not find the clock's falling edge
+# after TD, where TD is placed EXACTLY at the instant that edge starts
+# (delay.py get_delay_measure_variants adds period/2 to the cycle start) and the
+# edge is only 1.25 ps wide at this slew. The same edge IS found by the
+# delay_hl1 measure whose TD is a half-period earlier. parse_spice_list then
+# fails to match "-inf" (its regex wants digits), check_sen_measure sees a
+# non-float, and the run asserts. It is a coin flip per port at this one grid
+# point - 3 misses in 6 port-trials across three runs (32x64 port 1, the
+# calibration's first attempt port 0, 32x128 neither) and zero misses in the
+# dozens of sims at slews 0.005/0.04 - so it is a measurement artifact, not a
+# circuit failure, and 1.25 ps is not an input slew any sky130 gate produces.
+#
+# The 0.25 LOAD column is dropped for a different reason: at 1.7 fF the
+# 32x128 run's delay_hl "captured precharge" (dout moved before s_en), and
+# OpenRAM's fallback substituted delay_lh, giving a non-monotonic column of
+# 2.616 / 0.318 / 1.809 ns across 1.7 / 6.9 / 27.6 fF. A lib with that column
+# must not be linked. 2x2 tables, the same grid as the calibration macro.
+load_scales = [1, 4]
+slew_scales = [1, 8]
+
 # Layout verification is a later phase (netgen not built on this server yet).
 check_lvsdrc = False
 

@@ -19,6 +19,15 @@ modelsim.ini
 asic/PPA/**
 !asic/PPA/RESULTS.md
 
+# Innovus place-and-route output: reports, stage checkpoints (.enc, hundreds of
+# MB each and ten per run), netlists, GDS, SPEF, logs. The scripts and
+# constraints under asic/PnR/innovus/ stay tracked - only the output does not.
+asic/PnR/innovus/runs/
+asic/PnR/innovus/reports/
+asic/PnR/innovus/checkpoints/
+asic/PnR/innovus/outputs/
+!asic/PnR/innovus/*/.gitkeep
+
 # Compiled standard-cell database, rebuilt by run_dc.sh when absent.
 asic/libraries/sky130_fd_sc_hd/db/
 asic/libraries/sky130_fd_sc_hd/*.log
@@ -64,3 +73,46 @@ __pycache__/
 # asic/openram/run_openram.sh. Same policy as asic/PPA output.
 asic/openram/*_out/
 asic/openram/*_run.log
+Resume/
+
+# --- P&R / signoff campaign (2026-09-01 cleanup) ------------------------------
+# Innovus scratch at the innovus/ dir level (stage output dirs are ignored
+# above; these are the tool droppings from interactive/snap sessions).
+asic/PnR/innovus/logs/
+asic/PnR/innovus/timingReports/
+asic/PnR/innovus/work/
+asic/PnR/innovus/lef/
+asic/PnR/innovus/*.log*
+asic/PnR/innovus/*.logv*
+asic/PnR/innovus/*.cmd*
+asic/PnR/innovus/*.gif
+asic/PnR/innovus/*.lef
+asic/PnR/innovus/innovus_temp_*
+asic/PnR/innovus/scheduling_file.*
+
+# Signoff tool output: Magic/netgen extraction debris, Quantus work dir,
+# per-run results (SPEF/STA/IR). The scripts, docs, techfiles and the
+# GDS11_Image renders stay tracked.
+asic/signoff/*.ext
+asic/signoff/results/
+asic/signoff/quantus/work_*/
+asic/signoff/*.log
+asic/signoff/GDS11_Image/*.raw.png
+
+# Xcelium scratch + misc droppings
+xcelium/xcelium.d/
+xcelium/logs/
+.rs_*.tstamp
+*.bak_*
+asic/openram/debug_*/
+asic/openram/bsim4v5.out
+
+# Stale 4KB-era formal-verification output (capacity deprecated 2026-08-20).
+fv/
+
+# Archived/snapshotted Vivado runs and validation output: on-disk reference
+# copies, not repo material (the live outputs/ stay tracked per convention).
+openflex/PPA/*/archive/
+openflex/PPA/snapshot_*/
+asic/PnR/innovus/.timing_file_*
+asic/signoff/quantus/validate/out_*/

@@ -156,5 +156,6 @@ set WORK_DIR [file join $OUT_DIR work]
 # configurations can never be confused with one another.
 set RUN_TAG ${TOP}_${CACHE_BYTES}B_assoc${ASSOC}
 if {$SRAM_MACRO} { set RUN_TAG ${RUN_TAG}_sram }
+if {[config_env ASIC_TAG_ONEHOT 0]} { set RUN_TAG ${RUN_TAG}_onehot }
 
 set STOP_AFTER_SETUP [config_env ASIC_STOP_AFTER_SETUP 0]

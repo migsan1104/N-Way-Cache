@@ -69,7 +69,10 @@ echo "=== $(date '+%F %T') launching OpenRAM: $CFG" | tee "$LOG"
 echo "=== python : $PY" | tee -a "$LOG"
 echo "=== pdk    : $PDK_ROOT" | tee -a "$LOG"
 
-"$PY" "$OR_PKG/sram_compiler.py" "$CFG" 2>&1 | tee -a "$LOG"
+# -v -v: verbose_level 2 - logs every feasible/min-period/sweep/setup-hold step.
+# Without it the log stops at "LIB: Characterizing..." for the whole run
+# (2026-08-24..26: 47 h with no progress line).
+"$PY" "$OR_PKG/sram_compiler.py" -v -v "$CFG" 2>&1 | tee -a "$LOG"
 RC=${PIPESTATUS[0]}
 
 echo "=== $(date '+%F %T') exited rc=$RC" | tee -a "$LOG"

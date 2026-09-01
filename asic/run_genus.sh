@@ -18,6 +18,8 @@ set -euo pipefail
 #   ASIC_TECH_LEF          technology LEF
 #   ASIC_CELL_LEF          standard cell LEF
 #   ASIC_STOP_AFTER_SETUP  1 = run setup + checks only, skip synthesis
+#   ASIC_TAG_ONEHOT        1 = elaborate with TAG_READ_ONEHOT=1 (Entry 21
+#                          one-hot metadata read, ASIC-only RTL form)
 #
 # Results land in asic/PPA/genus/assoc_<N>/runs/<stamp>/ with a `latest`
 # symlink pointing at the most recent run.

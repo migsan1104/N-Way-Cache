@@ -87,7 +87,10 @@ module Reservation_Station #(
     // Entry 18 writeback read port (combinational, shared by all MSHR
     // entries - the request arbiter grants one writeback beat per cycle,
     // so one port suffices). wb_active is consumed only by the sim-only
-    // liveness assertion at the bottom.
+    // liveness assertion at the bottom. (Entry 27b rev 2's full-line
+    // form was STRUCK 2026-08-24: both pre-read revs measured as the
+    // design wall - rev1 -2377, rev2 -1614 vs -729 with the plain
+    // Entry 23 read. History in notebook Entries 27/27b.)
     input  logic                       wb_active,
     input  logic [RS_ID_WIDTH-1:0]     wb_slot,
     input  logic [WORD_OFFSET_W-1:0]   wb_word,
@@ -95,6 +98,12 @@ module Reservation_Station #(
 
     input  logic                       retire_valid,
     input  logic [MSHR_ID_WIDTH-1:0]   retire_mshr_id,
+    // Entry 30(b): NEXT cycle's retire_valid - the D of Entry 30(a)'s
+    // retire_valid_r in MSHR_File (a shallow priority resolve over the
+    // entries' registered refill pulses). Lets the registered merge
+    // decision pre-shift for the retire that will accompany its
+    // consumption. 30(b) is only sound on top of 30(a).
+    input  logic                       retire_valid_next,
 
     output logic                       dispatch_valid,
     output logic [WAITER_COUNT_W-1:0]  dispatch_cpu_id_count,
@@ -156,10 +165,14 @@ module Reservation_Station #(
     logic [COUNT_W-1:0] tail_idx_after_retire;
     logic almost_full;
 
-    logic [RS_DEPTH-1:0] same_line_match;
-    logic [RS_DEPTH-1:0] same_line_merge_ok;
-    logic [RS_DEPTH-1:0] merge_sel;
-    logic can_merge;
+    // Entry 30(b): the merge decision is a REGISTER (full story at the
+    // merge decision section below; declared here because the counters
+    // above it consume the copies). merge_sel_r is one-hot-or-empty;
+    // the can_merge copies are E14-style kept duplicates, one per
+    // steering region.
+    localparam int E14_DUP = 4;
+    logic [RS_DEPTH-1:0] merge_sel_r;
+    (* keep = "true" *) logic [E14_DUP-1:0] can_merge_dup_r;
 
     logic alloc_fire;
     logic issue_fire;
@@ -175,13 +188,17 @@ module Reservation_Station #(
     // cpu_req_ready - the absorption credit that soaks up in-flight
     // requests; its value is cycle-identical here, just register-fed.
     // Guarded by the reference popcount assertion at the bottom.
-    always_ff @(posedge clk or posedge rst) begin
+    // Entry 29(c): synchronous reset (was async). Reset VALUES and branches
+    // are unchanged - this is a cell-mapping edit: an async reset pin is
+    // architectural (dfrtp/sdfrtp/dfstp), a sync one Genus folds into the
+    // D-side logic and maps to dfxtp.
+    always_ff @(posedge clk) begin
         if (rst) begin
             valid_count <= '0;
         end
         else begin
             valid_count <= valid_count
-                           + ((alloc_fire && !can_merge) ? COUNT_W'(1) : '0)
+                           + ((alloc_fire && !can_merge_dup_r[1]) ? COUNT_W'(1) : '0)
                            - (dispatch_valid ? COUNT_W'(1) : '0);
         end
     end
@@ -192,137 +209,160 @@ module Reservation_Station #(
     assign alloc_fire = alloc_valid;
     assign issue_fire = issue_valid && issue_accept;
 
-    // ---- Same-line CAM, precomputed a cycle early (Entry 11) ------------
+    // ---- Merge decision, fully registered (Entry 30(b)) -----------------
     //
-    // The wide compare (RS_DEPTH x LINE_ADDR_WIDTH) does not need to know
-    // the request MISSED - it only needs the request's line address, and
-    // that exists a full cycle before alloc_valid does: pre_line_addr is
-    // the compare-stage flops, alloc_line_addr is the same value
-    // registered once more. So the CAM runs against pre_line_addr and
-    // REGISTERS its 16-bit answer; S4 starts from flops instead of
-    // launching the compare after the S3->S4 edge and fanning the result
-    // into every entry's write steering.
+    // Lineage: Entry 11 registered the wide CAM (the RS_DEPTH x
+    // LINE_ADDR_WIDTH compare ran against pre_line_addr - the
+    // compare-stage flops, one cycle before alloc_valid - and its
+    // answer crossed the edge in pre_match_r). Entry 14 decoded and
+    // duplicated the patch flags. What stayed LIVE in the alloc stage
+    // was everything after the CAM: the elder override, the waiter-room
+    // gate, the retire shift, the can_merge OR-reduce, and the
+    // !can_merge append steering into the wide rs/vbuf captures -
+    // measured on the -729 baseline (2026-08-24) as the
+    // elder_alloc_dup_r / pre_shifted_dup_r -> rs_reg/vbuf classes,
+    // ~90 of the top-400 paths, launching off an 894 ps CLK->Q flop.
     //
-    // It runs free - no enable, no handshake, computed every cycle like
-    // the pipeline registers feeding it (this pipe never stalls; the RS's
-    // own almost-full credit is the absorption buffer). A bubble cycle
-    // just computes an answer nobody reads.
+    // Entry 30(b) finishes that retiming: the DECISION itself is the
+    // register. During the compare stage the full merge answer for the
+    // incoming request is computed from register-fed terms only and
+    // captured as merge_sel_r / can_merge_dup_r; the alloc-stage
+    // steering collapses to register-fed AND gates.
     //
-    // One cycle passes between computing and using, and rs[] can change
-    // at that edge in exactly three ways. Two need a patch, one doesn't:
+    // TWO edges separate computing from the write it steers, and every
+    // event on them is register-visible a cycle early:
     //
-    //   1. A retire shifted every entry down one slot -> shift the
-    //      registered vector the same way (pre_shifted_r, mirror of the
-    //      merge_sel shift below).
-    //   2. The request AHEAD of us appended a new entry at that edge. Its
-    //      slot's precomputed bit compared a dead entry's stale address,
-    //      so OVERRIDE that one bit (not OR) with a flop-vs-flop compare
-    //      of the elder's line against ours.
-    //   3. A merge only bumps a waiter count - line addresses untouched,
-    //      and the count/valid gates below read the CURRENT flops anyway.
+    //   Edge A (compare -> alloc): a retire shifts entries down
+    //   (dispatch_valid - registered by Entry 30(a)); the request AHEAD
+    //   of us - the elder, now in ITS alloc stage - appends or merges,
+    //   and the elder's own decision is this same register pair one
+    //   generation older, so the recursion closes through the flops.
+    //   Edge B (alloc -> write): the alloc-cycle write lands post-
+    //   retire-shift, so the decision also pre-shifts for the NEXT
+    //   retire (retire_valid_next = the D of 30(a)'s retire_valid_r).
+    //   This is why 30(b) REQUIRES 30(a): without the registered
+    //   retire, edge B's shift is unknowable a cycle early.
     //
-    // The valid gate stays in S4 on purpose (it is register-fed, i.e.
-    // free): retiring shifts entries down without clearing line_addr, so
-    // a dead entry still holds a stale address. Matching it would merge a
+    // Patch order (shift, then elder, in post-edge indexing - the
+    // Entry 11 discipline):
+    //   1. waiter-room counts the elder's merge (+1 on its target);
+    //   2. shift for edge A's retire;
+    //   3. elder append: its slot (tail_idx_after_retire) takes the
+    //      elder's-line-vs-ours compare (a fresh entry always has room);
+    //   4. shift for edge B's retire.
+    //
+    // The valid gate rides inside the candidate term (register-fed):
+    // retiring shifts entries down without clearing line_addr, so a
+    // dead slot still holds a stale address - matching it would merge a
     // new miss into an entry that will never issue, losing the request.
-    logic [RS_DEPTH-1:0] pre_match_r;         // CAM answer, captured at the edge
-    logic [RS_DEPTH-1:0] elder_slot_onehot_r; // elder's alloc slot, DECODED (Entry 14)
-    logic                elder_same_line_r;   // elder's line == ours?
+    //
+    // The registers run free - no enable, no reset: the D collapses to
+    // 0 while the rs valid bits are in reset, and the pipeline is three
+    // deep from the port, so the first real alloc arrives cycles after
+    // the vector already holds a real answer.
 
-    logic [RS_DEPTH-1:0] pre_match_shifted_c;
+    // E14's kept-duplicate pattern carries over: can_merge fans into
+    // every steering region (rs append, counters, vbuf data, vbuf
+    // meta), so it is captured as one KEPT copy per region - all
+    // loading the same D on the same edge, behavior identical; `keep`
+    // is load-bearing for Vivado, without it the copies merge and the
+    // split never happens. Genus ignores `keep` - Entry 33 (2026-08-25)
+    // pins can_merge_dup_r from run_genus.tcl's REPLICA_PATTERNS list
+    // instead. merge_sel_r bits are per-entry (each drives only its
+    // own entry's cone) and need no duplication.
+    logic [RS_DEPTH-1:0] merge_cand_c;     // match+valid+room, this-cycle indexing
+    logic [RS_DEPTH-1:0] merge_tight_c;    // same, with one-less headroom
+    logic [RS_DEPTH-1:0] merge_tight_shifted_c;
+    logic [RS_DEPTH-1:0] merge_shifted_c;  // after edge A's retire shift
+    logic [RS_DEPTH-1:0] merge_ok_n;       // after elder patch + edge B shift
+    logic                elder_append_c;
 
-    // Entry 14, piece 1: the two 1-bit steering flags fanned out from
-    // single flops into every entry's steering cone (~1600 endpoints -
-    // the measured 434+115-path routing populations). Explicit KEPT
-    // copies, one per E14_GRP-entry group: the single-stage fanout_dup
-    // pattern from optimization_knobs.md. Every copy loads the same D on
-    // the same edge, so behavior is identical; `keep` is load-bearing -
-    // without it synthesis merges the copies back into one flop and the
-    // split never happens.
-    localparam int E14_DUP = 4;
-    localparam int E14_GRP = RS_DEPTH / E14_DUP;
+    always_comb begin
+        // The elder's registered decision, one generation older.
+        elder_append_c = alloc_fire && !can_merge_dup_r[0];
 
-    (* keep = "true" *) logic [E14_DUP-1:0] pre_shifted_dup_r;
-    (* keep = "true" *) logic [E14_DUP-1:0] elder_alloc_dup_r;
-
-    // Data regs run free (no reset), like the pipeline registers upstream.
-    // Entry 14, piece 2: the elder's slot registers as a DECODED one-hot.
-    // tail_idx_after_retire is register-fed (the counter + dispatch), so
-    // the decode is free on the D side - and S4's override select drops
-    // from a 5-bit compare per entry to one private AND per entry.
-    always_ff @(posedge clk) begin
         for (int i = 0; i < RS_DEPTH; i++) begin
-            pre_match_r[i]         <= (rs[i].line_addr == pre_line_addr);
-            elder_slot_onehot_r[i] <= (COUNT_W'(i) == tail_idx_after_retire);
+            // match+valid+room, evaluated in THIS cycle's indexing. Two
+            // room thresholds: merge_tight_c is the same candidate under
+            // one-less headroom, for the entry the elder merges into.
+            // Both are per-entry properties, so they SHIFT WITH their
+            // entry; the elder patches below are indexed post-shift and
+            // must be applied post-shift (merge_sel_r is the elder's
+            // decision and already carries its own edge-B shift).
+            merge_cand_c[i] =
+                rs[i].valid &&
+                (rs[i].line_addr == pre_line_addr) &&
+                (rs[i].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));
+            merge_tight_c[i] =
+                rs[i].valid &&
+                (rs[i].line_addr == pre_line_addr) &&
+                ((rs[i].cpu_id_count + WAITER_COUNT_W'(1))
+                 < WAITER_COUNT_W'(MAX_WAITERS));
         end
-        elder_same_line_r <= (alloc_line_addr == pre_line_addr);
-    end
 
-    always_ff @(posedge clk or posedge rst) begin
-        if (rst) begin
-            pre_shifted_dup_r <= '0;
-            elder_alloc_dup_r <= '0;
+        // Edge A's retire shift, both views. SEPARATE loop on purpose:
+        // the shift reads neighbours of the vectors the loop above
+        // writes, and always_comb is NOT sensitive to variables it
+        // itself writes - folding this into the same loop reads the
+        // previous activation's stale values (the bug that failed the
+        // first E30(b) regression, 2026-08-24).
+        for (int i = 0; i < RS_DEPTH; i++) begin
+            merge_shifted_c[i] =
+                dispatch_valid
+                    ? ((i == RS_DEPTH-1) ? 1'b0 : merge_cand_c[(i+1) % RS_DEPTH])
+                    : merge_cand_c[i];
+            merge_tight_shifted_c[i] =
+                dispatch_valid
+                    ? ((i == RS_DEPTH-1) ? 1'b0 : merge_tight_c[(i+1) % RS_DEPTH])
+                    : merge_tight_c[i];
         end
-        else begin
-            for (int d = 0; d < E14_DUP; d++) begin
-                pre_shifted_dup_r[d] <= dispatch_valid;
-                elder_alloc_dup_r[d] <= alloc_fire && !can_merge;
+
+        for (int i = 0; i < RS_DEPTH; i++) begin
+            // Elder patches, post-edge-A indexing:
+            //  - the entry the elder MERGES into has one less headroom;
+            //  - the slot the elder APPENDS at takes the elder's-line-
+            //    vs-ours compare (a fresh entry always has room).
+            merge_ok_n[i] =
+                (alloc_fire && can_merge_dup_r[0] && merge_sel_r[i])
+                    ? merge_tight_shifted_c[i]
+                    : merge_shifted_c[i];
+            if (elder_append_c && (COUNT_W'(i) == tail_idx_after_retire)) begin
+                merge_ok_n[i] = (alloc_line_addr == pre_line_addr);
             end
         end
-    end
 
-    always_comb begin
-        for (int i = 0; i < RS_DEPTH; i++) begin
-            pre_match_shifted_c[i] =
-                pre_shifted_dup_r[i / E14_GRP]
-                    ? ((i == RS_DEPTH-1) ? 1'b0 : pre_match_r[(i+1) % RS_DEPTH])
-                    : pre_match_r[i];
-
-            same_line_match[i] =
-                rs[i].valid &&
-                ((elder_alloc_dup_r[i / E14_GRP] && elder_slot_onehot_r[i])
-                     ? elder_same_line_r
-                     : pre_match_shifted_c[i]);
+        // Patch 4: edge B's retire shift. If the mergeable entry is
+        // rs[0] and it retires under our write, the bit shifts out and
+        // the request simply allocates fresh - same rule the live form
+        // had.
+        if (retire_valid_next) begin
+            merge_ok_n = {1'b0, merge_ok_n[RS_DEPTH-1:1]};
         end
     end
 
-    // An entry can take another waiter only if it matches and its list is not
-    // full. At most one bit of this can ever be set: a duplicate entry is only
-    // created because the newest match was already full, and a full entry
-    // stays full until it retires - so among duplicates, only the newest can
-    // have room. That one-hot property is what lets the merge path skip the
-    // priority encoder entirely; the assertion below guards it.
-    always_comb begin
-        for (int i = 0; i < RS_DEPTH; i++) begin
-            same_line_merge_ok[i] =
-                same_line_match[i] &&
-                (rs[i].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));
+    always_ff @(posedge clk) begin
+        merge_sel_r <= merge_ok_n;
+        for (int d = 0; d < E14_DUP; d++) begin
+            can_merge_dup_r[d] <= |merge_ok_n;
         end
     end
 
+    // At most one bit of merge_sel_r can be set: a duplicate entry is
+    // only created because the newest match was already full, and a
+    // full entry stays full until it retires - so among duplicates,
+    // only the newest can have room. That one-hot property is what
+    // lets the merge path skip the priority encoder; guarded below.
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
         if (!rst) begin
-            assert ($onehot0(same_line_merge_ok))
-                else $error("RS: same_line_merge_ok not one-hot (%b)",
-                            same_line_merge_ok);
+            assert ($onehot0(merge_sel_r))
+                else $error("RS E30b: merge_sel_r not one-hot (%b)",
+                            merge_sel_r);
         end
     end
 `endif
 
-
     assign dispatch_valid = retire_valid;
-
-    // Retire shifts every entry down one slot, so the merge select shifts with
-    // it. If the mergeable entry is rs[0] and it is retiring this very cycle,
-    // the shift drops the bit and can_merge falls to 0 - the request simply
-    // allocates a fresh entry instead of merging into one that no longer
-    // exists. (The old index arithmetic wrapped 0-1 around to 15 here and
-    // scribbled on an unrelated entry.)
-    assign merge_sel = dispatch_valid ? (same_line_merge_ok >> 1)
-                                      : same_line_merge_ok;
-
-    assign can_merge = |merge_sel;
 
     // ---- Issue select, one-hot form (Entry 13) --------------------------
     // Was: a serial priority scan (each iteration's condition consumed the
@@ -466,9 +506,12 @@ module Reservation_Station #(
                     rs_next[i] = rs[i+1];    
             end
 
+            // Entry 29(h) (2026-08-25): only valid is cleared in the slot
+            // the shift vacates. in_progress and cpu_id_count are dead
+            // behind valid = 0 (every reader ANDs with valid - see the
+            // reset block below) and the append that revives the slot
+            // writes both. Two fewer terms in the rs_next cone.
             rs_next[RS_DEPTH-1].valid        = 1'b0;
-            rs_next[RS_DEPTH-1].in_progress  = 1'b0;
-            rs_next[RS_DEPTH-1].cpu_id_count = '0;
 
             tail_idx_after_retire = valid_count - 1'b1;
         end
@@ -490,13 +533,13 @@ module Reservation_Station #(
         end
 
         if (alloc_fire) begin
-            if (can_merge) begin
+            if (can_merge_dup_r[0]) begin
                 // One-hot select, so each entry decides for itself - no index
                 // arithmetic and no chained dynamic indexing. rs_next already
                 // holds the post-retire state, so its own cpu_id_count is the
-                // right slot to fill.
+                // right slot to fill. (Entry 30(b): both gates are registers.)
                 for (int i = 0; i < RS_DEPTH; i++) begin
-                    if (merge_sel[i]) begin
+                    if (merge_sel_r[i]) begin
                         rs_next[i].cpu_ids [rs_next[i].cpu_id_count] = alloc_cpu_req_id;
                         rs_next[i].word_ids[rs_next[i].cpu_id_count] = alloc_word_id;
                         rs_next[i].cpu_id_count =
@@ -507,7 +550,10 @@ module Reservation_Station #(
             else  begin
                 rs_next[tail_idx_after_retire].valid        = 1'b1;
                 rs_next[tail_idx_after_retire].in_progress  = 1'b0;
-                rs_next[tail_idx_after_retire].mshr_id      = '0;
+                // Entry 29(c): the mshr_id clear is dropped. The field has NO reader in
+                // this module (written at issue, never consulted; retire_mshr_id is a
+                // dangling input), and in_progress=0 above already marks the entry
+                // un-issued. One less term in the rs_next comb cone E30(b) shortened.
 
                 rs_next[tail_idx_after_retire].line_addr    = alloc_line_addr;
                 rs_next[tail_idx_after_retire].way          = alloc_way;
@@ -527,17 +573,45 @@ module Reservation_Station #(
         end
     end
 
-    always_ff @(posedge clk or posedge rst) begin
+    // Entry 29(c): synchronous reset (was async). Reset VALUES and branches
+    // are unchanged - this is a cell-mapping edit: an async reset pin is
+    // architectural (dfrtp/sdfrtp/dfstp), a sync one Genus folds into the
+    // D-side logic and maps to dfxtp.
+    // Entry 29(h) (2026-08-25): in_progress and cpu_id_count lose their
+    // reset; valid is the one root. Every reader of either field is
+    // ANDed with the entry's valid, so a never-written (X / power-up
+    // garbage) value is masked - 0 in silicon as in 4-state sim:
+    //   issue_cand_c[i]   = valid && !in_progress
+    //   merge_cand_c[i]   = valid && (line ==) && (cpu_id_count < MAX)
+    //   merge_tight_c[i]  = same shape
+    //   dispatch_*        = rs[0] fields, consumed under dispatch_valid,
+    //                       which implies rs[0].valid (E11 note)
+    //   merge write       = under merge_sel_r[i], a valid-gated decision
+    // and the append that makes a slot valid writes both fields on the
+    // same edge. The E29(a) map listed "RS valid/count/in_progress" as
+    // KEEP; "count" there is valid_count (the credit counter - it keeps
+    // its reset), and in_progress was kept without a stated reason.
+    // Measured: refill_wen -> rs[*][cpu_id_count] (-332) and
+    // -> rs[*][in_progress] (-265) both carried the reset term.
+    // Entry 29(o) (2026-08-25): the payload leaves the else-branch. With
+    // `rs[i] <= rs_next[i]` under `else`, rst was a hold-enable on ~700
+    // payload flops that have no reset value at all, and Genus folded that
+    // term INTO the shift/merge select cone (e29cd final db: rst ->
+    // rs[line_addr] -106 x96, rs[cpu_ids] -261 x36, rs[word_ids] -262 x18,
+    // eight select gates after the reset tree; the worst flop-rooted path
+    // to the same endpoints is retire_valid_r at +11). Now the payload
+    // loads rs_next on every edge and only valid is reset; last assignment
+    // wins, so valid's behaviour is unchanged. During the reset window the
+    // payload follows rs_next instead of holding, and every reader is
+    // valid-qualified (E29(h) audit); the append that sets valid writes
+    // every payload field on the same edge.
+    always_ff @(posedge clk) begin
+        for (int i = 0; i < RS_DEPTH; i++) begin
+            rs[i] <= rs_next[i];
+        end
         if (rst) begin
             for (int i = 0; i < RS_DEPTH; i++) begin
                 rs[i].valid        <= 1'b0;
-                rs[i].in_progress  <= 1'b0;
-                rs[i].cpu_id_count <= '0;
-            end
-        end
-        else begin
-            for (int i = 0; i < RS_DEPTH; i++) begin
-                rs[i] <= rs_next[i];
             end
         end
     end
@@ -591,7 +665,7 @@ module Reservation_Station #(
     logic [VBUF_META_W-1:0] vbuf_meta [0:RS_DEPTH-1];
 
     always_ff @(posedge clk) begin
-        if (alloc_fire && !can_merge) begin
+        if (alloc_fire && !can_merge_dup_r[3]) begin
             vbuf_meta[vbuf_tail_r] <=
                 {alloc_victim_tag, alloc_victim_word_valid};
         end
@@ -603,7 +677,7 @@ module Reservation_Station #(
     // Line data: one bank per word (the FTDA discipline), each the
     // canonical single-write-port distributed-RAM template. The wb read
     // muxes one word out by wb_word - a DATA_WIDTH-wide 4:1 after four
-    // shallow reads, on the memory-port side where nothing is critical.
+    // shallow reads, on the memory-port side.
     logic [DATA_WIDTH-1:0] vbuf_wb_word_c [WORDS_PER_LINE];
 
     generate
@@ -612,7 +686,7 @@ module Reservation_Station #(
             logic [DATA_WIDTH-1:0] vbuf_data [0:RS_DEPTH-1];
 
             always_ff @(posedge clk) begin
-                if (alloc_fire && !can_merge) begin
+                if (alloc_fire && !can_merge_dup_r[2]) begin
                     vbuf_data[vbuf_tail_r] <=
                         alloc_victim_line[gw * DATA_WIDTH +: DATA_WIDTH];
                 end
@@ -624,7 +698,11 @@ module Reservation_Station #(
 
     assign wb_victim_word = vbuf_wb_word_c[wb_word];
 
-    always_ff @(posedge clk or posedge rst) begin
+    // Entry 29(c): synchronous reset (was async). Reset VALUES and branches
+    // are unchanged - this is a cell-mapping edit: an async reset pin is
+    // architectural (dfrtp/sdfrtp/dfstp), a sync one Genus folds into the
+    // D-side logic and maps to dfxtp.
+    always_ff @(posedge clk) begin
         if (rst) begin
             vbuf_head_r <= '0;
             vbuf_tail_r <= '0;
@@ -633,7 +711,7 @@ module Reservation_Station #(
             if (dispatch_valid) begin
                 vbuf_head_r <= vbuf_head_r + 1'b1;
             end
-            if (alloc_fire && !can_merge) begin
+            if (alloc_fire && !can_merge_dup_r[1]) begin
                 vbuf_tail_r <= vbuf_tail_r + 1'b1;
             end
         end
@@ -669,33 +747,69 @@ module Reservation_Station #(
         end
     end
 
-    // Entry 11 equivalence check (sim-only; every synthesis flow defines
-    // SYNTHESIS): the retired combinational forms - the live CAM against
-    // alloc_line_addr and the popcount over rs[].valid - survive here as
-    // a reference model, compared cycle for cycle against the registered
-    // precompute and the maintained counter. Unconditional on purpose:
-    // the equivalence holds on bubble cycles too (the upstream pipeline
-    // registers load every cycle), so any divergence names the exact
-    // cycle instead of hiding until the next allocation reads it. Both
-    // sides gate on rs[i].valid, which also keeps never-written
-    // line_addr X-state out of the comparison.
-    logic [RS_DEPTH-1:0] ref_same_line_match_c;
+    // Entry 30(b) equivalence check (supersedes the Entry 11 form; sim-
+    // only - every synthesis flow defines SYNTHESIS): the retired LIVE
+    // merge decision - match, valid, waiter-room, and the retire shift,
+    // all computed at consumption time from CURRENT state - survives as
+    // the reference model, compared cycle for cycle against the
+    // registered prediction. The prediction discipline (the edge A/B
+    // patches) claims exact equality on EVERY cycle, bubbles included:
+    // alloc_line_addr is pre_line_addr registered once and both free-
+    // run, so even stale bubble values agree - any divergence therefore
+    // names the exact cycle a patch went wrong instead of hiding until
+    // the next allocation consumes it. Both sides gate on rs[i].valid,
+    // which keeps never-written line_addr X-state out. The popcount
+    // check on valid_count carries over from Entry 11 unchanged.
+    logic [RS_DEPTH-1:0] ref_merge_ok_c;
+    logic [RS_DEPTH-1:0] ref_merge_sel_c;
     logic [COUNT_W-1:0]  ref_valid_count_c;
 
     always_comb begin
         ref_valid_count_c = '0;
         for (int i = 0; i < RS_DEPTH; i++) begin
-            ref_same_line_match_c[i] =
-                rs[i].valid && (rs[i].line_addr == alloc_line_addr);
+            ref_merge_ok_c[i] =
+                rs[i].valid &&
+                (rs[i].line_addr == alloc_line_addr) &&
+                (rs[i].cpu_id_count < WAITER_COUNT_W'(MAX_WAITERS));
             ref_valid_count_c = ref_valid_count_c + COUNT_W'(rs[i].valid);
         end
+        ref_merge_sel_c = dispatch_valid ? (ref_merge_ok_c >> 1)
+                                         : ref_merge_ok_c;
+    end
+
+    // Debug snapshots of the D-side terms, captured at the same edge as
+    // merge_sel_r so a mismatch prints the exact inputs the prediction
+    // consumed (sim-only).
+    logic [RS_DEPTH-1:0] dbg_cand_r, dbg_shifted_r;
+    logic dbg_dispatch_r, dbg_next_retire_r, dbg_alloc_fire_r,
+          dbg_can_merge_r, dbg_elder_append_r;
+    logic [COUNT_W-1:0] dbg_tail_r;
+    logic [RS_DEPTH-1:0] dbg_elder_sel_r;
+    always_ff @(posedge clk) begin
+        dbg_cand_r         <= merge_cand_c;
+        dbg_shifted_r      <= merge_shifted_c;
+        dbg_dispatch_r     <= dispatch_valid;
+        dbg_next_retire_r  <= retire_valid_next;
+        dbg_alloc_fire_r   <= alloc_fire;
+        dbg_can_merge_r    <= can_merge_dup_r[0];
+        dbg_elder_append_r <= elder_append_c;
+        dbg_tail_r         <= tail_idx_after_retire;
+        dbg_elder_sel_r    <= merge_sel_r;
     end
 
     always_ff @(posedge clk) begin
         if (!rst) begin
-            assert (same_line_match == ref_same_line_match_c)
-                else $error("RS E11: same_line_match %b != S4 ref %b",
-                            same_line_match, ref_same_line_match_c);
+            assert (merge_sel_r == ref_merge_sel_c)
+                else $error("RS E30b: merge_sel_r %b != live ref %b | D-time: cand=%b shiftedA=%b dispA=%b retB=%b af=%b cm=%b eapp=%b tail=%0d eldsel=%b | now: dispatch=%b valids=%b",
+                            merge_sel_r, ref_merge_sel_c,
+                            dbg_cand_r, dbg_shifted_r, dbg_dispatch_r,
+                            dbg_next_retire_r, dbg_alloc_fire_r,
+                            dbg_can_merge_r, dbg_elder_append_r,
+                            dbg_tail_r, dbg_elder_sel_r,
+                            dispatch_valid,
+                            {rs[7].valid, rs[6].valid, rs[5].valid,
+                             rs[4].valid, rs[3].valid, rs[2].valid,
+                             rs[1].valid, rs[0].valid});
 
             assert (valid_count == ref_valid_count_c)
                 else $error("RS E11: valid_count %0d != popcount %0d",
@@ -764,13 +878,13 @@ module Reservation_Station #(
 
     always_ff @(posedge clk) begin
         if (!rst) begin
-            if (alloc_fire && !can_merge)
+            if (alloc_fire && !can_merge_dup_r[0])
                 info_alloc_new <= info_alloc_new + 1;
-            if (alloc_fire && can_merge)
+            if (alloc_fire && can_merge_dup_r[0])
                 info_merges <= info_merges + 1;
-            if (elder_alloc_dup_r[0])
+            if (elder_append_c)
                 info_elder_patch_cycles <= info_elder_patch_cycles + 1;
-            if (pre_shifted_dup_r[0])
+            if (dispatch_valid || retire_valid_next)
                 info_shift_patch_cycles <= info_shift_patch_cycles + 1;
             if (issue_valid && !issue_accept)
                 info_issue_stall_cycles <= info_issue_stall_cycles + 1;

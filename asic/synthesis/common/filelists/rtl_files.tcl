@@ -3,9 +3,11 @@
 
 set RTL_FILES [list \
     src/Reg_r.sv \
+    src/Reg.sv \
     src/FIFO_FWFT.sv \
     src/FIFO_NF.sv \
     src/Delay_r.sv \
+    src/Delay.sv \
     src/Address_Decode.sv \
     src/Flag_Tag_Data_Array.sv \
     src/Replacement.sv \

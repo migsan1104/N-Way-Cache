@@ -18,12 +18,17 @@ calls. Source the right environment in the *same* command as the tool:
 
 | Flow | Source this |
 |---|---|
-| OpenFLEX, Questa, Vivado | `source /apps/reconfig/enable_pro` |
+| OpenFLEX, Questa, Vivado | `source /apps/reconfig/archive/enable_pro` (see note) |
 | Xcelium, Genus, Design Compiler | `source /apps/settings` |
 
-`openflex/verify.sh`, `openflex/timing.sh`, and `openflex/timing_all.sh` already source
-`enable_pro` internally (falling back to `enable_std`) and prepend `~/.local/bin`, where the
-`openflex` executable lives — so calling those scripts works from a bare shell. `xcelium/run.sh`
+**2026-08-25 environment change:** IT replaced `/apps/reconfig/enable_pro` / `enable_std` with a
+single `/apps/reconfig/enable` (Questa 2026.2, Vivado 2025.2) and moved the old files to
+`/apps/reconfig/archive/`. Every number in this repo was measured with the old toolchain (Questa
+2023.3, Vivado 2021.2), and the archived files still check out licenses, so the scripts prefer them.
+`openflex/verify.sh` and `openflex/timing.sh` try, in order: `enable_pro`, `archive/enable_pro`,
+`enable_std`, `archive/enable_std`, `enable` — and prepend `~/.local/bin`, where the `openflex`
+executable lives — so calling those scripts works from a bare shell. If the FPGA flow is ever run
+under the new Vivado, say so in the results: they will not be comparable with README §3. `xcelium/run.sh`
 sources nothing and only checks that `xrun` exists, so wrap it yourself:
 
 ```bash

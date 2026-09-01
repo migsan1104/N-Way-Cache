@@ -8,6 +8,7 @@ files:
   - ../src/Cache.sv
   - ../src/Compare_Select_Replace.sv
   - ../src/Delay_r.sv
+  - ../src/Delay.sv
   - ../src/Dispacher.sv
   - ../src/FIFO_FWFT.sv
   - ../src/FIFO_NF.sv
@@ -19,6 +20,7 @@ files:
   - ../src/MSHR_Request_Arbiter.sv
   - ../src/MSHR_Response_DeMux.sv
   - ../src/Reg_r.sv
+  - ../src/Reg.sv
   - ../src/Replacement.sv
   - ../src/Reservation_Station.sv
   - ../src/Response_Unit.sv

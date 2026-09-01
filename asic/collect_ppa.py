@@ -79,6 +79,27 @@ def parse_dc(run_dir):
     return out
 
 
+def _genus_macro_count(run_dir):
+    """Count hard-macro instances from report_gates.
+
+    Genus' report_qor has no "Macro Count" line (Design Compiler's does), so
+    this used to be hardcoded to 0 and every SRAM-macro run reported zero
+    macros. report_gates lists one row per cell type as
+    `<gate> <instances> <area> <library> <domain>`; anything whose gate name
+    is not a sky130_fd_sc_hd standard cell is a macro. The per-library summary
+    block lower in the same report has only four columns, so requiring all
+    five keeps it from being counted twice.
+    """
+    gates = _read(os.path.join(run_dir, "reports", "gates.rpt"))
+    if not gates:
+        return 0
+    total = 0
+    for m in re.finditer(r"^(\S+)\s+(\d+)\s+[\d.]+\s+\S+\s+\S+\s*$", gates, re.M):
+        if not m.group(1).startswith("sky130_fd_sc_hd__"):
+            total += int(m.group(2))
+    return total
+
+
 def parse_genus(run_dir):
     """Genus: report_qor + report_area + report_power (Joules)."""
     qor = _read(os.path.join(run_dir, "reports", "qor.rpt"))
@@ -105,11 +126,39 @@ def parse_genus(run_dir):
         "violating": violating,
         "cells": _f(qor, r"Leaf Instance Count\s+(\d+)", cast=int),
         "seq": _f(qor, r"Sequential Instance Count\s+(\d+)", cast=int),
-        "macros": 0,
+        "macros": _genus_macro_count(run_dir),
     }
     out["path"] = (None if out["period"] is None or out["slack"] is None
                    else out["period"] - out["slack"])
     out["cache_bytes"] = _f(qor, r"CACHE_BYTES(\d+)", cast=int)
+    # The SRAM-macro build and the flop-bank build of the same ASSOC are two
+    # different designs that land in the same runs/ directory. The ONLY place
+    # the configuration survives into the reports is the elaborated module
+    # name, which run_genus.sh builds from the parameters
+    # (Cache_CACHE_BYTES16384_ASSOC4 vs ..._ASSOC4_EN_SRAM_MACRO1), so that is
+    # what distinguishes them here. Without this, the newer run silently
+    # replaced the older one's row - which is exactly how the 16 KB A4
+    # flop-bank baseline nearly vanished from RESULTS.md on 2026-08-22.
+    out["sram_macro"] = 1 if re.search(r"EN_SRAM_MACRO1\b", qor) else 0
+
+    # The signoff corner and macro derate are a second configuration axis
+    # (2026-08-28: run 2 signs off at ss_n40C_1v76 / macro x1.5 next to run 1's
+    # ss_100C_1v60 / x2.0). Only the run log records them, as the INFO lines
+    # run_genus.tcl prints at setup. Missing log = the pre-corner-2 default.
+    out["corner"], out["derate"] = "ss_100C_1v60", None
+    for log in glob.glob(os.path.join(run_dir, "logs", "*.log")):
+        try:
+            with open(log, errors="replace") as fh:
+                head = fh.read(400_000)
+        except OSError:
+            continue
+        m = re.search(r"^INFO: signoff \(setup\) library\s*:\s*(\S+)", head, re.M)
+        if m:
+            out["corner"] = re.sub(r"^sky130_fd_sc_hd__|\.lib$", "", os.path.basename(m.group(1)))
+        m = re.search(r"^INFO: SRAM macro late derate\s*:\s*([\d.]+)", head, re.M)
+        if m:
+            out["derate"] = float(m.group(1))
+        break
 
     # Top-level row of report_area: <instance> [module] cells cell_area net_area total_area
     m = re.search(r"^(Cache\S*)\s+(\d+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)", area, re.M)
@@ -138,8 +187,8 @@ def _has_qor(run_dir):
     return os.path.isfile(os.path.join(run_dir, "reports", "qor.rpt"))
 
 
-def resolve_run_dir(assoc_dir):
-    """Return the directory whose reports/ should be read for this assoc.
+def resolve_run_dirs(assoc_dir):
+    """Return every COMPLETED run directory for this assoc, oldest first.
 
     Runs are written to <assoc>/runs/<stamp>/ with a `latest` symlink. Older
     runs wrote straight to <assoc>/reports/, so fall back to that layout.
@@ -148,40 +197,60 @@ def resolve_run_dir(assoc_dir):
     early (check_design, clocks, ple land before synthesis). So testing for the
     reports/ directory would make an in-flight run shadow the last completed
     one and silently empty the table - which it did on 2026-08-21. Test for
-    qor.rpt, which is only written at the end, and otherwise fall back to the
-    newest run that actually finished.
+    qor.rpt, which is only written at the end.
+
+    This used to return a SINGLE directory - `latest` if it had finished. That
+    was wrong as soon as one associativity had two configurations: the macro
+    and flop-bank builds of 16 KB ASSOC=4 share runs/, so whichever finished
+    last became the only ASSOC=4 row and the other measurement disappeared
+    from the table. Return them all and let collect() pick one per
+    configuration instead.
     """
-    latest = os.path.join(assoc_dir, "runs", "latest")
-    if _has_qor(latest):
-        return latest
     # Skip the `latest` symlink itself: it sorts after the date stamps and
-    # would otherwise be picked as "newest".
+    # points at a directory already in the list.
     runs = sorted(glob.glob(os.path.join(assoc_dir, "runs", "*")))
     runs = [r for r in runs if not os.path.islink(r) and _has_qor(r)]
     if runs:
-        return runs[-1]
-    return assoc_dir
+        return runs
+    return [assoc_dir] if _has_qor(assoc_dir) else []
 
 
 def collect(ppa_root, tool):
+    """One row per (associativity, configuration) - newest run of each.
+
+    A configuration is currently just "does this build bind SRAM macros", but
+    the keying is deliberately a tuple so a future knob adds a field rather
+    than resurrecting the overwrite bug.
+    """
     rows = []
     pattern = os.path.join(ppa_root, tool, "assoc_*")
     for assoc_dir in sorted(glob.glob(pattern),
                             key=lambda p: int(p.rsplit("_", 1)[-1])):
         assoc = int(assoc_dir.rsplit("_", 1)[-1])
-        run_dir = resolve_run_dir(assoc_dir)
-        rec = PARSERS[tool](run_dir)
-        if rec is None:
-            print(f"WARNING: no qor.rpt under {run_dir}, skipping", file=sys.stderr)
+        run_dirs = resolve_run_dirs(assoc_dir)
+        if not run_dirs:
+            print(f"WARNING: no completed run under {assoc_dir}, skipping",
+                  file=sys.stderr)
             continue
-        rec["assoc"] = assoc
-        # Achievable period = target - slack (slack is negative when violating).
-        if rec.get("period") is not None and rec.get("slack") is not None:
-            achievable = rec["period"] - rec["slack"]
-            rec["fmax"] = 1000.0 / achievable if achievable > 0 else None
-        else:
-            rec["fmax"] = None
-        rows.append(rec)
+        # Oldest first, so a later run of the SAME configuration overwrites an
+        # earlier one while a different configuration keeps its own row.
+        by_config = {}
+        for run_dir in run_dirs:
+            rec = PARSERS[tool](run_dir)
+            if rec is None:
+                print(f"WARNING: no qor.rpt under {run_dir}, skipping", file=sys.stderr)
+                continue
+            rec["assoc"] = assoc
+            rec["run_dir"] = run_dir
+            # Achievable period = target - slack (slack is negative when violating).
+            if rec.get("period") is not None and rec.get("slack") is not None:
+                achievable = rec["period"] - rec["slack"]
+                rec["fmax"] = 1000.0 / achievable if achievable > 0 else None
+            else:
+                rec["fmax"] = None
+            by_config[(rec.get("sram_macro", 0), rec.get("corner"), rec.get("derate"))] = rec
+        rows.extend(v for _, v in sorted(by_config.items(),
+                                         key=lambda kv: tuple(str(x) for x in kv[0])))
     return rows
 
 
@@ -206,6 +275,21 @@ def fmt(v, spec="", dash="-"):
     return format(v, spec)
 
 
+def banks_label(row):
+    """How this build realises the data banks - the thing that makes two rows
+    of the same associativity two different designs rather than a duplicate."""
+    return "SRAM macros" if row.get("sram_macro") else "flops"
+
+
+def corner_label(row):
+    """Signoff corner plus the macro derate that goes with it - the second
+    axis that makes two rows of one design two different measurements."""
+    lab = row.get("corner") or "-"
+    if row.get("sram_macro") and row.get("derate") is not None:
+        lab += f" / macro x{row['derate']:g}"
+    return lab
+
+
 def markdown(tool, rows):
     lines = [f"### {TOOL_LABEL[tool]}", ""]
     if not rows:
@@ -213,14 +297,14 @@ def markdown(tool, rows):
         return "\n".join(lines)
 
     lines += [
-        "| ASSOC | Cache (KB) | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | "
+        "| ASSOC | Data banks | Corner | Cache (KB) | Target (ns) | WNS (ns) | Achievable Fmax (MHz) | "
         "Hit latency (ns) | Cell area (um^2) | Total area (um^2) | Cells | Sequential | "
         "Macros | Total power (W) | Violating paths |",
-        "|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---:|:---|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     for r in rows:
         lines.append(
-            f"| {r['assoc']} | "
+            f"| {r['assoc']} | {banks_label(r)} | {corner_label(r)} | "
             f"{fmt(None if r.get('cache_bytes') is None else r['cache_bytes'] // 1024, ',')} | "
             f"{fmt(r.get('period'), '.3f')} | {fmt(r.get('slack'), '.3f')} | "
             f"{fmt(r.get('fmax'), '.1f')} | {fmt(hit_latency_ns(r), '.1f')} | "
@@ -253,10 +337,11 @@ def make_png(tool, rows, path, cache_kb):
     bg, fg, grid = "#0d1526", "#ffffff", "#2b3a52"
     hdr, best_bg = "#16233b", "#1b2a45"
 
-    cols = ["Associativity\n(ways)", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
+    cols = ["Associativity\n(ways)", "Data\nBanks", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
             "Hit Latency\n(ns)", "Cell Area\n(um^2)", "Cells", "Sequential\nCells",
             "Total Power\n(W)", "Violating\nPaths"]
-    cells = [[f"{r['assoc']}", fmt(r.get("period"), ".3f"), fmt(r.get("slack"), ".3f"),
+    cells = [[f"{r['assoc']}", banks_label(r),
+              fmt(r.get("period"), ".3f"), fmt(r.get("slack"), ".3f"),
               fmt(r.get("fmax"), ".1f"), fmt(hit_latency_ns(r), ".1f"),
               fmt(r.get("area"), ",.0f"),
               fmt(r.get("cells"), ","), fmt(r.get("seq"), ","),
@@ -279,8 +364,9 @@ def make_png(tool, rows, path, cache_kb):
     fig.text(0.5, 0.965,
              f"{TOOL_LABEL[tool]} Synthesis PPA Scaling by Associativity ({cache_kb} KB)",
              ha="center", va="top", color=fg, fontsize=23, fontweight="bold")
+    corners = " + ".join(sorted({r.get("corner") or "?" for r in rows}))
     fig.text(0.035, 0.875,
-             f"SKY130 HD  |  ss_100C_1v60 setup corner{target}"
+             f"SKY130 HD  |  {corners} setup corner{target}"
              "  |  hit latency = TB-measured cycles x achieved period",
              ha="left", va="top", color=fg, fontsize=17, fontweight="bold")
     fig.add_artist(plt.Line2D([0.035, 0.975], [0.828, 0.828], color=grid, lw=1.2))

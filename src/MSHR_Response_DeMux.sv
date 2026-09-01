@@ -23,7 +23,11 @@ module MSHR_Response_DeMux #(
     output logic [DATA_WIDTH-1:0]    mshr_resp_data
 );
 
-    always_ff @(posedge clk or posedge rst) begin
+    // Entry 29(c): synchronous reset (was async). Reset VALUES and branches
+    // are unchanged - this is a cell-mapping edit: an async reset pin is
+    // architectural (dfrtp/sdfrtp/dfstp), a sync one Genus folds into the
+    // D-side logic and maps to dfxtp.
+    always_ff @(posedge clk) begin
         if (rst) begin
             mshr_resp_valid <= '0;
           

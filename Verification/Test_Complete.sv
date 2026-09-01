@@ -323,6 +323,12 @@ module Test_Complete #(
             Cache #(
                 .CACHE_BYTES (CACHE_BYTES),
                 .EN_SRAM_MACRO (EN_SRAM_MACRO),
+                // Entry 21: measured 2026-08-23 and REJECTED on ASIC
+                // (-535 ps, +4.4% area, +47% net vs the same run without
+                // it) - the one-hot read branch stays in the tree gated
+                // OFF everywhere. Flip this back to (THIS_ASSOC == 4) if
+                // the branch is ever revisited so one DUT covers it.
+                .TAG_READ_ONEHOT (1'b0),
                 .ASSOC       (THIS_ASSOC)
             ) DUT (
                 .clk            (clk),

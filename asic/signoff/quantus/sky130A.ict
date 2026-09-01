@@ -1,0 +1,225 @@
+#############################################################################
+# sky130A interconnect technology (ICT) for Cadence Quantus Techgen
+#
+# DRAFT 2026-08-28 - nominal corner. The sky130 PDK ships no QRC techfile;
+# this one is assembled from data on this server and must be VALIDATED
+# (README.md, "Validation") before any number extracted with it is quoted.
+#
+# Sources:
+#   conductor heights / thicknesses / sheet resistances / via resistances:
+#       $PDK/libs.tech/magic/sky130A.tech  ("height" and "resist"/"contact"
+#       lines of the extract section - Magic's own 3-D extraction data)
+#   min width / spacing: sky130 DRC rules (li1 0.17/0.17, met1 0.14/0.14,
+#       met2 0.14/0.14, met3 0.30/0.30, met4 0.30/0.30, met5 1.6/1.6)
+#   dielectric constants: SkyWater sky130 process-stack documentation
+#       (FOX/PSG 3.9, LINT 7.3, NILD2 4.05, NILD3 4.5, NILD4 4.2, NILD5 4.1,
+#       NILD6 4.0, TOPOX 3.9, PI1 2.94) - the values LEAST directly checkable
+#       on this server; the validation step calibrates them against the tech
+#       LEF's per-layer area/edge capacitance.
+#   cross-check data: $STDCELL_ROOT/techlef/sky130_fd_sc_hd__nom.tlef
+#       (RPERSQ, CPERSQDIST, EDGECAPACITANCE per layer)
+#
+# Units: microns, ohm/square for resistivity (Techgen "resistivity" on a
+# conductor is sheet resistance when rho tables are not given), ohms per via.
+# Heights are measured from the substrate surface (top of the field).
+# Techgen requires conductors AND vias in increasing height order.
+#############################################################################
+
+process "sky130A" {
+    background_dielectric_constant 1.0
+}
+
+#############################################################################
+# Substrate and wells
+#############################################################################
+substrate "substrate" {
+    height              0.0
+    depth               1.0
+    dielectric_constant 11.9
+}
+
+well nwell {}
+well pwell {}
+
+#############################################################################
+# Diffusion - present so poly/li1 contacts have a bottom layer; the design
+# is extracted at the cell-boundary level, so its values matter little.
+#############################################################################
+diffusion "ndiff" {
+    thickness    0.12
+    resistivity  120.0
+}
+diffusion "pdiff" {
+    thickness    0.12
+    resistivity  197.0
+}
+
+#############################################################################
+# Conductors (lowest first)
+#   name      height   thick   Rsq       min w/s
+#   poly      0.3262   0.18    48.2      0.15/0.21
+#   li1       0.9361   0.10    12.8      0.17/0.17
+#   met1      1.3761   0.36    0.125     0.14/0.14
+#   met2      2.0061   0.36    0.125     0.14/0.14
+#   met3      2.7861   0.845   0.047     0.30/0.30
+#   met4      4.0211   0.845   0.047     0.30/0.30
+#   met5      5.3711   1.26    0.0285    1.60/1.60
+#############################################################################
+conductor "poly" {
+    min_spacing         0.21
+    min_width           0.15
+    height              0.3262
+    thickness           0.18
+    resistivity         48.2
+    gate_forming_layer  true
+}
+
+conductor "li1" {
+    min_spacing         0.17
+    min_width           0.17
+    height              0.9361
+    thickness           0.10
+    resistivity         12.8
+    gate_forming_layer  false
+}
+
+conductor "met1" {
+    min_spacing         0.14
+    min_width           0.14
+    height              1.3761
+    thickness           0.36
+    resistivity         0.125
+    gate_forming_layer  false
+}
+
+conductor "met2" {
+    min_spacing         0.14
+    min_width           0.14
+    height              2.0061
+    thickness           0.36
+    resistivity         0.125
+    gate_forming_layer  false
+}
+
+conductor "met3" {
+    min_spacing         0.30
+    min_width           0.30
+    height              2.7861
+    thickness           0.845
+    resistivity         0.047
+    gate_forming_layer  false
+}
+
+conductor "met4" {
+    min_spacing         0.30
+    min_width           0.30
+    height              4.0211
+    thickness           0.845
+    resistivity         0.047
+    gate_forming_layer  false
+}
+
+conductor "met5" {
+    min_spacing         1.60
+    min_width           1.60
+    height              5.3711
+    thickness           1.26
+    resistivity         0.0285
+    gate_forming_layer  false
+}
+
+#############################################################################
+# Planar dielectrics, bottom to top. Each spans from the top of one
+# conductor to the bottom of the next; k values from the SkyWater stack
+# description (VERIFY - see header).
+#############################################################################
+dielectric "FOX" {
+    conformal            false
+    dielectric_constant  3.9
+    height               0.0
+    upto                 0.3262
+}
+dielectric "PSG" {
+    conformal            false
+    dielectric_constant  3.9
+    height               0.3262
+    upto                 0.9361
+}
+# thin nitride liner around li1 in the real stack (LINT, k 7.3, ~0.075)
+# folded into NILD2 here; refine after validation if li1 cap is off.
+dielectric "NILD2" {
+    conformal            false
+    dielectric_constant  4.05
+    height               0.9361
+    upto                 1.3761
+}
+dielectric "NILD3" {
+    conformal            false
+    dielectric_constant  4.5
+    height               1.3761
+    upto                 2.0061
+}
+dielectric "NILD4" {
+    conformal            false
+    dielectric_constant  4.2
+    height               2.0061
+    upto                 2.7861
+}
+dielectric "NILD5" {
+    conformal            false
+    dielectric_constant  4.1
+    height               2.7861
+    upto                 4.0211
+}
+dielectric "NILD6" {
+    conformal            false
+    dielectric_constant  4.0
+    height               4.0211
+    upto                 5.3711
+}
+dielectric "TOPOX" {
+    conformal            false
+    dielectric_constant  3.9
+    height               5.3711
+    upto                 6.6311
+}
+dielectric "PI1" {
+    conformal            false
+    dielectric_constant  2.94
+    height               6.6311
+    upto                 11.0
+}
+
+#############################################################################
+# Vias / contacts, lowest first (ohms per cut, from magic "contact" lines)
+#############################################################################
+via "licon_poly" {
+    top_layer           li1
+    bottom_layer        poly
+    contact_resistance  152.0
+}
+via "mcon" {
+    top_layer           met1
+    bottom_layer        li1
+    contact_resistance  9.3
+}
+via "via1" {
+    top_layer           met2
+    bottom_layer        met1
+    contact_resistance  4.5
+}
+via "via2" {
+    top_layer           met3
+    bottom_layer        met2
+    contact_resistance  3.41
+}
+via "via3" {
+    top_layer           met4
+    bottom_layer        met3
+    contact_resistance  3.41
+}
+via "via4" {
+    top_layer           met5
+    bottom_layer        met4
+    contact_resistance  0.38
+}

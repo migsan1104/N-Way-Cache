@@ -179,7 +179,13 @@ if {[catch {read_physical -lefs $LEF_FILES} msg]} {
 # RTL
 # ---------------------------------------------------------------------------
 note "Reading RTL as SystemVerilog"
-if {[catch {read_hdl -sv $ABS_RTL_FILES} msg]} {
+# Optional Verilog macros for probe runs (space-separated NAME=VALUE list),
+# e.g. ASIC_HDL_DEFINES="TAG_BANK_DEPTH=16". Empty = none.
+set HDL_DEFINES [config_env ASIC_HDL_DEFINES ""]
+set READ_HDL_ARGS [list -sv]
+foreach d $HDL_DEFINES { lappend READ_HDL_ARGS -define $d }
+if {$HDL_DEFINES ne ""} { note "HDL defines             : $HDL_DEFINES" }
+if {[catch {read_hdl {*}$READ_HDL_ARGS $ABS_RTL_FILES} msg]} {
     fail "read_hdl failed: $msg"
 }
 
@@ -190,6 +196,12 @@ set ELAB_PARAMETERS [list \
 if {$SRAM_MACRO} {
     lappend ELAB_PARAMETERS [list EN_SRAM_MACRO 1]
 }
+# Entry 21: one-hot metadata read (ASIC-only RTL form). Opt-in via
+# ASIC_TAG_ONEHOT=1 so existing runs stay the measured baseline.
+set TAG_ONEHOT [config_env ASIC_TAG_ONEHOT 0]
+if {$TAG_ONEHOT} {
+    lappend ELAB_PARAMETERS [list TAG_READ_ONEHOT 1]
+}
 
 note "Elaborating $TOP with parameters: $ELAB_PARAMETERS"
 if {[catch {elaborate -parameters $ELAB_PARAMETERS $TOP} msg]} {
@@ -199,6 +211,9 @@ if {[catch {elaborate -parameters $ELAB_PARAMETERS $TOP} msg]} {
 # The elaborated design name encodes every overridden parameter; try the
 # with-macro name first, then the plain one, then the raw top.
 set ELAB_CANDIDATES [list \
+    ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}_EN_SRAM_MACRO1_TAG_READ_ONEHOT1 \
+    ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}_TAG_READ_ONEHOT1_EN_SRAM_MACRO1 \
+    ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}_TAG_READ_ONEHOT1 \
     ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC}_EN_SRAM_MACRO1 \
     ${TOP}_CACHE_BYTES${CACHE_BYTES}_ASSOC${ASSOC} \
     $TOP]
@@ -315,6 +330,68 @@ if {$dont_use_count == 0} {
 }
 note "Excluded $dont_use_count library cells (lpflow / probe)"
 
+# ---------------------------------------------------------------------------
+# Entry 33 (2026-08-25): keep the RTL's deliberate register REPLICAS.
+#
+# The RTL replicates several registers per way / per consumer on purpose -
+# E28(A)'s rindex_rep_r (one private set-index copy per way, so each way's
+# tag-bank broadcast tree hangs off its own flop), E26's raddr_d1_r/raddr_d2_r
+# echoes, the per-way byp_*/fwd_* payload copies, E30(b)'s can_merge_dup_r.
+# Genus's sequential-merge optimization folds equivalent flops back into one
+# (GLO-42) and IGNORES the RTL's (* dont_touch *) / (* keep *) attributes
+# (VLOGPT-506 "Unused attribute") - the baseline run 20260824_180915 lost 522
+# flops this way, and its worst path launches from the single surviving
+# rindex_rep_r at fanout 8 into all four ways. Every ASIC number since E28(A)
+# was of the un-replicated design.
+#
+# Mechanism: per-instance `optimize_merge_seq false` on the replica registers,
+# by name, applied after elaboration and before syn_generic. Surgical on
+# purpose: the root-level optimize_merge_flops switch would also keep the
+# accidental equivalences (e.g. update_valid_r == CSR.out_valid) that cost
+# nothing to merge. The post-map guard below FAILS the run if a listed replica
+# still appears as merged, so a wrong attribute name cannot silently no-op.
+#
+# ASIC_KEEP_REPLICAS=0 reproduces the pre-E33 behaviour for A/B runs.
+# ---------------------------------------------------------------------------
+set KEEP_REPLICAS [config_env ASIC_KEEP_REPLICAS 1]
+set REPLICA_PATTERNS {
+    rindex_rep_r
+    raddr_d1_r
+    raddr_d2_r
+    byp_alloc_tag_r
+    byp_cpu_word_r
+    fwd_data_r
+    fwd_word_r
+    can_merge_dup_r
+}
+
+proc replica_insts {pat} {
+    # Leaf instances whose hierarchical name contains the register name.
+    # After elaboration the flops are generic sequential instances named
+    # <reg>_reg[<bit>], with the hierarchy still in place.
+    return [get_db insts -if ".name == *${pat}_reg*"]
+}
+
+if {$KEEP_REPLICAS} {
+    note "Entry 33: preserving replica registers (optimize_merge_seq false)"
+    set REPLICA_TOTAL 0
+    foreach pat $REPLICA_PATTERNS {
+        set insts [replica_insts $pat]
+        set n [llength $insts]
+        if {$n == 0} {
+            fail "Entry 33: no instances matched replica pattern '$pat' - the RTL or the naming changed; refusing to synthesize with an unverified preserve list"
+        }
+        if {[catch {set_db $insts .optimize_merge_seq false} msg]} {
+            fail "Entry 33: unable to set optimize_merge_seq on '$pat' ($n insts): $msg"
+        }
+        note "  $pat: $n flops preserved"
+        incr REPLICA_TOTAL $n
+    }
+    note "Entry 33: $REPLICA_TOTAL replica flops marked"
+} else {
+    note "ASIC_KEEP_REPLICAS=0 - Genus may merge replica registers (pre-E33 behaviour)"
+}
+
 note "Enabling physical layout estimation (interconnect_mode ple)"
 if {[catch {set_db interconnect_mode ple} msg]} {
     fail "unable to enable PLE: $msg"
@@ -347,6 +424,32 @@ if {[catch {syn_generic -physical} msg]} {
 }
 if {[catch {syn_map -physical} msg]} {
     fail "syn_map -physical failed: $msg"
+}
+
+# Entry 33 guard: what did Genus delete or merge? Written on every run so the
+# count can never drift unnoticed again; with replicas preserved, a listed
+# replica appearing as "merged" is a hard failure.
+set SEQ_DELETED_RPT [file join $REPORT_DIR seq_deleted.rpt]
+safe_report $SEQ_DELETED_RPT { report sequential -deleted }
+if {$KEEP_REPLICAS} {
+    set merged_hits {}
+    if {[catch {
+        set fh [open $SEQ_DELETED_RPT r]
+        while {[gets $fh line] >= 0} {
+            if {[regexp {^\s*merged\s+(\S+)} $line -> inst]} {
+                foreach pat $REPLICA_PATTERNS {
+                    if {[string match "*${pat}*" $inst]} { lappend merged_hits $inst }
+                }
+            }
+        }
+        close $fh
+    } msg]} {
+        fail "Entry 33: unable to read $SEQ_DELETED_RPT: $msg"
+    }
+    if {[llength $merged_hits] > 0} {
+        fail "Entry 33: [llength $merged_hits] preserved replica flops were still merged (first: [lindex $merged_hits 0]) - optimize_merge_seq did not take"
+    }
+    note "Entry 33 guard: no preserved replica was merged"
 }
 
 # Checkpoint. syn_generic + syn_map are the expensive part of the run; without

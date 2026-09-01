@@ -224,6 +224,121 @@ cell, as everyone does), and nothing is silicon-validated. DRC/LVS of
 generated layout is owed before any GDS-level claim (netgen must be
 built from source; magic is on the server).
 
+### The generation pipeline: stages, inputs, outputs
+
+What one `gen_32xN.py` run actually does, start to finish. Two facts
+frame everything below:
+
+- **The `.lib` is NOT made from the LEF.** The LEF contains no
+  transistors — only pin shapes and routing blockages. It cannot be
+  characterized. The `.lib` comes from SPICE-simulating the transistor
+  netlist against the PDK device models. LEF and `.lib` are *sibling*
+  abstract views of the same design (physical vs timing/power), not
+  stages of one another.
+- **Characterization is the final stage and the long pole.** The
+  netlist and layout exist minutes after launch; the `.lib`, `.v` and
+  datasheet all land together hours-to-days later when
+  characterization finishes. That is why "non-zero `.lib`" is the
+  completion signal for every job.
+
+```
+INITIAL INPUTS
+==============
+  gen_32xN.py config      geometry (word_size, num_words), ports
+                          (1RW+1R), write mask, corner, load/slew
+                          grid, simulator choice
+  sky130A PDK             device models (libs.tech/ngspice/
+                          sky130.lib.spice) = the "physics files";
+                          foundry bitcell GDS + SPICE
+                          (sky130_fd_bd_sram); tech rules
+  OpenRAM sky130 tech     generators + glue that bind the two
+
+        |
+        v
++--------------------------------------------------------------+
+| STAGE 1: netlist synthesis                    (seconds-mins) |
+|   in : config + foundry bitcell SPICE                        |
+|   out: <name>.sp        full transistor netlist (hierarchical)|
+|        <name>.lvs.sp    LVS-comparison variant               |
+|        trimmed.sp       characterization variant             |
+|                         ("Trimmed: True"; at 32x64 it still  |
+|                         carries all 2,340 bitcell instances) |
++--------------------------------------------------------------+
+        |
+        v
++--------------------------------------------------------------+
+| STAGE 2: layout generation           (mins; 32x64 = ~11 min) |
+|   in : netlist hierarchy + foundry bitcell GDS + tech rules  |
+|   out: <name>.gds       full mask layout                     |
+|        <name>.lef       abstract DERIVED FROM the GDS:       |
+|                         pins + blockages only                |
++--------------------------------------------------------------+
+        |
+        v
++--------------------------------------------------------------+
+| STAGE 3: DRC/LVS                    (SKIPPED on this server) |
+|   check_lvsdrc=False — netgen not built yet; magic present.  |
+|   Verification only: reports, no new design files.           |
++--------------------------------------------------------------+
+        |
+        v
++--------------------------------------------------------------+
+| STAGE 4: characterization              (hours-days; the fork)|
+|                                                              |
+|   MODE A  analytical_delay=True: linear RC model, NO SPICE,  |
+|           ~44 s. This is what the VENDORED libs are (proved  |
+|           by analytical_32x256.py reproducing them           |
+|           bit-identically). Fiction where the model is wrong.|
+|   MODE B  analytical_delay=False (ours): ngspice-41 measures |
+|           trimmed.sp against the PDK models at the exact     |
+|           corner (ss/1.60V/100C):                            |
+|     4a functional sim   functional_stim/meas.sp - r/w checks |
+|     4b delay grid       delay_stim/meas.sp per (slew, load)  |
+|                         point (2x2 - see grid writeup), plus |
+|                         setup/hold and the min-period        |
+|                         bisection search                     |
+|     4c power            dynamic per grid point; leakage =    |
+|                         one full-array sim (12 h single-     |
+|                         threaded at 32x1024)                 |
+|                                                              |
+|   in : trimmed.sp + sky130.lib.spice + generated stimulus    |
+|   out: the raw measures for stage 5                          |
++--------------------------------------------------------------+
+        |
+        v
++--------------------------------------------------------------+
+| STAGE 5: model + datasheet emission     (with stage 4's end) |
+|   out: <name>_SS_1p6V_100C.lib   timing/power per corner     |
+|        <name>.v                  behavioral simulation model |
+|        datasheet.info / .html    human-readable summary      |
++--------------------------------------------------------------+
+
+FINAL OUTPUTS, by consumer
+==========================
+  .lib      -> Genus/DC/STA        timing + power arcs
+  .lef      -> P&R (Innovus)       placement footprint, pin access
+  .gds      -> tapeout merge       the actual masks
+  .v        -> simulation          verification file lists ONLY
+  .sp/.lvs.sp -> LVS               netlist-vs-layout check
+  datasheet -> humans
+```
+
+Timestamps from the finished 32x64 job make the stage split concrete:
+`.sp`/`.gds`/`.lef`/stimulus all written 11:16 (11 min after launch);
+`.lib`/`.v`/datasheet all written 15:08 — everything in between was
+stage 4.
+
+**So can "LEF + physics files" make a `.lib`?** Not the LEF — but the
+underlying idea (characterize the physical design against the device
+models) is exactly right, with the GDS in the LEF's place. The rigorous
+version is: extract parasitics from the **GDS** (PEX, via magic/netgen)
+into an RC-annotated netlist, then SPICE *that* against the device
+models. OpenRAM does not do this — stage 4 simulates the
+**schematic-level** `trimmed.sp`, so device parasitics are in the
+models but metal wire RC inside the macro is not in our `.lib`. One
+more reason the measured numbers are still a floor, and a natural
+follow-on once netgen is built (the same build that unblocks stage 3).
+
 ### Follow-along: reproducing the setup (as done 2026-08-21)
 
 Toolchain facts discovered on the way, so nobody re-derives them:
@@ -410,3 +525,191 @@ expect ~25 min per simulation, 15-30 simulations per corner, so 6-12 h
 per macro with all six running in parallel. No `.lib` has been produced
 yet — a NON-ZERO `.lib` is the only completion signal. Diff verdict
 still pending; this section gets the result either way.
+
+## Phase-0 calibration gate: the verdict (2026-08-23)
+
+The calibration `.lib` landed 2026-08-23 10:04 after 12 h 09 m, rc=0:
+`asic/openram/calib_out/openram_sram_1rw1r_32x256_8_calib_SS_1p8V_25C.lib`.
+Comparison against the vendored `sram_1rw1r_32_256_8_sky130_SS_1p8V_25C.lib`
+is possible at 4 of its 9 grid points (our sweep dropped the 0.25 scales —
+see `calib_32x256.py`); the four are the vendor's rows/cols 2-3, so the
+overlap is exact, not interpolated. At slew 0.04 ns, load 27.56 fF:
+
+| arc | ours (SPICE) | vendored | ratio |
+|---|---|---|---|
+| dout0 clk->Q delay | 1.469 ns | 0.654 ns | 2.25 |
+| dout0 output transition | 2.361 ns | 0.018 ns | 131 |
+| addr0/din0 setup | 0.139 / 0.115 ns | 0.165 ns | 0.84 / 0.70 |
+| addr0/din0 hold | -0.105 / -0.056 ns | -0.052 ns | 2.02 / 1.08 |
+| cell leakage | 0.2274 mW | 0.0095 mW | 24 |
+
+At the lighter load (6.89 fF) the delay arcs agree far better: 0.582 vs
+0.526 ns, +11%. Constraints agree to within 2x everywhere. Transitions and
+leakage do not agree at all.
+
+**The reference is not a measurement.** The vendored libs were produced by
+OpenRAM's *analytical* delay model, not by simulation. Two independent
+proofs:
+
+1. *Control run.* `analytical_32x256.py` regenerates the same macro with
+   `analytical_delay = True` and `netlist_only = True` — 44 seconds, no
+   layout, no SPICE. Its transition table is **bit-identical** to the
+   vendored one: `0.002, 0.005, 0.018` repeated across all three
+   input-slew rows, in both `rise_transition` and `fall_transition`. A
+   SPICE run cannot land on the vendor's numbers to three decimals across
+   nine entries; the model reproduces them exactly because it is the same
+   model.
+2. *Internal inconsistency.* Take each lib's own delay-vs-load slope,
+   convert it to an effective drive resistance, and predict the 10-90%
+   transition it implies at max load:
+
+   | lib | R_eff | implied slew | reported slew | off by |
+   |---|---|---|---|---|
+   | vendored `sram_1rw1r_32_256_8` SS | 9.0 kohm | 0.544 ns | 0.018 ns | 30.2x |
+   | vendored `sky130_sram_1kbyte` TT | 8.1 kohm | 0.493 ns | 0.016 ns | 30.8x |
+   | ours, SPICE, SS | 61.8 kohm | 3.745 ns | 2.361 ns | 1.6x |
+
+   Both vendored libs contradict themselves by the same ~30x; ours is
+   self-consistent to within the accuracy of a first-order RC estimate.
+   The physics agrees with us: in *both* netlists `dout` comes straight
+   out of `Xbank0` with **no output buffer** (checked instance by
+   instance — the `pinv_12 m=23` at the top of the netlist is the
+   wordline/clock buffer, not an output driver), and an 18 ps edge into
+   27.56 fF would need ~2.2 mA out of a sense-amp-sized device.
+
+**So the gate as written cannot be passed, and must be restated.** "Diff
+the arcs against the vendored lib; if they track, self-generated libs earn
+trust" assumed the reference was ground truth. It is a model. What the
+calibration actually establishes:
+
+- The corner really is SS / 1.8 V / 25 C. The live stimulus in
+  `/tmp/openram_*_temp/delay_stim.sp` reads `* SS process corner`,
+  `Vvdd vdd 0 1.8`, `.TEMP 25`, with `.meas` thresholds 0.18 / 1.62 =
+  10% / 90% of 1.8 V. **TRAP:** the copy OpenRAM saves into `calib_out/`
+  at `save()` time says `* TT process corner` and `Vvdd vdd 0 5` with
+  2.5 V thresholds. It is a placeholder written before the corner is
+  applied, not what was simulated — the same class of trap as the inert
+  `process_corners` option. Judge the corner from the temp dir, never
+  from `calib_out/delay_stim.sp`. (`functional_stim.sp` in the same
+  directory says SS / 1.8, which is how the contradiction surfaces.)
+- The pin set matches the vendored macro exactly (both Verilog views:
+  `clk0 csb0 web0 wmask0 addr0 din0 dout0 / clk1 csb1 addr1 dout1`).
+  The vendored *lib* also carries `wmask1` setup/hold arcs for a pin its
+  own Verilog does not have; ours does not. Ours is the correct one.
+- Access time is in family with the model at the loads a real design
+  sees, and diverges only where the analytical model stops modelling
+  drive strength.
+
+**Consequence for the ASIC flow, and it cuts both ways.** The macro run
+(`runs/20260821_194312`, 177.8 MHz, 4.51 mm2 cell, 0.730 W) links the
+vendored analytical lib with the x2.0 late derate from the section above.
+
+- *The derate is vindicated on delay.* 0.654 x 2.0 = 1.31 ns against a
+  SPICE-measured 1.469 ns at the same corner and load — 11% apart. The
+  hedge chosen from the TT sensitivity family happens to land almost
+  exactly on the measurement.
+- *It does nothing for transition.* `set_timing_derate` scales delay, not
+  slew. Genus is being told the macro output slews in 18 ps when it slews
+  in ~1.1-2.4 ns, so every cell the macro drives gets an optimistic input
+  slew, and `default_max_transition : 0.5` never fires on a macro output
+  that violates it by 2-5x. Macro-output slack in that run is optimistic
+  by an amount the derate does not cover.
+- Our own SPICE libs are therefore the ones to link once Phase 1
+  finishes — with the caveat that OpenRAM's characterization load grid
+  (0.25/1/4 x `dff_in_cap` = 1.7/6.9/27.6 fF) tops out well below what a
+  fanout of several sinks presents, and that `dout` wants an explicit
+  buffer at the macro boundary either way.
+
+VERDICT: gate passed in the restated form — the flow is measuring the
+right circuit at the right corner and its numbers are self-consistent
+where the reference's are not. Phase 1 continues. Do not quote a
+"calibration diff" as agreement with the vendor: the honest claim is
+that the vendor lib is analytical, ours is simulated, and they agree on
+delay at light load only.
+
+## The access-time finding (2026-08-23 15:35): these are ~100 MHz parts
+
+The first 2x2-grid macro (32x64, SS 1.6 V 100 C, done 15:08) reported
+clk->Q 2.55 / 3.69 ns at 6.9 / 27.6 fF with a 0.34 ns transition — a
+delay slope of 55 ps/fF (an ~80 kohm driver) cannot produce a 0.34 ns
+edge into 27.6 fF (14x inconsistent, the same test that exposed the
+vendor lib). And every `timing.lis` had shown `delay_sen` — clock-fall
+to sense-amp enable — at 3.7-4.5 ns on BOTH corners, while the calib
+lib claimed 0.58 ns clk->Q. Data cannot exist on dout before the sense
+amp fires. So a waveform probe was run by hand: the live SS/1.6V/100C
+stimulus from the running 32x256 job, retargeted to the 32x64 trimmed
+netlist (`scratchpad/probe64/`, ngspice-41, ~14 min), sampling dout,
+wl_en and s_en at fixed offsets after the clock's falling edge.
+
+Read of a 1, port 1, 27.56 fF, times after clk falls:
+  wl_en rises 1.07 ns | dout 0.015 V @2 ns, 0.37 @3, 0.8 (50%) @3.89,
+  0.84 @4 | s_en rises 4.57 ns | dout 1.43 @4.9, 1.60 (settled) @6 ns.
+
+So: the lib's 50%-point DELAY at high load (3.69) is about right; its
+TRANSITION (0.34) is wrong by ~10x (the edge spans 2-5 ns); the light-
+load and 1.8 V numbers are worse. But the number that matters is not in
+the lib at all: **the read is self-timed and needs ~5-6 ns of clock-low
+time** (sense enable at 4.6 ns after the fall, settle by 6). At a 3.5 ns
+clock the low phase is 1.75 ns — precharge begins before the sense amp
+enables. The macro does not work at 3.5 ns, pipelined or not. OpenRAM
+says so itself: `min_period` in every datasheet it wrote for us is
+9.5-10.0 ns (a field nobody read). At this corner these are ~100 MHz
+parts, in line with how the efabless sky130 SRAM macros are actually
+clocked in Caravel designs (~50 MHz).
+
+Consequences:
+1. The 16 KB A4 macro run (runs/20260821_194312, "177.8 MHz") has a
+   FICTITIOUS Fmax: Genus was fed 0.65 ns x 2.0 = 1.3 ns for a ~6 ns
+   read from an analytical lib. Its area (-39%) and power (-57%) are
+   real. RESULTS.md must carry this note on that row.
+2. The honest ASIC Fmax numbers are the FLOP-bank runs (A4 176.6 MHz).
+3. E24 (tag macros) is off the table for a 285 MHz target; so are the
+   data-bank macros. Macros return only if the ASIC target drops to
+   ~100 MHz, where they bring the area/power and the flop design would
+   not need the timing campaign at all.
+4. The Phase-1 generation (128/256/512/1024 still characterizing) now
+   serves the area/power/100 MHz story only. The 2x2 libs' transition
+   columns remain unreliable (see the waveform) even where the 50%
+   delay is right; a lib to be linked needs its slews re-characterized
+   from a buffered dout, or the macro wrapped with an output buffer and
+   re-characterized as a unit.
+5. The derate discussion above is moot: no derate turns a 6 ns read
+   into a 3.5 ns one.
+
+## Run 2 sign-off corner (2026-08-28): ss_n40C_1v76 cells, vendor macro x1.5
+
+Run 1 (the P&R shakedown on e35abcde) keeps the 08-20 decision above: cells at
+ss_100C_1v60, vendor macro SS_1p8V_25C with a x2.0 late derate that tries to be
+a V/T translation (1.8 V/25 C -> 1.6 V/100 C) and a guardband at once. Run 2
+separates the two jobs:
+
+- **Cells at `sky130_fd_sc_hd__ss_n40C_1v76`** - the SS standard-cell lib
+  closest to the voltage the vendor macro was actually characterized at. No SS
+  lib exists at 25 C or 1.8 V for the cells; at 1.76 V the -40 C point is the
+  *fast* end (no temperature inversion at these voltages, see
+  project_config.tcl), so this is a slow-process / nominal-voltage sign-off,
+  not a minimum-supply one. Say so wherever the number is quoted.
+- **Same vendor macro lib, derate x1.5 (late).** At 1.76 V/-40 C the macro's
+  matching corner is within a few percent of its 1.8 V/25 C lib (+~2 % for
+  voltage, a few % faster for cold), so no V/T translation is needed. The 1.5 is
+  a pure guardband for the lib's suspect load axis (2-18 ps output slew into
+  27 fF): the in-house OpenRAM calibration of the same cell at the same
+  TT/1.8V/25C corner (calib_32x256, 08-23) reads ~1.5x the vendor lib at the
+  3.6-7 fF the cache presents on dout1. Hold-side early derate: use the mirror
+  value ~0.67 in Innovus (ASIC_MACRO_DERATE_EARLY), not the run-1 0.5.
+- Hold: unchanged (ff_n40C_1v95 cells, macro FF_1p8V_25C).
+
+Launcher: `asic/run_genus_corner2.sh` (env overrides on top of run_genus.sh;
+the run-1 defaults are untouched). Run stamps carry `ss1v76_d1p5` because
+collect_ppa.py labels rows by stamp only. The two corners are reported side by
+side; the OpenRAM SS/1.6V/100C lib, if it lands, is the tie-breaker on which
+one the macro really belongs to.
+
+**Result (Genus run `20260828_151051_e35abcde_ss1v76_d1p5_tb16_sram`, landed 19:25):**
+WNS -59 ps at 3.500 ns (run-1 corner: -524.5), TNS -2.3 ns (-190.5), 72 violating
+endpoints (598), cell area 4.16 mm² / total 5.07 mm² (+4 %), power 0.78 W. Census:
+19 of the 20 worst paths are `u_sram/clk1 -> COMPARE_SELECT_REPLACE.out_rdata_reg`
+(the macro half-cycle read, at x1.5) and one is `rindex_rep_r -> replacement_way`
+at -58 ps. So at this corner the netlist closes 4.0 ns with ~440 ps to spare and
+the macro read is the ceiling, as predicted. Both corners are rows in
+`PPA/RESULTS.md` (collect_ppa.py now keys rows by corner + derate).

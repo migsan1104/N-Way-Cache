@@ -26,11 +26,6 @@ module Replacement #(
     input  logic [SET_INDEX_W-1:0] lookup_set,
     output logic [WAY_INDEX_W-1:0] replacement_way,
 
-    // Same lookup, pre-register (Entry 10): the S0 write-grant
-    // precompute needs the victim for the request currently in S0 -
-    // exactly the value replacement_way will hold next cycle.
-    output logic [WAY_INDEX_W-1:0] lookup_way_c,
-
     // PLRU state update
     input  logic                   update_valid,
     input  logic [SET_INDEX_W-1:0] update_set,
@@ -39,8 +34,6 @@ module Replacement #(
 
     generate
         if (ASSOC == 1) begin : GEN_DIRECT_MAPPED
-
-            assign lookup_way_c = '0;
 
             always_ff @(posedge clk) begin
                 if (rst) begin
@@ -129,27 +122,53 @@ module Replacement #(
 
             assign replacement_way_n = plru_lookup(plru_bits[lookup_set]);
 
-            assign lookup_way_c = replacement_way_n;
-
+            // Entry 29(k) (2026-08-25): the PLRU array is RESET-FREE.
+            // Rejected on 2026-08-24 when the price was cell mapping
+            // (all dfxtp_1 already, not on any cone); re-opened when the
+            // rst BUFFER TREE was measured as a failing class (-197 ps
+            // into allocated_mem, ~1000 ps of buffers) - these NUM_SETS x
+            // (ASSOC-1) flops were ~40% of what remained on it.
+            //
+            // WHY IT IS SOUND, not X-luck: a PLRU bit is consulted only
+            // when its set is FULL - Compare_Select_Replace picks the
+            // first free way while one exists and reads replacement_way
+            // only under !has_free. A set becomes full by allocating
+            // every way, each alloc updates the tree along its leaf's
+            // path, and the leaves' paths together cover every node - so
+            // by the first cycle a bit can be read, every bit has been
+            // written, and plru_update_f writes a node to a value that
+            // does not depend on the old bits. The victim sequence is
+            // therefore identical to the reset-to-zero one (the
+            // regression must come out digit-identical, and does). The
+            // same holds across the TB's between-test resets: the state
+            // a set carries in is overwritten by its fill.
+            //
+            // Sim consequence: replacement_way is X until a set has been
+            // filled once; every consumer muxes it behind has_free, so
+            // the X never reaches state. The E12 shadow model below is
+            // made X-exact (unreset, compared with ===) so it tracks the
+            // same X positions instead of failing on them.
             always_ff @(posedge clk) begin
-                if (rst) begin
-                    for (int i = 0; i < NUM_SETS; i++) begin
-                        plru_bits[i] <= '0;
-                    end
-
-                    replacement_way <= '0;
-                    update_valid_r  <= 1'b0;
-                end else begin
-                    update_valid_r <= update_valid;
-                    update_set_r   <= update_set;
-                    next_bits_r    <= next_bits;
-
-                    if (update_valid_r) begin
-                        plru_bits[update_set_r] <= next_bits_r;
-                    end
-
-                    replacement_way <= replacement_way_n;
+                if (update_valid_r) begin
+                    plru_bits[update_set_r] <= next_bits_r;
                 end
+            end
+
+            // Entry 29(e) (2026-08-25): replacement_way and update_valid_r
+            // lose their reset and join the free-running pipeline
+            // registers. update_valid is CSR's in_valid (dec_valid),
+            // defined 0 from e2, so update_valid_r is 0 from e3 - the
+            // plru write it enables cannot fire during the flush cycles.
+            // replacement_way is a pure read of plru_bits; since Entry
+            // 29(k) that array is reset-free too, and replacement_way is
+            // consumed only behind has_free (see the 29(k) note above).
+            // Measured reason: replacement_way_reg is a -754 endpoint
+            // (128:1 read of plru_bits from rindex_rep_r) - the wall.
+            always_ff @(posedge clk) begin
+                update_valid_r  <= update_valid;
+                update_set_r    <= update_set;
+                next_bits_r     <= next_bits;
+                replacement_way <= replacement_way_n;
             end
 
 `ifndef SYNTHESIS
@@ -177,13 +196,11 @@ module Replacement #(
             longint unsigned e12_sample_count;
             longint unsigned e12_diverge_count;
 
+            // Entry 29(k): the shadow is unreset too, so its X pattern is
+            // the real array's (same start, same update function); the
+            // per-write assert below compares with === for that reason.
             always_ff @(posedge clk) begin
-                if (rst) begin
-                    for (int i = 0; i < NUM_SETS; i++) begin
-                        shadow_plru[i]      <= '0;
-                        shadow_plru_prev[i] <= '0;
-                    end
-                end else begin
+                if (!rst) begin
                     if (update_valid) begin
                         shadow_plru[update_set] <=
                             plru_update_f(shadow_plru[update_set], update_way);
@@ -203,7 +220,7 @@ module Replacement #(
 
             always_ff @(posedge clk) begin
                 if (!rst && update_valid_r) begin
-                    assert (next_bits_r == shadow_plru[update_set_r])
+                    assert (next_bits_r === shadow_plru[update_set_r])
                         else $error("PLRU E12: deferred write %b != shadow %b (set %0d)",
                                     next_bits_r, shadow_plru[update_set_r],
                                     update_set_r);

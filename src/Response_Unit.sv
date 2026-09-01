@@ -63,14 +63,14 @@ module Response_Unit #(
     assign hit_fifo_wr_data  = {1'b1, hit_id, hit_data};
     assign miss_fifo_wr_data = {1'b0, miss_id, miss_data};
 
+    // Entry 29(e) (2026-08-25): miss_valid_r loses its reset. miss_valid
+    // is Dispacher's live_r[snd_ctx_r] && found_c, and live_r keeps its
+    // reset (0 from the first reset edge), so this is a defined 0 from
+    // the second. Its only consumer is MISS_FIFO's wr_en, whose pointers
+    // are reset-held during the flush cycles.
     always_ff @(posedge clk) begin
-        if (rst) begin
-            miss_valid_r <= 1'b0;
-        end
-        else begin
-            miss_valid_r <= miss_valid;
-            miss_fifo_wr_data_r <= miss_fifo_wr_data;
-        end
+        miss_valid_r        <= miss_valid;
+        miss_fifo_wr_data_r <= miss_fifo_wr_data;
     end
 
     FIFO_FWFT #(
