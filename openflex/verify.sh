@@ -5,22 +5,39 @@ set -o pipefail
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
 
+# OpenFLEX is installed in the user's local bin on this system. Add it here so
+# the script also works from terminals that do not preload ~/.local/bin.
+export PATH="$HOME/.local/bin:$PATH"
+
 QUIET=0
 if [[ "${1:-}" == "--quiet" ]]; then
     QUIET=1
     shift
 fi
 
-CPU_REQ_PROB="${1:-1.0}"
-CPU_RESP_PROB="${2:-1.0}"
+CPU_REQ_PROB="${1:-0.8}"
+CPU_RESP_PROB="${2:-$CPU_REQ_PROB}"
 
-if [[ -f /apps/reconfig/enable_pro ]]; then
-    # shellcheck disable=SC1091
-    source /apps/reconfig/enable_pro
-elif [[ -f /apps/reconfig/enable_std ]]; then
-    # shellcheck disable=SC1091
-    source /apps/reconfig/enable_std
-fi
+# EDA environment. 2026-08-25: IT replaced /apps/reconfig/enable_pro and
+# enable_std with a single /apps/reconfig/enable (Questa 2026.2, Vivado
+# 2025.2) and moved the old files to /apps/reconfig/archive/. Every
+# measurement in this repo was taken with the OLD toolchain (Questa 2023.3,
+# Vivado 2021.2), so prefer it - the archived copies still check out
+# licenses - and fall back to the new file only if they vanish.
+ENABLE_CANDIDATES=(
+    /apps/reconfig/enable_pro
+    /apps/reconfig/archive/enable_pro
+    /apps/reconfig/enable_std
+    /apps/reconfig/archive/enable_std
+    /apps/reconfig/enable
+)
+for _enable in "${ENABLE_CANDIDATES[@]}"; do
+    if [[ -f "$_enable" ]]; then
+        # shellcheck disable=SC1090
+        source "$_enable"
+        break
+    fi
+done
 
 # Use the installed Questa release when it has not already been configured.
 QUESTA_HOME=${QUESTA_HOME:-/apps/reconfig/tools/siemens/questasim/2023.3}

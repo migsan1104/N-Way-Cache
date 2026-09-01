@@ -1,0 +1,22 @@
+module teststruct(p_met1, w_met1, m10_met1, m20_met1, p_met2, w_met2, m10_met2, m20_met2, p_met3, w_met3, m10_met3, m20_met3, p_met4, w_met4, m10_met4, m20_met4, p_met5, w_met5, m16_met5, m20_met5);
+  input p_met1;
+  input w_met1;
+  input m10_met1;
+  input m20_met1;
+  input p_met2;
+  input w_met2;
+  input m10_met2;
+  input m20_met2;
+  input p_met3;
+  input w_met3;
+  input m10_met3;
+  input m20_met3;
+  input p_met4;
+  input w_met4;
+  input m10_met4;
+  input m20_met4;
+  input p_met5;
+  input w_met5;
+  input m16_met5;
+  input m20_met5;
+endmodule

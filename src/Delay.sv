@@ -1,6 +1,12 @@
 // ============================================================
-// Parameterized delay pipeline using Reg modules
+// Parameterized delay pipeline using Reg modules - NO reset.
 // DELAY = 0 creates a pure combinational passthrough
+//
+// Reset-free twin of Delay_r (Entry 29(f), 2026-08-25): identical
+// structure, built from Reg instead of Reg_r, no rst port. Use it for
+// PAYLOAD pipes whose consumers are gated by reset-held control; use
+// Delay_r where the pipe's value must be defined out of reset. The
+// pair is an optimization knob (see Reg.sv).
 // ============================================================
 
 module Delay #(

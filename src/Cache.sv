@@ -11,6 +11,12 @@
 module Cache #(
     parameter int CACHE_BYTES   = 4096,
     parameter int ASSOC         = 4,
+    parameter bit EN_SRAM_MACRO = 1'b0,
+    // Entry 21: ASIC-only one-hot metadata read (see Flag_Tag_Data_Array
+    // header). A parameter, not a define, for the same reason as
+    // EN_SRAM_MACRO: Genus sets it via elaborate -parameters, the
+    // testbench turns it on for one DUT, FPGA never sets it.
+    parameter bit TAG_READ_ONEHOT = 1'b0,
 
     localparam int ADDR_WIDTH    = 32,
     localparam int DATA_WIDTH    = 32,
@@ -76,6 +82,11 @@ module Cache #(
     logic [SET_INDEX_W-1:0]       dec_set_id;
     logic [WORD_OFFSET_W-1:0]     dec_word_id;
 
+    // Entry 25: elder-patch compares, registered in Address_Decode.
+    logic                         dec_pre_same_set;
+    logic                         dec_pre_same_word;
+    logic                         dec_pre_tag_match;
+
     logic [LINE_WIDTH-1:0]        way_line       [ASSOC];
     logic [TAG_WIDTH-1:0]         way_tag        [ASSOC];
     logic                         way_allocated  [ASSOC];
@@ -117,11 +128,12 @@ module Cache #(
 
   
     logic [ASSOC-1:0]             cpu_write_wen;
-    logic [ASSOC-1:0]             cpu_write_replace;
    
     logic [SET_INDEX_W-1:0]       cpu_write_set_id;
     logic [WORD_OFFSET_W-1:0]     cpu_write_word_id;
     logic [DATA_WIDTH-1:0]        cpu_write_wdata;
+
+    // S0 write-grant precompute nets (Entry 10)
 
     logic [WAY_INDEX_W-1:0]       replacement_way;
     logic                         replacement_update_valid;
@@ -135,7 +147,8 @@ module Cache #(
     logic [MSHR_COUNT-1:0]        mshr_req_pending;
     logic [MSHR_COUNT-1:0]        mshr_req_write;
     logic [ADDR_WIDTH-1:0]        mshr_req_addr  [MSHR_COUNT];
-    logic [DATA_WIDTH-1:0]        mshr_req_wdata [MSHR_COUNT];
+    logic [DATA_WIDTH-1:0]        mshr_wb_data;     // Entry 23
+    logic [MSHR_COUNT-1:0]        mshr_head_oh;     // Entry 23 / 31
     logic [MSHR_ID_WIDTH-1:0]     mshr_req_id    [MSHR_COUNT];
     logic [MSHR_COUNT-1:0]        mshr_issued;
 
@@ -158,6 +171,67 @@ module Cache #(
 
     assign cpu_req_ready = hit_resp_ready && mshr_alloc_ready;
 
+    // A request is ACCEPTED only when valid and ready are both high
+    // (Contract A-loose: the producer may hold, replace, or retract an
+    // un-accepted offer; payload is sampled only at acceptance). The
+    // pipeline must consume cpu_req_fire, never raw cpu_req_valid: a
+    // compliant CPU holds valid through !ready cycles, and an ungated
+    // pipe re-processes that held request every cycle (ghost merges
+    // overflow the RS waiter list, duplicate responses corrupt ordering).
+    // This path was latent-broken: cpu_req_ready never deasserts under
+    // current traffic (RS occupancy peaks at 8 vs the AF=3 threshold of
+    // 13; the hit FIFO never fills), so no regression exercised it until
+    // the 2026-08-21 MSHR_AF=11 probe failed on every RTL generation
+    // back to the pre-campaign baseline. Full story: optimizations.md,
+    // "The handshake bug".
+    logic cpu_req_fire;
+    assign cpu_req_fire = cpu_req_valid && cpu_req_ready;
+
+    // ------------------------------------------------------------
+    // Entry 28(A): input register stage (S-1). The whole accepted
+    // request is registered at the boundary before S0. The SDC's input
+    // budget already models the driving flop's CLK->Q, so this register
+    // is timing-neutral for the port paths themselves - its value is
+    // that S0's address cones now launch from flops INSIDE the block,
+    // which (a) frees them from the set_driving_cell/net penalty and
+    // (b) makes the set index REPLICABLE per way (rindex_rep_r in
+    // GEN_WAYS below), quartering each tag-bank broadcast tree.
+    // (Struck 2026-08-24 midday for the E30(a)-only attribution run,
+    // re-applied the same day for the E30ab+E28A run.)
+    //
+    // Discipline (user-set, matches E29/E26): reset ONLY on the valid
+    // bit; every payload register free-runs - no reset, no enables.
+    // Free-running is load-bearing: the E26 raddr-echo invariant
+    // (raddr_d2_r == alloc_waddr) holds because the port->FTDA.raddr
+    // path (1 register) and the port->AD.out->CSR.out path (3
+    // registers) are BOTH unconditional register chains; an enable
+    // anywhere breaks it, and the FTDA-side assertion fails loudly.
+    //
+    // Cost: +1 cycle on every request (hit latency 4.11 -> ~4.86 at
+    // full throughput, measured). Backpressure arithmetic: the pipe
+    // carries 3 requests after cpu_req_ready falls (S-1, S1, S2) -
+    // MSHR_AF is 4 below, one-spare-slot discipline kept. The hit
+    // FIFO's loose credit window widens by one; the 0.8-pressure
+    // regression is the detector for that bound, as ever.
+    // ------------------------------------------------------------
+    logic                    inreg_valid_r;
+    logic                    inreg_write_r;
+    logic [ADDR_WIDTH-1:0]   inreg_addr_r;
+    logic [DATA_WIDTH-1:0]   inreg_wdata_r;
+    logic [CPU_ID_WIDTH-1:0] inreg_id_r;
+
+    always_ff @(posedge clk) begin
+        if (rst) inreg_valid_r <= 1'b0;
+        else     inreg_valid_r <= cpu_req_fire;
+    end
+
+    always_ff @(posedge clk) begin
+        inreg_write_r <= cpu_req_write;
+        inreg_addr_r  <= cpu_req_addr;
+        inreg_wdata_r <= cpu_req_wdata;
+        inreg_id_r    <= cpu_req_id;
+    end
+
     assign miss_select_line_addr = {miss_select_tag, miss_select_set_id};
 
     Address_Decode #(
@@ -171,11 +245,12 @@ module Cache #(
         .clk            (clk),
         .rst            (rst),
 
-        .in_valid       (cpu_req_valid),
-        .in_write       (cpu_req_write),
-        .in_addr        (cpu_req_addr),
-        .in_wdata       (cpu_req_wdata),
-        .in_cpu_req_id  (cpu_req_id),
+        // Entry 28(A): S0 consumes the registered request.
+        .in_valid       (inreg_valid_r),
+        .in_write       (inreg_write_r),
+        .in_addr        (inreg_addr_r),
+        .in_wdata       (inreg_wdata_r),
+        .in_cpu_req_id  (inreg_id_r),
 
         .array_raddr    (array_rindex),
 
@@ -185,7 +260,11 @@ module Cache #(
         .out_cpu_req_id (dec_cpu_req_id),
         .out_tag        (dec_tag),
         .out_set_id     (dec_set_id),
-        .out_word_id    (dec_word_id)
+        .out_word_id    (dec_word_id),
+
+        .pre_same_set   (dec_pre_same_set),
+        .pre_same_word  (dec_pre_same_word),
+        .pre_tag_match  (dec_pre_tag_match)
     );
 
     always_comb begin
@@ -196,10 +275,80 @@ module Cache #(
         end
     end
 
+    // ---- Entry 21: shared S0 one-hot set decode ----------------------
+    // ONE decode + one NUM_SETS-wide register for the whole DUT, fanned
+    // to every way (the tagbank16 probe showed the tag-read wall is mux
+    // DEPTH, not address fanout - per-way copies would buy nothing).
+    // Registered on the same edge that used to load the ways' rtag
+    // registers, so the S1 alignment of the read is unchanged.
+    logic [NUM_SETS-1:0] set_onehot_r;
+
+    generate
+        if (TAG_READ_ONEHOT) begin : GEN_SET_ONEHOT
+            always_ff @(posedge clk) begin
+                if (rst) begin
+                    set_onehot_r <= '0;
+                end
+                else begin
+                    set_onehot_r <= NUM_SETS'(1'b1) << array_rindex;
+                end
+            end
+
+`ifndef SYNTHESIS
+            // The one-hot must track the S1 request's registered set
+            // index - they are registered from the same S0 value, so a
+            // divergence means a decode/reset bug, not traffic.
+            always_ff @(posedge clk) begin
+                if (!rst && dec_valid) begin
+                    assert (set_onehot_r ==
+                            (NUM_SETS'(1'b1) << dec_set_id))
+                        else $error("Cache E21: set_onehot_r %h != decode of dec_set_id %0d",
+                                    set_onehot_r, dec_set_id);
+                end
+            end
+`endif
+        end
+        else begin : GEN_NO_SET_ONEHOT
+            assign set_onehot_r = '0;
+        end
+    endgenerate
+
     genvar way_gen;
 
     generate
         for (way_gen = 0; way_gen < ASSOC; way_gen++) begin : GEN_WAYS
+
+            // Entry 28(A): per-way REPLICA of the set-index register.
+            // Loads the same slice of the incoming address as the S-1
+            // input register, every cycle, no reset, no enable - so it
+            // equals array_rindex by construction (asserted below) and
+            // each way's tag-bank broadcast tree hangs off its own
+            // private flop instead of one shared net. The attribute
+            // below stops VIVADO merging the equivalent replicas back
+            // into one register (the whole point is the split). GENUS
+            // IGNORES it (VLOGPT-506) - it merged all four copies in
+            // every ASIC run until Entry 33 (2026-08-25), which pins the
+            // replicas from the flow instead: run_genus.tcl sets
+            // optimize_merge_seq false on the REPLICA_PATTERNS list and
+            // fails the run if any of them still merges. Adding a new
+            // replica register means adding its name to that list.
+            (* dont_touch = "true" *)
+            logic [SET_INDEX_W-1:0] rindex_rep_r;
+
+            always_ff @(posedge clk) begin
+                rindex_rep_r <= (SET_INDEX_BITS == 0) ? '0 :
+                    SET_INDEX_W'(cpu_req_addr >> WORD_OFFSET_W);
+            end
+
+`ifndef SYNTHESIS
+            always_ff @(posedge clk) begin
+                if (!rst) begin
+                    assert (rindex_rep_r == array_rindex)
+                        else $error("Cache E28A: way %0d rindex replica %0d != array_rindex %0d",
+                                    way_gen, rindex_rep_r, array_rindex);
+                end
+            end
+`endif
 
             Flag_Tag_Data_Array #(
                 .DATA_WIDTH     (DATA_WIDTH),
@@ -208,12 +357,15 @@ module Cache #(
                 .DEPTH          (NUM_SETS),
                 .SET_INDEX_W    (SET_INDEX_W),
                 .WORDS_PER_LINE (WORDS_PER_LINE),
-                .WORD_OFFSET_W  (WORD_OFFSET_W)
+                .WORD_OFFSET_W  (WORD_OFFSET_W),
+                .EN_SRAM_MACRO  (EN_SRAM_MACRO),
+                .TAG_READ_ONEHOT (TAG_READ_ONEHOT)
             ) FLAG_TAG_DATA_ARRAY (
                 .clk             (clk),
                 .rst             (rst),
 
-                .raddr           (array_rindex),
+                .raddr           (rindex_rep_r),   // Entry 28(A) replica
+                .raddr_onehot    (set_onehot_r),
 
                 .rline           (way_line[way_gen]),
                 .rtag            (way_tag[way_gen]),
@@ -231,7 +383,6 @@ module Cache #(
                 .alloc_tag       (alloc_tag),
 
                 .cpu_word_wen    (cpu_write_wen[way_gen]),
-                .cpu_replace     (cpu_write_replace[way_gen]),
                 .cpu_waddr       (cpu_write_set_id),
                 .cpu_word_id     (cpu_write_word_id),
                 .cpu_wdata       (cpu_write_wdata)
@@ -249,7 +400,14 @@ module Cache #(
         .clk             (clk),
         .rst             (rst),
 
-        .lookup_set      (dec_set_id),
+        // PLRU is a lookahead: victim computed combinationally from
+        // lookup_set, registered, consumed the NEXT cycle. Feed it the S0
+        // index (same wire the arrays read with) so the registered victim
+        // corresponds to the request that reaches S1 when it is consumed.
+        // (Was dec_set_id - the S1 set - which delivered the PREVIOUS
+        // request's set's victim to the compare stage: policy-only bug,
+        // measured as the 16KB associativity-miss inversion.)
+        .lookup_set      (array_rindex),
         .replacement_way (replacement_way),
 
         .update_valid    (replacement_update_valid),
@@ -280,6 +438,10 @@ module Cache #(
         .in_tag                   (dec_tag),
         .in_set_id                (dec_set_id),
         .in_word_id               (dec_word_id),
+
+        .pre_same_set             (dec_pre_same_set),
+        .pre_same_word            (dec_pre_same_word),
+        .pre_tag_match            (dec_pre_tag_match),
 
         .way_line                 (way_line),
         .way_tag                  (way_tag),
@@ -315,7 +477,6 @@ module Cache #(
 
      
         .cpu_write_wen            (cpu_write_wen),
-        .cpu_write_replace        (cpu_write_replace),
         
         .cpu_write_set_id         (cpu_write_set_id),
         .cpu_write_word_id        (cpu_write_word_id),
@@ -335,12 +496,25 @@ module Cache #(
     assign miss_select_word_id    = cmp_word_id;
     assign miss_select_way        = cmp_miss_way;
 
-    Delay_r #(
+    // DELAY re-derived for Entry 30(a) (was 5): the retire broadcast
+    // now reaches the Dispacher one cycle later (registered in
+    // MSHR_File), so the delayed memory data shifts one cycle with it.
+    // This constant aligns mem_resp_rdata with the cycle the Dispacher
+    // streams each waiter; any change to the refill/retire pipeline
+    // depth needs it re-derived - wrong values give wrong data with NO
+    // structural error (the 20-row regression is the detector).
+    // Entry 29(f) (2026-08-25): Delay (reset-free) instead of Delay_r.
+    // The pipe is pure payload, consumed by the Dispacher only under
+    // dispatch_valid / beats_left_r, both of which descend from reset-
+    // held control - so its 6 x 32 flops were on the rst buffer tree
+    // for nothing (the tree owns the -197 rst -> allocated_mem class of
+    // the 20260824_180915 census). Delay_r/Reg_r are kept as the
+    // reset-carrying twins: swapping the module name here is the knob.
+    Delay #(
         .D_WIDTH(DATA_WIDTH),
-        .DELAY  (5)
+        .DELAY  (6)
     ) MISS_RESP_DATA_DELAY (
         .clk  (clk),
-        .rst  (rst),
         .din  (mem_resp_rdata),
         .dout (delayed_miss_data)
     );
@@ -356,8 +530,18 @@ module Cache #(
         .LINE_WIDTH       (LINE_WIDTH),
         .CPU_ID_WIDTH     (CPU_ID_WIDTH),
         .MSHR_ID_WIDTH    (MSHR_ID_WIDTH),
-        .MISSQ_DEPTH      (16),
-        .MSHR_AF          (3),
+        // RS depth 8 is PAIRED to MSHR_COUNT=4 (adopted 2026-08-21):
+        // measured occupancy ceiling is 8 at any depth, so 16 paid CAM/
+        // vbuf/fanout in the WNS-owning cone for slots never used. At
+        // depth 8 the almost-full brake engages routinely, so every
+        // regression now exercises the cpu_req_fire backpressure path.
+        // AF=4 keeps one spare slot (Entry 28(A): the pipe carries 3
+        // after ready falls - S-1 input register, S1, S2; AF=3 for the
+        // 2-deep pipe without E28(A); measured high-water 7/8). Revisit
+        // if MSHR_COUNT scales (plausible rule: MISSQ_DEPTH = 2 x
+        // MSHR_COUNT).
+        .MISSQ_DEPTH      (8),
+        .MSHR_AF          (4),
         .MAX_WAITERS      (WORDS_PER_LINE)
     ) MSHR_FILE (
         .clk                  (clk),
@@ -367,6 +551,11 @@ module Cache #(
         .alloc_ready          (mshr_alloc_ready),
 
         .alloc_line_addr      (miss_select_line_addr),
+
+        // Entry 11: the compare-stage request's line address, one cycle
+        // ahead of miss_select_line_addr - same {tag, set} construction.
+        .pre_line_addr        ({dec_tag, dec_set_id}),
+
         .alloc_word_id        (miss_select_word_id),
         .alloc_way            (miss_select_way),
 
@@ -382,6 +571,7 @@ module Cache #(
     
 
         .issue_done           (mshr_issued),
+        .head_oh              (mshr_head_oh),
 
         .mem_resp_valid       (mem_resp_valid),
         .mem_resp_id          (mem_resp_id),
@@ -404,7 +594,7 @@ module Cache #(
         .req_valid            (mshr_req_valid),
         .req_write            (mshr_req_write),
         .req_addr             (mshr_req_addr),
-        .req_wdata            (mshr_req_wdata),
+        .wb_data              (mshr_wb_data),
         .req_id               (mshr_req_id)
     );
 
@@ -421,7 +611,8 @@ module Cache #(
         .req_pending   (mshr_req_pending),
         .req_write     (mshr_req_write),
         .req_addr      (mshr_req_addr),
-        .req_wdata     (mshr_req_wdata),
+        .wb_data       (mshr_wb_data),
+        .head_oh       (mshr_head_oh),
         .req_id        (mshr_req_id),
 
         .issued        (mshr_issued),

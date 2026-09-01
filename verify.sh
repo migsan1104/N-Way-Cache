@@ -7,6 +7,11 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 cd "$SCRIPT_DIR" || exit 1
 
 overall_status=0
+CPU_REQ_PROB="${1:-0.8}"
+CPU_RESP_PROB="${2:-}"
+if [[ -z "$CPU_RESP_PROB" ]]; then
+    CPU_RESP_PROB="$CPU_REQ_PROB"
+fi
 
 run_job() {
     local label="$1"
@@ -23,9 +28,7 @@ run_job() {
     fi
 }
 
-run_job "Questa 1.0 1.0"  "$SCRIPT_DIR/openflex/verify.sh" --quiet 1.0 1.0
-run_job "Questa 0.8 0.8"  "$SCRIPT_DIR/openflex/verify.sh" --quiet 0.8 0.8
-run_job "Xcelium 1.0 1.0" bash -lc "source /apps/settings && cd '$SCRIPT_DIR/xcelium' && ./run.sh --quiet 1.0 1.0"
-run_job "Xcelium 0.8 0.8" bash -lc "source /apps/settings && cd '$SCRIPT_DIR/xcelium' && ./run.sh --quiet 0.8 0.8"
+run_job "Questa ${CPU_REQ_PROB} ${CPU_RESP_PROB}"  "$SCRIPT_DIR/openflex/verify.sh" --quiet "$CPU_REQ_PROB" "$CPU_RESP_PROB"
+run_job "Xcelium ${CPU_REQ_PROB} ${CPU_RESP_PROB}" env CACHE_CPU_REQ_PROB="$CPU_REQ_PROB" CACHE_CPU_RESP_PROB="$CPU_RESP_PROB" CACHE_ROOT="$SCRIPT_DIR" bash -lc 'source /apps/settings && cd "$CACHE_ROOT/xcelium" && ./run.sh --quiet "$CACHE_CPU_REQ_PROB" "$CACHE_CPU_RESP_PROB"'
 
 exit "$overall_status"

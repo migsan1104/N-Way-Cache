@@ -1,0 +1,15 @@
+* ngspice startup options. MUST live in the directory ngspice RUNS FROM.
+*
+* OpenRAM writes its own copy of this into /tmp/openram_*_temp/, which only
+* works if ngspice's cwd is that temp dir. run_openram.sh cds here instead, so
+* without this file all three settings below are silently dropped - no error,
+* just a ~15x slower run. Measured on an identical 150 ns stimulus with
+* ngspice-41: 24.7 min with these options, >6.5 h without them.
+*
+* num_threads   - OpenMP parallelism (one thread otherwise; watch %CPU to tell)
+* ngbehavior    - HSPICE/spice3 compatibility, needed for the sky130 models
+* ng_nomodcheck - skip model parameter range checks; expensive across thousands
+*                 of BSIM4 instances
+set num_threads=3
+set ngbehavior=hsa
+set ng_nomodcheck

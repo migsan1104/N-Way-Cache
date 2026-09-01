@@ -1,0 +1,25 @@
+wrote teststruct.v, teststruct.def, expected_lef.csv in /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/quantus/validate
+== extract (native)
+== extract (qrc)
+net      layer   C_lef fF   C_nat fF   C_qrc fF  qrc/lef  qrc/nat       R_exp     R_qrc  R ratio
+p_met1   met1      72.559        nan    143.051     1.97      nan        0.12      0.12     1.00
+w_met1   met1      84.754        nan     74.739     0.88      nan      892.86    892.86     1.00
+m10_met1 met1     106.993        nan    108.627     1.02      nan      125.00    125.00     1.00
+m20_met1 met1     132.853        nan    139.773     1.05      nan       62.50     62.50     1.00
+p_met2   met2      49.908        nan    105.138     2.11      nan        0.12      0.12     1.00
+w_met2   met2      77.900        nan     66.688     0.86      nan      892.86    892.86     1.00
+m10_met2 met2      92.536        nan     93.089     1.01      nan      125.00    125.00     1.00
+m20_met2 met2     109.554        nan    115.697     1.06      nan       62.50     62.50     1.00
+p_met3   met3      39.130        nan     80.137     2.05      nan        0.05      0.05     1.00
+w_met3   met3      85.715        nan     74.979     0.87      nan      156.67    156.67     1.00
+m10_met3 met3      94.433        nan     89.539     0.95      nan       47.00     47.00     1.00
+m20_met3 met3     106.888        nan    109.449     1.02      nan       23.50     23.50     1.00
+p_met4   met4      28.374        nan     57.681     2.03      nan        0.05      0.05     1.00
+w_met4   met4      75.899        nan     65.201     0.86      nan      156.67    156.67     1.00
+m10_met4 met4      81.841        nan     76.102     0.93      nan       47.00     47.00     1.00
+m20_met4 met4      90.329        nan     91.536     1.01      nan       23.50     23.50     1.00
+p_met5   met5      23.572        nan     46.171     1.96      nan        0.03      0.03     0.97
+w_met5   met5      87.939        nan     76.234     0.87      nan       17.81     17.81     1.00
+m16_met5 met5      87.939        nan     76.234     0.87      nan       17.81     17.81     1.00
+m20_met5 met5      90.499        nan     80.077     0.88      nan       14.25     14.25     1.00
+EXIT=0

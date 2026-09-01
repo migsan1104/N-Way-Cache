@@ -1,5 +1,27 @@
 # High-Frequency Parameterized Cache Architecture
 
+## The design at a glance
+
+![Cache architecture — how a request flows](designs/Cache_Architecture.png)
+
+*How a request flows: the hit path runs across the top (steps 1–5), the non-blocking miss
+machinery across the bottom (steps 6–11). Sub-line valid bits let a write miss complete
+immediately, back-pressure exists at exactly one point, and four misses stay in flight with
+same-line waiters merged and responses returning out of order.*
+
+The same RTL, taken through the full ASIC flow (Genus synthesis + Innovus place-and-route on
+SKY130 HD with 16 OpenRAM SRAM macros) — rendered with KLayout from the actual GDSII stream the
+flow exports:
+
+![16 KB 4-way cache GDSII, pre-signoff](asic/signoff/GDS11_Image/iter14_e35_armE_gds.png)
+
+*The most recent routed layout (iteration 14): a 2.70 mm × 2.70 mm die, ~222k logic cells plus
+16 SRAM macros ringing the core. The sheet carries the Innovus route-stage numbers — DRC and
+antenna counts, setup/hold slack at both MMMC corners — ahead of Tempus/Quantus signoff, which is
+in progress.*
+
+---
+
 ## Goal / Overview
 
 The goal of this project will be to design, verify, optimize, and eventually physically implement a high-performance parameterized cache architecture. This project aims to study cache architecture tradeoffs while following a realistic ASIC development methodology from RTL design through physical implementation.
@@ -182,9 +204,30 @@ The `cacheN.csv` file will store the timing and utilization table for that assoc
 
 This structure will make it easy to compare associativity choices without overwriting results from other configurations. For example, `assoc_4` and `assoc_8` can each keep their own timing reports, utilization reports, route reports, and power history.
 
+Current results (16 KB cache, XCU250-FIGD2104-2L-E, out-of-context, all five measured on the same
+RTL revision, 2026-08-20):
+
+| Associativity (ways) | Fmax (MHz) | LUTs (Used) | LUTRAM (Used) | FFs/REGs (Used) | Dynamic Power (W) | Static Power (W) | Total Power (W) |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | **326.6** | 26,349 | 3,448 | 10,826 | 1.618 | 2.975 | 4.592 |
+| 2 | 301.0 | 30,329 | 3,448 | 11,691 | 1.884 | 2.980 | 4.863 |
+| 4 | 282.3 | 26,331 | 3,514 | 12,609 | 1.514 | 2.973 | 4.486 |
+| 8 | 269.8 | **26,203** | 3,578 | 13,955 | 1.477 | 2.972 | **4.449** |
+| 16 | 299.9 | 27,679 | 3,580 | 16,466 | **1.475** | 2.972 | 4.449 |
+
+Fmax is U-shaped in associativity at this capacity: direct-mapped leads outright, and sixteen-way
+beats four- and eight-way because halving the per-way set depth shortens the flag-write decode that
+dominates the worst paths (the one cone the data-bank SRAM macros will not absorb). Utilization is
+nearly flat (26.2k-30.3k LUTs), so the choice at 16 KB is driven by frequency and power.
+
+These numbers are regenerated with `openflex/collect_ppa.py`, which reads each `cache<N>.csv` plus
+the newest post-route power report, cross-checks every Fmax against the `WNS` in that same
+associativity's `post_route_timing_summary.rpt`, and warns if a row's `ASSOC` field does not match
+the folder it landed in.
+
 Current PPA visualization:
 
-![FPGA cache PPA scaling results](FPGA_Cache_PPA_Scaling_4KB_Updated.png)
+![FPGA cache PPA scaling results](FPGA_Cache_PPA_Scaling_16KB.png)
 
 Multiple cache configurations will be evaluated, including different associativities, cache sizes, and architectural optimizations. These measurements will guide architectural optimization and allow quantitative comparison of design tradeoffs.
 
@@ -208,6 +251,42 @@ This flow will include:
 - Power analysis
 - Physical verification
 - GDSII generation
+
+### Logical synthesis results
+
+Logic synthesis is run ahead of the physical flow so the architectural comparison can be repeated on
+a real standard-cell library rather than on FPGA primitives. Both tools target SKY130 HD at the
+typical corner (`tt_025C_1v80`, 1.80 V, 25 C) with a 2.000 ns clock, using the same RTL revision as
+the FPGA sweep. From `asic/`:
+
+```bash
+./run_genus.sh N        # Cadence Genus
+./run_dc.sh N           # Synopsys Design Compiler
+./sweep.sh -j 2         # several configurations
+```
+
+Results land in `asic/PPA/<genus|dc>/assoc_N/`.
+
+Current status (16 KB cache, SKY130 HD, ss_100C_1v60, 3.500 ns target, physically-aware Genus +
+DC): the full five-associativity sweep at 16 KB is being re-measured on the current RTL (the
+project's capacity target moved from 4 KB to 16 KB with the SRAM-macro work — see `asic/MACROS.md`).
+Alongside the standard-cell sweep, the 16 KB ASSOC=4 configuration synthesizes with 16
+`sram_1rw1r_32_256_8` hard macros (`ASIC_SRAM_MACRO=1`, macro lib SS_1p8V_25C with a x2.0 derived
+timing derate).
+
+The tables are regenerated with `asic/collect_ppa.py`, which parses each tool's QoR, area, and
+power reports into a common column set, writes `asic/PPA/RESULTS.md`, and with `--png` renders the
+charts below:
+
+```bash
+./collect_ppa.py --markdown PPA/RESULTS.md --png ..
+```
+
+Current synthesis PPA visualization:
+
+![Cadence Genus synthesis PPA scaling](ASIC_Genus_Synthesis_PPA_16KB.png)
+
+![Synopsys Design Compiler synthesis PPA scaling](ASIC_DC_Synthesis_PPA_16KB.png)
 
 The ASIC implementation phase will connect the architectural design decisions made earlier in the project to their physical consequences in timing, power, area, and layout complexity.
 
