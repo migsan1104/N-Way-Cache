@@ -1,148 +1,218 @@
 #!/usr/bin/env python3
 """Cache_Architecture.png - block diagram regenerated from a full src/ read
-(2026-08-31). MSHR_File is opened up: Reservation_Station and Dispacher are
-first-class blocks with internals. Numbers are the as-built Cache.sv
-overrides: S-1 input stage (E28A), RS_DEPTH=8/AF=4, MSHR_COUNT=4,
-MAX_WAITERS=4, Delay(6), registered arbiter outputs (E23b).
+(2026-09-01 rewrite for readability). The flow is a NUMBERED story (1-11):
+request -> hit path across the top, miss machinery across the bottom, one
+clean response rail back to the CPU. All arrows are orthogonal elbows; the
+single unavoidable crossing (refill vs miss-descent) is drawn as a hop.
+Numbers are the as-built Cache.sv overrides: S-1 input stage, RS_DEPTH=8
+(AF=4), MSHR_COUNT=4, MAX_WAITERS=4, Delay(6), registered arbiter outputs.
     python3 draw_architecture.py
 """
 import os
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyBboxPatch, FancyArrowPatch, Rectangle
+from matplotlib.patches import FancyBboxPatch, Arc
+from matplotlib.lines import Line2D
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-W, H = 31.0, 17.5
-fig, ax = plt.subplots(figsize=(25, 14.1))
+W, H = 31.5, 16.6
+fig, ax = plt.subplots(figsize=(26, 13.8))
 ax.set_xlim(0, W); ax.set_ylim(0, H); ax.axis("off")
+ax.set_aspect("equal")
 
-C = dict(cpu="#dbe9f6", arr="#ddeedd", csr="#dbe9f6", mshr="#fdeecd",
-         rs="#fff7e0", disp="#efe0f5", resp="#e8e2f2", mem="#fbe0e0", note="#f4f4f4")
 EC = "#1a3a6b"
-
-def box(x, y, w, h, title, lines=(), fc="#eef", fs=10, tfs=12, ec=EC, lw=1.6):
-    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.06", fc=fc, ec=ec, lw=lw))
-    ax.text(x + w/2, y + h - 0.33, title, ha="center", va="center", fontsize=tfs, fontweight="bold", color=EC)
-    for i, ln in enumerate(lines):
-        ax.text(x + w/2, y + h - 0.78 - i*0.35, ln, ha="center", va="center", fontsize=fs, color="#222")
-
-def arrow(p0, p1, color, label=None, lw=2.4, ls="-", rad=0.0, fs=9.5, lofs=(0, 0.18)):
-    ax.add_patch(FancyArrowPatch(p0, p1, arrowstyle="-|>", mutation_scale=16, color=color,
-                                 lw=lw, linestyle=ls, connectionstyle=f"arc3,rad={rad}"))
-    if label:
-        ax.text((p0[0]+p1[0])/2 + lofs[0], (p0[1]+p1[1])/2 + lofs[1], label,
-                fontsize=fs, color=color, ha="center", fontweight="bold")
-
 BLU, GRN, ORG, PUR, RED, GRY = "#1f5fbf", "#2e7d32", "#e07b00", "#7b2fa8", "#c62828", "#555"
+C = dict(cpu="#dbe9f6", arr="#ddeedd", mshr="#fdeecd", rs="#fff3d6",
+         disp="#efe0f5", resp="#e8e2f2", mem="#fbe0e0", note="#f2f2f2")
 
-ax.text(W/2, H-0.35, "Cache — architecture and miss machinery (regenerated from src/, 2026-08-31)",
-        ha="center", fontsize=19, fontweight="bold", color=EC)
-ax.text(W/2, H-0.82, "CACHE_BYTES / ASSOC parameterized (16KB, N∈{1,2,4,8,16}) · 4×32b words per line, word-addressed CPU · "
-        "RS_DEPTH=8 (AF=4) · MSHR_COUNT=4 · MAX_WAITERS=4 · params: EN_SRAM_MACRO, TAG_READ_ONEHOT (ASIC)",
-        ha="center", fontsize=10.5, color="#444")
 
-# stage rails
-for x, s in [(2.6, "S-1 input reg (E28A)"), (5.0, "S0 decode/read"), (8.2, "S1 compare"),
-             (11.6, "S2 grants/queues"), (16.4, "S3+ miss machinery"), (27.2, "memory")]:
-    ax.plot([x, x], [0.5, H-1.25], ls=":", color="#999", lw=1)
-    ax.text(x + 0.08, H-1.5, s, fontsize=9.5, color="#666", ha="left")
+def box(x, y, w, h, title, lines=(), fc="#eef", fs=9.5, tfs=12, lw=1.6, tc=EC):
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.05",
+                                fc=fc, ec=EC, lw=lw))
+    if lines:
+        ax.text(x + w / 2, y + h - 0.34, title, ha="center", va="center",
+                fontsize=tfs, fontweight="bold", color=tc)
+        for i, ln in enumerate(lines):
+            ax.text(x + w / 2, y + h - 0.76 - i * 0.335, ln, ha="center",
+                    va="center", fontsize=fs, color="#222")
+    else:
+        ax.text(x + w / 2, y + h / 2, title, ha="center", va="center",
+                fontsize=tfs, fontweight="bold", color=tc)
 
-# ---------------- left: CPU, S-1, S0, arrays, S1 ----------------
-box(0.15, 12.4, 2.1, 2.0, "CPU", ["req valid/ready", "addr,write,wdata,id", "resp valid/ready", "(out-of-order ok)"], fc=C["cpu"], fs=9)
-box(2.9, 12.5, 1.9, 1.8, "input regs\n(S-1)", ["accepted req", "registered;", "cpu_req_fire only"], fc=C["note"], fs=8.5, tfs=10)
-box(3.3, 9.6, 2.7, 1.9, "Address_Decode", ["tag / set / word split", "pre-compares for the", "E20/E25 elder patch"], fc=C["cpu"], fs=9.5)
-box(5.6, 12.0, 4.4, 3.4, "Flag_Tag_Data_Array × N ways",
-    ["flags: flops (alloc/dirty/word_valid[4])", "tags: banked LUTRAM / SRAM macro", "data: 1R1W bank per line word",
-     "refill DRAINS bank-at-a-time; CPU", "write has priority; partial refill legal", "(sub-line valid = abandonable drain)"],
-    fc=C["arr"], fs=9, tfs=11.5)
-ax.text(7.8, 15.55, "per-way rindex_rep_r replica regs feed each way's tag banks (E28A/E33)", fontsize=8, ha="center", color="#555")
-box(5.6, 8.2, 2.5, 1.5, "Replacement", ["tree PLRU per set", "registered lookup"], fc=C["note"], fs=9)
-box(5.9, 3.6, 4.0, 3.9, "Compare_Select_Replace",
-    ["S1: per-way tag compare;", "write hits on tag alone, read", "also needs word_valid[word]",
-     "one-hot hit + victim selects", "(E36(b) AND-OR victim capture)", "S2 regs: write grants + victim snap"],
-    fc=C["csr"], fs=9.5)
 
-arrow((2.25, 13.4), (2.9, 13.4), BLU, "fire", fs=8.5)
-arrow((3.9, 12.5), (4.4, 11.5), BLU, "", rad=-0.15)
-arrow((4.8, 13.0), (5.6, 13.4), GRN, "rindex (S-1)", rad=-0.1, fs=8.5)
-arrow((6.0, 10.6), (6.6, 7.5), BLU, "dec_* regs", rad=0.1, lofs=(-0.75, 0))
-arrow((7.7, 12.0), (7.8, 7.5), GRN, "registered/live read:\nline·tag·flags ×N", lofs=(1.15, 0), fs=8.5)
-arrow((6.8, 8.2), (7.0, 7.5), PUR, "way", fs=8.5, lofs=(0.3, -0.02))
-ax.add_patch(FancyArrowPatch((7.2, 3.55), (5.8, 11.95), arrowstyle="-|>", mutation_scale=14,
-                             color=PUR, lw=1.8, connectionstyle="arc3,rad=0.5", linestyle="--"))
-ax.text(4.5, 6.0, "S2 write grants:\nalloc_wen / cpu_write_wen\n+ PLRU update", fontsize=8.5, color=PUR, ha="center")
+def badge(x, y, n, color):
+    ax.add_patch(plt.Circle((x, y), 0.235, fc="white", ec=color, lw=1.8, zorder=6))
+    ax.text(x, y, str(n), ha="center", va="center", fontsize=10.5,
+            fontweight="bold", color=color, zorder=7)
 
-# ---------------- MSHR_File container ----------------
-box(10.4, 0.7, 12.0, 12.2, "", fc="#fdf6e3", ec="#b8860b", lw=2.2)
-ax.text(10.7, 12.55, "MSHR_File  (owns the whole miss path)", fontsize=13, fontweight="bold", color="#8a6508", ha="left")
 
-# Reservation Station
-box(10.8, 6.2, 5.7, 5.9, "Reservation_Station — 8 entries, rs[0] oldest", [], fc=C["rs"], tfs=11)
-ax.text(13.65, 11.4, "ordered queue: append at tail, retire = shift down; no age counters", fontsize=8.5, ha="center", color="#555")
-tx, ty, tw = 11.1, 7.9, 3.5
-for i in range(4):
-    yy = ty + 3.2 - (i+1)*0.8
-    ax.add_patch(Rectangle((tx, yy), tw, 0.8, fc="white", ec="#aaa", lw=0.8))
-    lbl = ["rs[0] — OLDEST, retires", "rs[1]", "…", "rs[7] — tail, allocs"][i]
-    ax.text(tx + tw/2, yy + 0.55, lbl, fontsize=8.5, ha="center", fontweight="bold" if i == 0 else "normal")
-    if i < 2:
-        ax.text(tx + tw/2, yy + 0.2, "line_addr · way · write/wdata · mshr_id · in_progress", fontsize=6.8, ha="center", color="#333")
-ax.text(tx + tw/2, ty - 0.28, "+ waiters[4]: (cpu_id, word_id) — same-line misses MERGE\n(CAM runs a cycle early on pre_line_addr; merge_sel_r registered)", fontsize=8, ha="center", color="#8a3d00")
-box(14.9, 7.6, 1.4, 3.3, "vbuf", ["victim side-", "buffer (static", "circular):", "META tag/wv +", "per-word DATA", "banks (E18)"], fc="#f2ead2", fs=7.8, tfs=9.5)
-ax.text(15.6, 7.35, "slot = head+i", fontsize=7.5, ha="center", color="#555")
-ax.text(11.0, 6.55, "alloc_ready = !almost_full (AF=4 of 8) — the ONE brake in the pipe", fontsize=8.5, color="#8a3d00", ha="left")
-ax.text(11.0, 6.24, "issue: oldest valid & !in_progress → any free MSHR entry", fontsize=8.5, color="#555", ha="left")
+def elbow(pts, color, label=None, lxy=None, num=None, nxy=None, lw=2.6,
+          fs=9.6, hop_at=None):
+    """Orthogonal polyline with an arrowhead on the last segment.
+    hop_at=(x,y): draw a bridge arc where this line crosses another."""
+    for i in range(len(pts) - 1):
+        (x0, y0), (x1, y1) = pts[i], pts[i + 1]
+        if hop_at and y0 == y1 and min(x0, x1) < hop_at[0] < max(x0, x1):
+            d = 0.22 * (1 if x1 > x0 else -1)
+            ax.add_line(Line2D([x0, hop_at[0] - d], [y0, y0], color=color, lw=lw))
+            ax.add_patch(Arc(hop_at, 2 * abs(d), 0.44, theta1=0, theta2=180,
+                             color=color, lw=lw))
+            ax.add_line(Line2D([hop_at[0] + d, x1], [y0, y1], color=color, lw=lw))
+        else:
+            ax.add_line(Line2D([x0, x1], [y0, y1], color=color, lw=lw,
+                               solid_capstyle="round"))
+    (xa, ya), (xb, yb) = pts[-2], pts[-1]
+    ax.annotate("", xy=(xb, yb), xytext=(xa, ya),
+                arrowprops=dict(arrowstyle="-|>", color=color, lw=lw,
+                                mutation_scale=17))
+    if num is not None:
+        nx, ny = nxy if nxy else pts[0]
+        badge(nx, ny, num, color)
+    if label:
+        lx, ly = lxy
+        ax.text(lx, ly, label, fontsize=fs, color=color, fontweight="bold",
+                ha="center", va="center",
+                bbox=dict(boxstyle="round,pad=0.18", fc="white", ec="none", alpha=0.88))
 
-# MSHR entries / demux / mux
-box(17.0, 7.6, 3.0, 4.5, "MSHR_Entry × 4", ["FSM: S_IDLE →", "S_ISSUE_W (dirty victim,", " reads vbuf via wb_*,", " skips invalid words)", "→ S_ISSUE_R (4 beats,", " critical word first)", "→ S_WAIT_R: fill_line;", "4th beat → refill_wen"], fc=C["mshr"], fs=8.8, tfs=11)
-box(20.3, 8.7, 1.9, 1.7, "Response_\nDeMux", ["valid routed by", "mem_resp_id;", "data broadcast"], fc=C["mshr"], fs=8, tfs=9)
-box(17.0, 5.7, 3.0, 1.4, "MSHR_Mux", ["lowest refill_wen →", "single array write;", "retire_sel mirrors it"], fc=C["mshr"], fs=8.5, tfs=10)
 
-# Dispacher
-box(10.8, 1.1, 8.0, 4.2, "Dispacher — double-buffered dispatch contexts", [], fc=C["disp"], tfs=11)
-for k, xx in [(0, 11.4), (1, 14.4)]:
-    box(xx, 1.85, 2.6, 2.3, f"ctx {k}", ["word_data[4]", "cpu_ids/word_ids[4]", "ready_r / sent_r"], fc="white", fs=8, tfs=9)
-ax.text(14.8, 4.65, "capture: beats land in newest ctx, critical word first, +3 wrap (beats_left)", fontsize=8.5, ha="center", color="#555")
-ax.text(14.8, 1.5, "send: drain oldest ctx — first ready&!sent waiter → one CPU response per cycle", fontsize=8.5, ha="center", color="#6a1b9a")
-ax.text(17.9, 3.1, "retire loads the free\nctx while the other\nstill drains (E9)", fontsize=8, ha="center", color="#555")
+# ---------------- header -------------------------------------------------
+ax.text(0.3, H - 0.30, "Cache - how a request flows",
+        ha="left", fontsize=20, fontweight="bold", color=EC)
+ax.text(0.3, H - 0.78,
+        "16 KB, N-way set-associative (N = 1/2/4/8/16), non-blocking, write-allocate  ·  "
+        "line = 4 x 32-bit words, word-addressed CPU  ·  follow the numbers: "
+        "hit path 1-5 (top), miss path 6-11 (bottom)",
+        ha="left", fontsize=11, color="#444")
 
-# flows around MSHR_File
-arrow((9.9, 5.2), (10.8, 8.8), ORG, None, rad=-0.25)
-ax.text(9.55, 3.15, "miss: addr/way/wdata\n+ victim snapshot → RS alloc", fontsize=9, color=ORG, ha="center", fontweight="bold")
-arrow((16.5, 9.6), (17.0, 9.6), ORG, "issue", fs=9)
-arrow((17.0, 8.9), (16.3, 8.85), GRY, None)
-ax.text(16.65, 8.15, "wb_*: one victim\nword per beat", fontsize=7.8, color=GRY, ha="center")
-arrow((17.6, 5.7), (9.85, 5.35), PUR, "refill set/tag/way/line → drain into banks", rad=-0.1, lofs=(1.5, -0.3), fs=9)
-arrow((18.5, 7.6), (14.6, 5.3), ORG, None, rad=0.15)
-ax.text(18.6, 7.32, "retire → dispatch: waiter list", fontsize=8.5, color=ORG, ha="center", fontweight="bold")
+# ---------------- top band: the pipeline --------------------------------
+for x, w, s in [(3.3, 2.2, "stage S-1"), (6.3, 3.1, "stage S0"),
+                (11.0, 4.5, "stage S1"), (18.6, 3.7, "")]:
+    if s:
+        ax.text(x + w / 2, 14.82, s, fontsize=9.5, color="#888",
+                ha="center", style="italic")
 
-# ---------------- right: arbiter + memory + delay ----------------
-box(22.9, 9.7, 3.1, 3.0, "MSHR_Request_Arbiter", ["order FIFO of entry ids", "by issue_pending rise:", "beats stay contiguous,", "no cutting in line.", "mem_req_* REGISTERED", "(+1 cyc, E23b)"], fc=C["mshr"], fs=8.8, tfs=10)
-box(27.5, 8.9, 3.2, 3.0, "Memory / RAM_ID", ["single port, ID tagged", "20-cycle read latency", "mem_resp_ready ≡ 1", "(no backpressure,", "by design)"], fc=C["mem"], fs=9)
-box(23.6, 4.9, 2.6, 1.5, "Delay(6)", ["aligns mem_resp_rdata", "with retire broadcast"], fc=C["note"], fs=8.8, tfs=10.5)
+box(0.3, 12.3, 2.2, 2.05, "CPU", ["req / resp", "handshake", "out-of-order ids"],
+    fc=C["cpu"], tfs=13)
+box(3.3, 12.65, 2.2, 1.45, "Input register", ["accepted request", "captured"],
+    fc=C["note"], tfs=10.5)
+box(6.3, 12.65, 3.1, 1.45, "Address_Decode", ["addr -> tag | set | word"],
+    fc=C["cpu"], tfs=11)
+box(11.0, 12.25, 4.5, 2.3, "Compare_Select_Replace",
+    ["compare tag in every way -> hit / miss", "read hit also needs word_valid[word]",
+     "victim = first free way, else PLRU", "decisions registered -> writes land in S2"],
+    fc=C["cpu"], fs=9.3, tfs=11.5)
 
-arrow((20.0, 11.3), (22.9, 11.3), RED, "req valid/write/addr/wb_data", fs=8.5)
-arrow((26.0, 11.3), (27.5, 10.9), RED, "mem_req_*", fs=8.5)
-arrow((27.6, 9.0), (22.2, 9.4), RED, "mem_resp valid/id/rdata", rad=0.1, lofs=(0.9, -0.45), fs=8.5)
-arrow((25.6, 9.05), (24.9, 6.4), RED, "", rad=0.2)
-arrow((23.6, 5.4), (18.8, 3.7), RED, "delayed_miss_data", rad=-0.08, lofs=(1.35, 0.3), fs=8.5)
-arrow((23.3, 12.4), (20.0, 12.0), GRY, "issued (one-hot) → issue_done", fs=8, lofs=(0.3, 0.3))
+elbow([(2.5, 13.4), (3.3, 13.4)], BLU, num=1, nxy=(2.9, 13.75))
+ax.text(2.9, 12.05, "the ONLY stall point:\ncpu_req_ready = hit-FIFO not full\nAND miss queue not almost-full",
+        fontsize=8.2, color=GRY, ha="center", va="top", style="italic")
+elbow([(5.5, 13.4), (6.3, 13.4)], BLU)
+elbow([(9.4, 13.4), (11.0, 13.4)], BLU)
 
-# ---------------- Response_Unit + CPU response ----------------
-box(3.4, 0.6, 4.8, 2.3, "Response_Unit", ["hit FIFO: FWFT depth 8, full → hit_ready", "miss FIFO: FIFO_NF depth 8 — NO full flag,", "credit-bounded by RS/MSHR; priority over hits"], fc=C["resp"], fs=8.8)
-arrow((7.0, 3.6), (6.9, 2.9), BLU, "hit: cmp_rdata/id", fs=9, lofs=(1.35, 0.1))
-arrow((10.8, 2.3), (8.2, 2.0), PUR, "miss_valid/data/id", fs=8.5, lofs=(0.2, 0.3))
-arrow((3.4, 1.8), (1.0, 12.4), BLU, "cpu_resp_* (OOO, id echoed)", rad=-0.35, lofs=(-1.3, 0), fs=9)
-ax.text(1.7, 8.7, "cpu_req_ready =\nhit_ready &&\nmshr_alloc_ready", fontsize=8.5, color="#8a3d00", ha="center")
+# ---------------- middle band: the arrays -------------------------------
+box(4.6, 8.3, 6.7, 2.65, "", fc="#f2f7f2", lw=1.2)
+ax.text(5.0, 10.62, "read in S0  ->  registered into S1", fontsize=9,
+        color="#3a6b3a", style="italic", ha="left")
+box(4.85, 8.5, 1.75, 1.7, "Replacement", ["tree PLRU", "per set"], fc=C["note"],
+    fs=8.8, tfs=9.8)
+box(6.85, 8.45, 4.2, 1.75, "Flag_Tag_Data_Array  x N ways",
+    ["flags: flops   tags: banked RAM", "data: one 1R1W bank per word (SRAM macro on ASIC)"],
+    fc=C["arr"], fs=8.8, tfs=10.5)
 
-# legend
-box(25.4, 0.6, 5.4, 3.1, "Legend", [], fc="white")
-for i, (c, t) in enumerate([(BLU, "CPU request / response"), (GRN, "array read"), (ORG, "miss / RS / MSHR"),
-                            (PUR, "refill + miss responses"), (RED, "memory port"), (GRY, "control / handshakes")]):
-    yy = 3.15 - i*0.4
-    ax.plot([25.7, 26.4], [yy, yy], color=c, lw=3)
-    ax.text(26.55, yy, t, fontsize=9, va="center")
+elbow([(7.85, 12.65), (7.85, 10.95)], GRN, num=2, nxy=(8.25, 11.9),
+      label="set index reads\nall ways + PLRU", lxy=(6.1, 11.9))
+elbow([(10.5, 10.95), (10.5, 11.55), (11.5, 11.55), (11.5, 12.25)], GRN, num=3,
+      nxy=(10.13, 11.3),
+      label="per-way tag + flags + line,\n+ the PLRU victim way", lxy=(8.2, 11.15))
+elbow([(12.4, 12.25), (12.4, 9.95), (11.3, 9.95)], GRN, num=4, nxy=(12.78, 11.7),
+      label="S2 writes: alloc /\nCPU word", lxy=(13.15, 9.55))
 
-fig.savefig(os.path.join(HERE, "Cache_Architecture.png"), dpi=150, bbox_inches="tight")
+# ---------------- right: Response_Unit + back to CPU --------------------
+box(18.6, 8.6, 3.7, 2.4, "Response_Unit",
+    ["hit FIFO (8) - full => stall", "miss FIFO (8) - has priority", "one response per cycle"],
+    fc=C["resp"], fs=9.3, tfs=12)
+elbow([(15.5, 12.9), (16.6, 12.9), (16.6, 10.4), (18.6, 10.4)], BLU, num=5,
+      nxy=(16.6, 12.3), label="HIT: data + id", lxy=(17.5, 12.9))
+elbow([(20.45, 11.0), (20.45, 15.35), (1.4, 15.35), (1.4, 14.35)], BLU,
+      label="response to CPU  (hit or miss, request id echoed)", lxy=(11.0, 15.68))
+
+# ---------------- bottom band: the miss machinery -----------------------
+box(11.6, 3.5, 5.5, 3.0, "Reservation_Station  (miss queue, 8)",
+    ["oldest first; same-line misses MERGE", "into one entry (up to 4 waiters)", "victim line parked in side-buffer",
+     "almost-full is the back-pressure brake"],
+    fc=C["rs"], fs=9.1, tfs=11)
+box(19.0, 3.5, 3.7, 3.0, "MSHR  x 4",
+    ["FSM per miss:", "write back dirty victim words,", "then fetch 4 words,", "critical word FIRST"],
+    fc=C["mshr"], fs=9.1, tfs=11.5)
+box(23.5, 4.6, 3.0, 1.9, "Arbiter", ["oldest stream first,", "beats stay contiguous"],
+    fc=C["mshr"], fs=9.1, tfs=11)
+box(27.3, 3.4, 3.7, 6.2, "Memory",
+    ["single port, id-tagged", "20-cycle read latency", "never back-pressured", "(mem_resp_ready = 1)"],
+    fc=C["mem"], fs=9.3, tfs=12.5)
+box(22.4, 1.4, 3.4, 1.5, "Response DeMux", ["beat -> MSHR[id]"], fc=C["mshr"],
+    fs=9, tfs=10.5)
+box(13.0, 0.9, 3.8, 1.7, "Dispacher",
+    ["streams 1 CPU response / cycle", "as each word arrives"], fc=C["disp"],
+    fs=9, tfs=11.5)
+box(18.9, 1.6, 1.9, 0.9, "Delay(6)", fc=C["note"], tfs=9.5)
+box(12.0, 7.9, 2.1, 1.4, "MSHR_Mux", ["one refill", "at a time"], fc=C["mshr"],
+    fs=8.6, tfs=10)
+
+# 6: miss descends from S1 into the RS
+elbow([(14.7, 12.25), (14.7, 6.5)], ORG, num=6, nxy=(15.1, 10.9),
+      label="MISS + victim-line snapshot", lxy=(16.65, 7.0))
+# 7: issue
+elbow([(17.1, 5.0), (19.0, 5.0)], ORG, num=7, nxy=(18.05, 5.35),
+      label="oldest ready miss ->\nfree MSHR", lxy=(18.05, 4.35))
+# 8: beats to memory
+elbow([(22.7, 5.55), (23.5, 5.55)], RED, num=8, nxy=(23.1, 5.95))
+elbow([(26.5, 5.55), (27.3, 5.55)], RED, label="mem_req (registered)", lxy=(25.0, 7.0))
+# 9: responses back, demuxed to the entries
+elbow([(28.6, 3.4), (28.6, 2.15), (25.8, 2.15)], RED, num=9, nxy=(28.95, 2.8),
+      label="mem_resp (id, data)", lxy=(28.2, 1.6))
+elbow([(22.55, 2.9), (22.55, 3.5)], RED)
+ax.text(21.75, 3.1, "4th beat\ncompletes the line", fontsize=8.2, color=RED,
+        ha="right", va="center", style="italic")
+# data continues left to the Dispacher through Delay(6)
+elbow([(22.4, 2.05), (20.8, 2.05)], PUR)
+elbow([(18.9, 2.05), (16.8, 2.05)], PUR, label="data, aligned\nwith the retire", lxy=(17.85, 2.85))
+# 10: refill up into the arrays (hops over the miss descent)
+elbow([(19.8, 6.5), (19.8, 8.35), (14.1, 8.35)], PUR, num=10, nxy=(20.15, 7.5),
+      hop_at=(14.7, 8.35),
+      label="refill line", lxy=(16.9, 8.72))
+elbow([(12.0, 8.35), (11.3, 8.35)], PUR,
+      label="drains only words still invalid -\nan early CPU write is never clobbered",
+      lxy=(8.3, 7.75))
+# 11: retire -> Dispacher -> miss responses rail into the Response_Unit
+elbow([(13.85, 3.5), (13.85, 2.6)], PUR, num=11, nxy=(14.2, 3.1))
+ax.text(14.55, 3.1, "retire:\nwaiter list", fontsize=8.2, color=PUR, ha="left",
+        va="center", style="italic")
+elbow([(15.6, 0.9), (15.6, 0.5), (31.1, 0.5), (31.1, 9.95), (22.3, 9.95)], PUR,
+      label="MISS responses - critical word first, out of order", lxy=(23.6, 0.88))
+
+# ---------------- footer: the three ideas + legend ----------------------
+ideas = [
+    ("Sub-line valid bits", "each word has its own valid bit - a write\nmiss writes immediately, no waiting\nfor the fill to come back"),
+    ("One brake", "no mid-pipeline stalls; back-pressure\nexists only at cpu_req_ready"),
+    ("Non-blocking", "4 misses in flight, same-line waiters\nmerged, responses return out of order"),
+]
+yi = 7.95
+for t, sub in ideas:
+    ax.text(0.45, yi, t, fontsize=10.5, fontweight="bold", color=EC)
+    ax.text(0.45, yi - 0.33, sub, fontsize=8.5, color="#444", va="top")
+    yi -= 0.30 + 0.335 * (sub.count("\n") + 1) + 0.42
+
+leg = [(BLU, "request / hit / response"), (GRN, "array read + write"),
+       (ORG, "miss"), (PUR, "refill + miss response"), (RED, "memory port")]
+for i, (c, t) in enumerate(leg):
+    y = 2.95 - i * 0.40
+    ax.add_line(Line2D([0.5, 1.3], [y, y], color=c, lw=3))
+    ax.text(1.5, y, t, fontsize=9, color="#333", va="center")
+ax.text(0.5, 3.45, "arrow colors", fontsize=9.5, fontweight="bold", color="#333")
+
+ax.text(W - 0.2, 0.08, "generated by designs/draw_architecture.py from src/ (2026-09-01)",
+        fontsize=7.5, color="#999", ha="right")
+
+fig.savefig(os.path.join(HERE, "Cache_Architecture.png"), dpi=150,
+            bbox_inches="tight", facecolor="white")
 print("wrote Cache_Architecture.png")
