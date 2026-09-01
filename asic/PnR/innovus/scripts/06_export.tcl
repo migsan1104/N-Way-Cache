@@ -92,6 +92,17 @@ _step netlist {saveNetlist [pnr_out ${RUN_TAG}_pnr.v]}
 _step netlist-sim {saveNetlist -excludeLeafCell -physicalInsts [pnr_out ${RUN_TAG}_pnr_sim.v]}
 
 _step sdf {write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]}
+
+# Constraints AS IMPLEMENTED, one per analysis view (2026-09-01). This is the
+# standard signoff handoff artifact: it captures everything the flow changed
+# interactively after the source SDC was read - the 4.000 ns clock, the
+# propagated-clock switch, the post-CTS uncertainties - so signoff can either
+# consume it directly or diff it against the source-constraint replay
+# (signoff/tempus/sta.tcl does the latter; the first Tempus run signed off
+# ideal-clock precisely because this handoff did not exist).
+_step sdc-setup {write_sdc -view setup_view [pnr_out ${RUN_TAG}_setup.sdc]}
+_step sdc-hold  {write_sdc -view hold_view  [pnr_out ${RUN_TAG}_hold.sdc]}
+
 _step def {defOut -floorplan -netlist -routing [pnr_out ${RUN_TAG}_pnr.def]}
 
 # GDS. The stream-out map file is PDK-specific; if this errors, that is the

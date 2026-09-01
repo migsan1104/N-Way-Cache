@@ -576,3 +576,44 @@ mm-ruled frame with a pre-signoff sheet (die size, std-cell/macro counts,
 corners+derates, verify_drc breakdown, antenna, setup/hold, provenance
 footer). Images for iters 7, 11, 14 are in that folder; future ones go there
 too.
+
+## First corrected Tempus signoff: iter7, propagated clocks (2026-09-01 ~15:00)
+
+sta.tcl fixed (propagated clocks + post-CTS uncertainties 0.100/0.050, mirroring
+04_cts.tcl; stage 06 now also exports as-implemented per-view SDCs). Tempus on
+iteration 7's gated, UNOPTIMIZED route, Quantus SPEF, ss_n40C_1v76 / ff_n40C_1v95:
+
+| group | setup WNS/TNS/#vio | hold WNS/TNS/#vio |
+|---|---|---|
+| REG2REG | **-4.291 / -7,043 / 16,936** | **-0.209 / -2.4 / 56** |
+| IN2REG | clean | -3.116 / -1,993 / 1,206 |
+| REG2OUT | -7.781 / -731 / 107 | clean |
+
+- REG2REG is the meaningful pair: setup -4.291 on a route that never had
+  post-route opt (repeater chains with 1.2-1.8 ns inv_2 stages on detoured
+  nets - Quantus RC the LEF estimate missed), hold only -0.209 (opt-fixable).
+- The PORT groups are now latency artifacts, not measurements: clock insertion
+  delay is 7.433 ns (!), and the I/O budgets reference the ideal edge, so
+  in2reg setup gets the whole tree depth as free time (clean) while reg2out
+  setup and in2reg hold get charged it (-7.8 / -3.1). Before quoting port
+  timing, the I/O reference needs a latency-matched virtual clock
+  (set_clock_latency ~= insertion delay on the I/O clock) - standard OOC
+  practice. Filed as a constraints TODO; does not affect reg2reg.
+- 7.433 ns insertion delay is itself a finding worth revisiting at CTS
+  (ccopt target, tree depth through 350k cells at ss/1.76V).
+- Ideal-clock first run (superseded, for the record): reg2reg -5.658, "hold
+  clean +0.127" - the +0.127 was structurally optimistic, real answer -0.209.
+
+## PRIORITY DECISION 2026-09-01 (user call): DRC-clean over Fmax
+
+Zero violations beats hitting 250 MHz - a clean GDS at ~210 MHz is a finished
+chip; a fast dirty one is not. Consequences:
+- iter14 full opt (running) is now the OPTIMISTIC arm: keep it only if its
+  final DRC pattern ECOs to zero (it had closed reg2reg setup to +0.004 at
+  4.0 ns mid-run, at a cost of ~8k transient route violations).
+- FALLBACK ARM (matches the priority directly): restore 05_route.enc (706
+  viols, reg2reg -0.516 = ~221 MHz on the Quantus-corrected timer),
+  hold-only optDesign, ecoRoute -target to zero, export. Fmax = whatever
+  Tempus reports on the clean database; no target-chasing.
+- Hold fixing is non-negotiable either way (hold fails are functional at any
+  frequency); setup shortfall is a reporting matter, not a defect.

@@ -13,11 +13,17 @@ GDS="${1:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*.gds 2>/dev/null | head -1)}"
 [ -r "${GDS:-}" ] || { echo "ERROR: no GDS (run stage 09, or pass a path)" >&2; exit 1; }
 OUT="$SIGNOFF_RESULTS/drc"; mkdir -p "$OUT"
 [ -n "${MAGIC_RUN:-}" ] || { echo "ERROR: source asic/signoff/env.sh (MAGIC_RUN)" >&2; exit 1; }
-TOP=$(basename "$GDS" .gds)
-
+# The GDS top cell is the INNOVUS DESIGN NAME, not the file basename - loading
+# a nonexistent name makes magic silently create an EMPTY cell and DRC passes
+# vacuously (found 2026-09-01: two hours of "0 errors" on nothing). Discover
+# the top cell from the GDS itself and refuse to run on ambiguity.
 cat > "$OUT/drc.tcl" <<EOF
 gds read $GDS
-load $TOP
+set _tops {}
+foreach c [cellname list top] { if {\$c ne "(UNNAMED)"} { lappend _tops \$c } }
+if {[llength \$_tops] != 1} { puts "TOP_CELL_ERROR: \$_tops"; quit -noprompt }
+puts "DRC_TOP_CELL: [lindex \$_tops 0]"
+load [lindex \$_tops 0]
 select top cell
 drc euclidean on
 drc style drc(full)
@@ -36,5 +42,8 @@ echo "magic DRC: $GDS -> $OUT"
 $MAGIC_RUN -dnull -noconsole -rcfile "$SKY130_MAGICRC" "$OUT/drc.tcl" > "$OUT/magic.log" 2>&1
 sed -n '/DRC_BY_RULE_BEGIN/,/DRC_BY_RULE_END/p' "$OUT/magic.log" | grep -v 'DRC_BY_RULE' > "$OUT/drc_count.txt"
 sed -n '/DRC_WHY_BEGIN/,/DRC_WHY_END/p'         "$OUT/magic.log" | grep -v 'DRC_WHY' > "$OUT/drc.rpt"
+grep -q "couldn't be read" "$OUT/magic.log" && { echo "ERROR: magic could not read a cell - vacuous run" >&2; exit 1; }
+grep -q "TOP_CELL_ERROR" "$OUT/magic.log" && { echo "ERROR: top cell ambiguous" >&2; exit 1; }
+grep 'DRC_TOP_CELL' "$OUT/magic.log"
 grep 'Total DRC errors found' "$OUT/magic.log" | tail -1
 sort -t: -k2 -rn "$OUT/drc_count.txt" 2>/dev/null | head -15

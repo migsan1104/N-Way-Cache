@@ -9,8 +9,14 @@
 # views). Tempus reads the same legacy init_* globals and MMMC Tcl as Innovus,
 # so the corner definitions cannot drift between the two tools.
 #
-# DRAFT 2026-08-28 - not yet shaken down (waits on run 1's stage 09 outputs).
-set pnr_scripts [file join $env(SIGNOFF_PNR_DIR) scripts]
+# Shaken down 2026-09-01 on iteration 7's export. The scripts dir is the bare
+# innovus tree's (a run dir has no scripts/); the run itself is selected by
+# ASIC_PNR_RUN_STAMP, which env.sh copies from SIGNOFF_PNR_STAMP.
+if {[info exists env(SIGNOFF_PNR_SCRIPTS)]} {
+    set pnr_scripts $env(SIGNOFF_PNR_SCRIPTS)
+} else {
+    set pnr_scripts [file join $env(SIGNOFF_PNR_DIR) scripts]
+}
 source [file join $pnr_scripts innovus_config.tcl]
 
 set out [file join $env(SIGNOFF_RESULTS) tempus]
@@ -41,6 +47,33 @@ spefIn $spef      -rc_corner rc_slow
 spefIn $spef_fast -rc_corner rc_fast
 
 setAnalysisMode -analysisType onChipVariation -cppr both
+
+# Constraints, in preference order (decision 2026-09-01, user call):
+#
+# 1. The AS-IMPLEMENTED SDC exported by stage 06 (write_sdc -view). This is
+#    the standard signoff handoff: it carries everything the flow changed
+#    interactively after the source SDC was read - the 4.000 ns clock, the
+#    propagated-clock switch, the post-CTS uncertainties - straight from the
+#    final Innovus database, so nothing can be forgotten in a replay.
+# 2. Fallback for runs exported BEFORE the handoff existed (iter7 and older):
+#    the source SDC was already read via mmmc.tcl; replay the two CTS-time
+#    mutations by hand, mirroring 04_cts.tcl exactly. Without this replay the
+#    source SDC describes the PRE-CTS world - ideal clock, 0.250 stand-in
+#    uncertainty - and signoff is fiction (measured: iter7's first run showed
+#    "Clock Network Latency (Ideal) 0.000" and a fake-clean +0.127 hold).
+set sdc_asimpl [file join $PNR_OUT_DIR ${RUN_TAG}_setup.sdc]
+if {[file readable $sdc_asimpl]} {
+    update_constraint_mode -name func -sdc_files [list $sdc_asimpl]
+    puts "TEMPUS: constraints = as-implemented export $sdc_asimpl"
+} else {
+    set_interactive_constraint_modes [all_constraint_modes -active]
+    set_propagated_clock [all_clocks]
+    set _su [config_env ASIC_POSTCTS_SETUP_UNCERT 0.100]
+    set _hu [config_env ASIC_POSTCTS_HOLD_UNCERT  0.050]
+    set_clock_uncertainty -setup $_su [all_clocks]
+    set_clock_uncertainty -hold  $_hu [all_clocks]
+    puts "TEMPUS: no exported SDC - source SDC + replayed post-CTS treatment (setup $_su / hold $_hu)"
+}
 
 report_analysis_summary                          > $out/summary.rpt
 report_timing -late  -max_paths 50               > $out/setup.rpt

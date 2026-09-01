@@ -17,7 +17,12 @@ NET="${2:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*_pnr.v 2>/dev/null | grep -v _sim | h
 [ -r "${GDS:-}" ] && [ -r "${NET:-}" ] || { echo "ERROR: need GDS and *_pnr.v (run stage 09)" >&2; exit 1; }
 command -v netgen >/dev/null || { echo "ERROR: netgen not installed - see lvs/lvs.md" >&2; exit 1; }
 OUT="$SIGNOFF_RESULTS/lvs"; mkdir -p "$OUT"
-TOP=$(basename "$GDS" .gds)
+# TOP = the P&R netlist's module name - the same name streamOut used for the
+# GDS top cell. The file BASENAME differs (found 2026-09-01: load of the
+# basename created an empty cell; extract produced nothing).
+TOP=$(grep -m1 -oE '^module +[A-Za-z_0-9]+' "$NET" | awk '{print $2}')
+[ -n "$TOP" ] || { echo "ERROR: no module name in $NET" >&2; exit 1; }
+echo "top cell: $TOP"
 STD_SPICE=$STDCELL_ROOT/spice/sky130_fd_sc_hd.spice
 MACRO_SPICE=$PDK_ROOT_SKY130/libs.ref/sky130_sram_macros/spice/sky130_sram_1kbyte_1rw1r_32x256_8.spice
 
@@ -25,6 +30,7 @@ cat > "$OUT/extract.tcl" <<EOF
 gds read $GDS
 load $TOP
 select top cell
+if {[box values] eq "0 0 0 0"} { puts "TOP_CELL_ERROR: $TOP is empty"; quit -noprompt }
 extract no all
 extract do local
 extract unique
@@ -35,6 +41,8 @@ quit -noprompt
 EOF
 echo "magic extract: $GDS"
 $MAGIC_RUN -dnull -noconsole -rcfile "$SKY130_MAGICRC" "$OUT/extract.tcl" > "$OUT/magic_extract.log" 2>&1 || { tail -20 "$OUT/magic_extract.log"; exit 1; }
+grep -qE "couldn't be read|TOP_CELL_ERROR" "$OUT/magic_extract.log" && { echo "ERROR: extract ran on a missing/empty cell" >&2; exit 1; }
+[ -s "$OUT/$TOP.gds.spice" ] || { echo "ERROR: extract produced no spice" >&2; exit 1; }
 
 # Schematic side: P&R verilog + std-cell spice (+ macro spice if present)
 SCH="$OUT/schematic.spice"
