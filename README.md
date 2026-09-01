@@ -1,5 +1,27 @@
 # High-Frequency Parameterized Cache Architecture
 
+## The design at a glance
+
+![Cache architecture — how a request flows](designs/Cache_Architecture.png)
+
+*How a request flows: the hit path runs across the top (steps 1–5), the non-blocking miss
+machinery across the bottom (steps 6–11). Sub-line valid bits let a write miss complete
+immediately, back-pressure exists at exactly one point, and four misses stay in flight with
+same-line waiters merged and responses returning out of order.*
+
+The same RTL, taken through the full ASIC flow (Genus synthesis + Innovus place-and-route on
+SKY130 HD with 16 OpenRAM SRAM macros) — rendered with KLayout from the actual GDSII stream the
+flow exports:
+
+![16 KB 4-way cache GDSII, pre-signoff](asic/signoff/GDS11_Image/iter14_e35_armE_gds.png)
+
+*The most recent routed layout (iteration 14): a 2.70 mm × 2.70 mm die, ~222k logic cells plus
+16 SRAM macros ringing the core. The sheet carries the Innovus route-stage numbers — DRC and
+antenna counts, setup/hold slack at both MMMC corners — ahead of Tempus/Quantus signoff, which is
+in progress.*
+
+---
+
 ## Goal / Overview
 
 The goal of this project will be to design, verify, optimize, and eventually physically implement a high-performance parameterized cache architecture. This project aims to study cache architecture tradeoffs while following a realistic ASIC development methodology from RTL design through physical implementation.
