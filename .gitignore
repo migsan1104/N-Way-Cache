@@ -50,6 +50,13 @@ default.svf
 *.pvl
 *.syn
 *.svf
+# *.pvl above is a Design Compiler intermediate; Pegasus rule decks share the
+# extension and ARE source
+!asic/signoff/pegasus/decks/*.pvl
+
+# Magic extraction debris - a signoff run with cwd at the repo root scatters
+# per-cell .ext files here (regenerable; the LVS scripts now cd first)
+/*.ext
 
 *.sdc.gz
 *.v.gz

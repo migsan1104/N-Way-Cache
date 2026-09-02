@@ -100,3 +100,11 @@ Lessons on record:
   (ss_n40C_1v76 + macro ×1.5 — `asic/MACROS.md` "Run 2 sign-off corner").
 - If hold (or small setup) violations appear: first ECO exercise, per
   `asic/ECO.md` §3 / Status.
+
+## sta.tcl I/O virtual clock (2026-09-02)
+Latency-matched vclk_io added for port timing; validation on iter7 caught two
+bugs (period query dialect; single-corner latency minting fake reg2out hold
+-7.8) - both fixed, late/early latencies now auto-measured per view (11.901 /
+4.318 on iter7). OPEN ITEM: this run's REG2REG setup (-5.919 / 37,180 vio)
+disagrees with the 09-01 corrected run (-4.291 / 16,936) on the same stamp +
+branch - diff tempus.log vs tempus_vclk.log before quoting either.

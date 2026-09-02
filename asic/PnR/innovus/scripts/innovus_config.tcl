@@ -269,6 +269,18 @@ foreach _d [list $PNR_REPORT_DIR $PNR_CKPT_DIR $PNR_OUT_DIR \
     file mkdir $_d
 }
 
+# Self-describing runs (2026-09-02, after arms B and C silently duplicated):
+# snapshot every ASIC_* launch knob into the run dir each time the config is
+# sourced. Append-mode with a timestamped header, so restarts and same-dir
+# arm scripts each leave their own record instead of overwriting history.
+if {![catch {open [file join $PNR_RUN_DIR knobs.txt] a} _kf]} {
+    puts $_kf "# [clock format [clock seconds] -format %Y-%m-%d_%H:%M:%S] pid [pid] script [info script]"
+    foreach _kv [lsort [array names ::env ASIC_*]] {
+        puts $_kf "$_kv=$::env($_kv)"
+    }
+    close $_kf
+}
+
 # Restore a previous stage's database, with the failure mode spelled out.
 #
 # The trap this guards: PNR_RUN_STAMP defaults to the CURRENT time, so a stage

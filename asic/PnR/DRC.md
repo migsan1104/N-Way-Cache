@@ -617,3 +617,87 @@ chip; a fast dirty one is not. Consequences:
   Tempus reports on the clean database; no target-chasing.
 - Hold fixing is non-negotiable either way (hold fails are functional at any
   frequency); setup shortfall is a reporting matter, not a defect.
+
+## Iteration 15 launched (2026-09-01 ~23:15): fp_iter15 = fp_iter7 + cluster damping
+
+Rationale closed tonight: arms B and C independently plateaued at 627/~624
+from the clean 706 route (hold-only + eco-target, two different hold libs) -
+the clusters are INHERENT to fp_iter7's geometry, not opt-induced. Arm A's
+setup opt made it 5x worse (3,375 post-setup, hold phase oscillating ~6.1k).
+Surgery (density relief on the routed DB) is still running; iter15 applies
+the same relief PRE-placement instead, per the fp_iter8 precedent:
+`fp_iter15.tcl` = fp_iter7 verbatim + 50% partial blockages over the four
+measured cluster boxes (ring-corner convergence zones + two macro seams).
+
+Run: `20260901_iter15_e35_fp15_damp`, tmux `iter15`. Arm E's exact knobs
+(cong_effort=high, inst_gap=2, max_density=0.55, e35 netlist, no CTS NDR -
+verified no logged session ever enabled the G7a hook), stages 00->05 with
+**ASIC_DRC_GATE=0** so the flow routes and STOPS - no opt of any kind. Judge:
+raw-route verify_drc vs fp_iter7's 706. Below ~700 and clustered less =>
+hold-only continuation (armC recipe); zero-ish => straight to antenna ECO +
+export + signoff triplet. Setup opt stays banned on respins.
+
+Decision tree tomorrow AM: surgery clean -> surgery wins, iter15 becomes the
+backup. Surgery dirty + iter15 < 706 -> iter16 tunes geometry (FP8.md menu:
+die bump for the NE corner vs per-row GAP). Both dirty and >= 706 -> the
+damping thesis is wrong, regenerate the pattern plot and rethink from data.
+
+## Surgery FAILED (2026-09-02 ~06:00): >=100,000 violations (report cap), export withheld
+
+Arm B act 2 is dead, and instructively so. The 46k-instance refinePlace
+scramble (mean move 185 um) dirtied so much routing that ecoRoute became a
+near-full re-route under the new density screens - and it could not close:
+final verify_drc capped at 100,000, dominated by met1 metal shorts and
+via3/via4 cut shorts clustered around GEN_WAYS[3] tag-bank nets (the same
+right-row/NE-corner zone as always, now 100x worse). Post-route density
+relief is now CLOSED as an approach: evicting placed cells after routing
+destroys more connectivity than the freed tracks recover.
+
+Standing scoreboard for fp_iter7: best databases are armC's 571
+(hold-only, reg2reg setup +0.699, saved at iter14c 05_route_opt.enc) and the
+original 706 route. KLayout (2026-09-02, signoff/drc/drc.md) proved these
+counts are ~all SHORTS, not spacing - geometry outside macros is ~9 items.
+ALL fp7 hopes now ride on **iter15** (pre-placement damping, placing now).
+If iter15's raw route does not beat 706 decisively, escalate to iter16 =
+geometry relief (FP8.md): the NE-corner convergence zone needs actual space.
+
+Evidence preservation: armE outputs/ (the noon filled GDS that klayout_drc/
+and lvs results reference) copied to outputs_noon_20260901_prefillGDS_signoff_ref/
+before Arm A's export can overwrite it. Arm A itself oscillates ~7k in its
+hold phase - recommend killing tmux iter14_opt to free a core-heavy slot;
+its completion has zero win probability.
+
+## Arm A closed (2026-09-02 10:24): 4,811 viols, setup +0.004 - dominated by Arm C on both axes
+
+Full post-route opt finished: verify_drc 4,811, reg2reg setup barely positive
+(+0.004). Arm C (hold-only, same starting route): 571 viols, +0.699 setup.
+The optimized database is 8x dirtier AND 0.7 ns slower - setup opt's cell
+insertion forced repair reroutes that repeatedly destroyed its own gains.
+Setup-opt-on-fp7 is closed with prejudice. NOTE: Arm A's stage 06 export
+OVERWROTE armE outputs/ with the dirty GDS; the noon signoff-reference GDS
+survives in outputs_noon_20260901_prefillGDS_signoff_ref/. fp7 scoreboard
+final: armC 571 / +0.699 is the lineage's best; everything now rides on
+iter15 (placing) then iter16 (FP8.md) if needed.
+
+## iter15 post-place: damping BACKFIRED globally; iter16 (die 2780) launched (2026-09-02 ~13:00)
+
+iter15 post-place overflow: **219,755 = 16.40% H + 7.42% V** vs armE's
+103,721 = 7.18%/4.13% at the same stage - the four 50% screens (on top of the
+hub blockage and the 0.55 global cap) robbed enough capacity to DOUBLE
+congestion. On the campaign calibration curve (7.18%H->706, 12.6%H->8,664)
+that forecasts a catastrophic route. iter15 continues through CTS/route
+anyway for the residual map + curve confirmation (gate=0 stops it pre-opt).
+
+iter16 launched per FP8.md's geometry rung: `fp_iter16.tcl` = fp_iter7 with
+the die as a knob (`ASIC_FP_DIE`, default/used **2780** vs 2700; rows,
+wedges, hub group and hub blockage all recompute) and deliberately NO
+damping boxes. Run `20260902_iter16_e35_fp16_die2780`, tmux `iter16`, armE
+knobs, gate=0, stages 00->05. First run to self-record knobs.txt.
+Hypothesis: the ~600 corner shorts need SPACE at the ring-corner
+convergence zones, not density pressure anywhere.
+
+Tempus port-timing methodology CLOSED same hour (signoff README): round 5b
+clean - correlated-external vclk (late=early=11.901, measured ff-early 4.318
+recorded), reg2out hold deferred; IN2REG setup honest (-4.028), REG2OUT
+setup passes at the 0.3 budget, no phantom holds. Five validation rounds,
+four script bugs + one modeling artifact fixed on iter7's corpse.

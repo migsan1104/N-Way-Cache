@@ -7,7 +7,14 @@ set -euo pipefail
 #
 # gds defaults to $SIGNOFF_PNR_DIR/outputs/<RUN_TAG>.gds. Results in
 # $SIGNOFF_RESULTS/drc/: drc.rpt (every violation), drc_count.txt (by rule).
-# DRAFT 2026-08-28 - not yet shaken down (waits on run 1's stage 09 GDS).
+#
+# MACRO EXCLUSION (2026-09-01, drc.md): the OpenRAM SRAM macros are emptied
+# after gds read. Their bitcell arrays use foundry-waived SRAM rules that
+# drc(full) flags by design - the 2026-09-01 full-chip run drowned in 18.2M
+# error tiles of macro-internal FEOL noise. The vendor macro GDS is treated
+# as golden; what this checks is std cells + routing. Known blind spot:
+# spacing between top-level routing and macro-internal metal is not checked
+# (macro obstructions vanish with the cell contents).
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 GDS="${1:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*.gds 2>/dev/null | head -1)}"
 [ -r "${GDS:-}" ] || { echo "ERROR: no GDS (run stage 09, or pass a path)" >&2; exit 1; }
@@ -23,10 +30,19 @@ set _tops {}
 foreach c [cellname list top] { if {\$c ne "(UNNAMED)"} { lappend _tops \$c } }
 if {[llength \$_tops] != 1} { puts "TOP_CELL_ERROR: \$_tops"; quit -noprompt }
 puts "DRC_TOP_CELL: [lindex \$_tops 0]"
+foreach _m [cellname list allcells] {
+    if {[string match {sram_1rw1r_32_256_8_sky130*} \$_m]} {
+        load \$_m
+        select top cell
+        delete
+        puts "DRC_MACRO_EMPTIED: \$_m"
+    }
+}
 load [lindex \$_tops 0]
 select top cell
+drc on
 drc euclidean on
-drc style drc(full)
+drc style drc(${ASIC_DRC_STYLE:-routing})
 drc check
 drc catchup
 puts "DRC_BY_RULE_BEGIN"

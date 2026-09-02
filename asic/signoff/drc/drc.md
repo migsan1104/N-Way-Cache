@@ -65,3 +65,83 @@ ran on.
 - 2026-08-30: running on the v2 full-design GDS (abstract-only, see trap) as
   a script shakedown. v2 is a discarded design; the count is not a result.
 - Real target: the v3 winner's **merged** GDS after stage 06.
+
+## 2026-09-01 ~21:30 — first full-chip run (iter14 GDS): completes, numbers unusable
+
+`DRC14_DONE=0` on the corrected script (top cell discovered correctly:
+`Cache_CACHE_BYTES16384_ASSOC4_EN_SRAM_MACRO1` — not vacuous). But the counts
+contradict, same shape as the 08-28 macro shakedown, now at full scale:
+**18,158,873 error tiles** vs `drc list count total` = **0**.
+
+Triage (magic.log + drc.rpt):
+- The `drc why` list is dominated by **FEOL rules inside library geometry**
+  (diff/tap.*, licon.*, poly.*, li.*) including the SRAM-specific variants
+  (poly.8 "SRAM core transistor", diff/tap.2 "in SRAM core") plus magic's
+  hierarchical "can't abut or partially overlap between subcells".
+- 1,571 GDS read warnings, e.g. OpenRAM macro internals with cells "placed on
+  top of itself" (`hierarchical_predecode2x4`/`contact_8`).
+- Conclusion: `drc(full)` on the merged GDS is checking the **OpenRAM macro
+  internals**, whose bitcell arrays use foundry-waived SRAM rules that the
+  standard periphery deck flags by design. 16 macros × 32×256 bitcell arrays
+  plausibly accounts for millions of tiles. Innovus verify_drc on the same DB
+  is in the hundreds-to-thousands — 18M is not a real violation count.
+
+Fix direction (next run): treat vendor macro GDS as golden and exclude macro
+internals from the check — delete/flatten the `sram_1rw1r_32_256_8_sky130`
+instances after `gds read` and DRC the remainder (std cells + routing), or
+DRC macro-halo regions only. Separately explain the `total = 0` counter
+before trusting any zero from this flow.
+
+**2026-09-01 ~22:00:** macro exclusion implemented in `run_drc.sh` (empties
+`sram_1rw1r_32_256_8_sky130*` cell defs after `gds read`; blind spot noted in
+the script header). Validation run launched against the same iter14 GDS
+(tmux `drc14b`; prior noise run preserved as `results/.../drc_withmacros/`).
+A believable count here validates the methodology for whichever arm wins.
+
+**2026-09-02 ~00:30 — macro exclusion alone did NOT fix the count.** drc14b
+(macros emptied, style drc(full)) returned the IDENTICAL 18,158,873 error
+tiles / "total 0" as the with-macros run — bit-identical count across two
+different layouts means the tiles are not macro-internal and the tile counter
+is not measuring found violations. magicrc's `drc off` is commented (not the
+cause). Working theory: drc(full) hierarchical checking of pre-verified std
+cells (the "can't abut or partially overlap between subcells" class) floods
+the count, and `drc list count total` semantics disagree with the tile
+counter. Industry-standard fix applied to run_drc.sh: **routing-only style**
+(`drc style drc(routing)`, env-overridable via ASIC_DRC_STYLE) + explicit
+`drc on` for batch mode — std cells/macros are pre-verified by the PDK; what
+P&R signoff must check is the routing we created. Validation rerun: tmux
+`drc14c`; prior runs preserved as drc_withmacros/ and drc_full_macroexcl/.
+Escalation if still nonsense: gds flatten true (OpenLane-precheck style,
+441G RAM available), then KLayout as the independent arbiter.
+
+**2026-09-02 ~02:00 — KLayout arbiter ONLINE (userspace install, no root).**
+drc14c (routing style) still contradicted itself (10.4M tiles / "0 found"),
+so the escalation ladder reached KLayout. Installed 0.30.12 to
+`~/.local/klayout-0.30.12/` by extracting the Rocky 8 RPM + 7 dependency
+RPMs (ruby-libs, libgit2, http-parser, 4x qt5 add-ons) via rpm2cpio from
+`dl.rockylinux.org/pub/rocky/8/`; wrapper `~/.local/bin/klayout` sets
+LD_LIBRARY_PATH + RUBYLIB + RUBYOPT=--disable-gems. First run: the PDK's
+`sky130A_mr.drc` deck, **beol=true feol=false** (routing-only posture, macros'
+FEOL trusted), 16 threads, on the iter14 GDS — tmux `kldrc14`, results
+`results/<stamp>/klayout_drc/drc.lyrdb`. Whatever it returns becomes the
+number Magic must reproduce before Magic is trusted again.
+
+**2026-09-02 ~05:30 — KLAYOUT VERDICT (iter14 filled GDS): geometry is nearly
+clean; the arms' violation counts are a SHORTS problem, not a spacing problem.**
+sky130A_mr.drc, beol=true feol=false, 3.5 h wall / 16 threads: 238,391 raw
+items → location-classified against the fp_iter7 macro ring (scratchpad
+script): **only 297 fall outside macro footprints**, and just **9 are on
+routing layers** (3 m3.2, 3 via3.2, 2 m5.2, 1 m4.2); the other 288 are
+li.3/ct.2 std-cell-layer items at cell boundaries (fill/abutment class -
+triage pending). The 238k in-macro items are the OpenRAM bitcell arrays vs
+the periphery deck - foundry-waived patterns, vendor GDS golden, expected.
+
+Reconciliation with Innovus's 706: NanoRoute's count is dominated by
+**Shorts** - geometrically legal metal touching two nets - which spacing DRC
+cannot see; they are connectivity errors (LVS's domain). Both tools are
+right; they measure different failure classes. Methodology going forward:
+- **Geometry signoff = KLayout** (this flow), outside-macro filter applied.
+  Magic remains untrusted (three self-contradictory runs, ledger above).
+- **Shorts/opens = Innovus verify_drc + netgen LVS** - this is what the
+  arms' 706/627/571 numbers actually track, and why driving them to zero
+  remains the campaign's core work even though "DRC" geometry is ~clean.
