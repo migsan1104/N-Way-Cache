@@ -191,7 +191,9 @@ set SRAM_MACRO_DERATE_EARLY [config_env ASIC_MACRO_DERATE_EARLY 0.5]
 # ---------------------------------------------------------------------------
 # Constraints
 # ---------------------------------------------------------------------------
-set PNR_SDC [file join $INNOVUS_DIR constraints pnr.sdc]
+# ASIC_PNR_SDC (optional) picks another constraints file, e.g.
+# constraints/pnr_3ns.sdc for the iter16c 3.0 ns run (2026-09-04).
+set PNR_SDC [config_env ASIC_PNR_SDC [file join $INNOVUS_DIR constraints pnr.sdc]]
 
 # ---------------------------------------------------------------------------
 # sky130 physical setup

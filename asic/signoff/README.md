@@ -26,6 +26,10 @@ though the licenses do. Standing it up is a side project tracked in
 `pegasus/Pegasus.md` (investigation, staged OSU DRC deck, drafted runner and
 IT request). Until it lands, DRC/LVS = Magic + netgen (+ KLayout).
 
+Follow-along narrative of a full signoff day, with the lessons:
+`WALKTHROUGH_2026-09-04.md` (export, fill, connectivity classification, the
+Tempus SDC bug, Fmax claims, utilisation, Voltus PGVs).
+
 Layout:
 
 ```

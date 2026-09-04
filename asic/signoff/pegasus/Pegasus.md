@@ -128,6 +128,63 @@ design's output name, and coverage must be extended (below).
 > Thanks!
 > Miguel Sanchez
 
+## IT request v3 (2026-09-04) - re-verified, ready to send
+
+Re-check on 2026-09-04 12:30 (`lmutil lmstat -c 5280@ece-itop-licsvr.ece.ufl.edu -a`):
+18 Pegasus features served, every one at 0 in use - Pegasus_DRC, Pegasus_LVS,
+Pegasus_advdrc, Pegasus_advlvs, Pegasus_perc, Pegasus_16nm, Pegasus_int,
+Pegasus_mpt, Pegasus_UI (1500), Pegasus_RV (1500), Pegasus_Quickview,
+Pegasus_DesignReview{,_Layout,_Mask}, Pegasus_LPA{,_fixing}, Pegasus_dfmfill,
+Virtuoso_InDesign_Pegasus_drc. `/apps/cds/pegasus231` unchanged since
+2024-12-04 (root-owned, PEGASUSDFM 23.12 ReadMe: LPA / CMP / CAA / CPA). No
+`pegasus` / `pegasusrv` executable anywhere under /apps (depth-4 find).
+Newest Cadence install on the box is ASSURA41 (2026-09-02), so IT is actively
+maintaining /apps/cds.
+
+> **Subject: Cadence Pegasus Verification (DRC/LVS): licensed on ece-itop-licsvr but not installed**
+>
+> Hi,
+>
+> I am an ECE grad student (advisor cc'd) running an RTL-to-GDSII flow on the
+> SkyWater SKY130 open PDK with the department's Cadence tools on ece-lnx-10
+> (Genus, Innovus, Tempus, Quantus). I would like to use Cadence Pegasus for
+> physical verification (DRC/LVS). The department already holds the licenses,
+> but the software itself does not appear to be installed:
+>
+> - 5280@ece-itop-licsvr.ece.ufl.edu serves the full Pegasus feature set
+>   (Pegasus_DRC, Pegasus_LVS, Pegasus_advdrc, Pegasus_advlvs, Pegasus_perc,
+>   Pegasus_UI/RV, Virtuoso_InDesign_Pegasus_drc, 300 seats each), all at
+>   zero usage as of today (lmstat, 2026-09-04).
+> - The only Pegasus directory under /apps/cds is /apps/cds/pegasus231, which
+>   is the PEGASUSDFM 23.12 release (Layout Pattern Analyzer / CMP / CAA /
+>   CPA; its ReadMe says so). It has no `pegasus` DRC/LVS executable, and no
+>   other Cadence install under /apps has one either.
+>
+> The ask: install the PEGASUS release (Pegasus Verification System, latest
+> 23.x ISR, lnx86; it is a separate product from PEGASUSDFM on the Cadence
+> download site) next to the existing installs, for example as
+> /apps/cds/pegasus_verif231, through iscape as usual. No license change is
+> needed; the features are already served.
+>
+> A second, optional ask if it is easy: the Cadence "VLSI Fundamentals
+> Education Kit" (the SKY130-based kit Cadence and SkyWater announced) ships
+> Pegasus rule decks for SKY130. If the department's Cadence academic account
+> can pull that kit, every student on the open PDK gets signoff DRC/LVS
+> without hand-writing decks. If you would rather I request that through my
+> advisor, just say so.
+>
+> I can validate the install the same day it lands: I have a full-chip GDS and
+> netlist ready as a test case and will confirm license checkout and a basic
+> DRC run so the ticket can be closed. If it helps to stage it in a temporary
+> location first, I am happy to test there.
+>
+> Thanks,
+> Miguel Sanchez
+
+Send to: ECE IT help desk (the address that handles /apps and
+ece-itop-licsvr), cc advisor. When it lands: record the path here, set
+`PEGASUS_VERIFY_HOME` in `../env.sh`, shake down `run_pegasus_drc.sh`.
+
 ## Running (once installed)
 
 ```bash
@@ -179,6 +236,10 @@ Deck sources to pursue: SkyWater NDA PDK via university/advisor channels
   this project: Calibre (newest install, industry-standard name) > ICV (older
   2022 install) > Pegasus (not installed at all). All three share the
   deck/runset gap; decks are the whole side project.
+
+- **2026-09-04** - facts re-verified (18 features idle, still DFM-only
+  install, nothing new under /apps); IT request v3 written above, ready to
+  send. Calibre/ICV status unchanged (installed, licensed, no sky130 decks).
 
 ## First real use
 

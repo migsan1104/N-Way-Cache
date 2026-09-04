@@ -1028,3 +1028,121 @@ Consequences:
   ss_n40C_1v76 on the exported package and report both, labelled.
 - armC's Tempus numbers in this ledger (09-01/09-03) need the same re-run
   before any of them are quoted.
+
+## Signoff day 4 (2026-09-04): iter16b is DRC 0 + antenna 0 at 01:14; the antenna ECO then scrambled it; export running from the clean checkpoint
+
+### Overnight sequence (tmux `antenna_16b` = `antenna_then_chain.sh`, then `chain_16b_af`)
+
+| time | step | result | checkpoint |
+|---|---|---|---|
+| 00:21-00:34 | `antenna_fix2.tcl` on `05_legal_fix10.enc`: `attachDiode` diode_2 on the 7 pins, antenna auto-fix OFF, no refinePlace, `ecoRoute -routeWithEco` | verify_drc 0, antenna "No Violations Found" (the parser read -1 on that wording; fixed in antenna_eco.tcl / antenna_fix2.tcl / winner_chain.sh) | `05_antenna_fixed.enc` |
+| 00:35-00:42 | winner chain step 1: checkPlace, Quantus RC corners, io_vclk | io vclk latency 3.435 (correlated), hold before fix +0.005 | |
+| 00:42-00:54 | `optDesign -postRoute -hold` | reg2reg after hold fix **+0.916** (same as chain_f10: hold opt added nothing new) | |
+| 00:54-00:59 | DRC passes | pass 1 = **15** (li1 MAR/short/spacing on `FE_OFN*` hold-fix nets against neighbouring cell blockages, all the same signature), `ecoRoute -target`, pass 2 = **0** | `05_chain_pass1.enc` |
+| 00:59-01:14 | second hold opt + `drc_holdclean` | **0** | **`05_route_opt.enc` (01:14) = the clean database** |
+| 01:15 | antenna_eco.tcl baseline `verifyProcessAntenna` | **0** (`reports/antenna_eco/antenna_base.rpt`) | |
+| 01:15-01:16 | `ecoRoute -fix_drc` + antenna pass 1 | 0 | (no save: the loop only saves when n != 0) |
+| 01:16-01:58 | **`refinePlace -preserveRouting true`** (unconditional in antenna_eco.tcl) | **46,888 instances moved, mean 235 um, max 1957 um** (a dfxtp_1 with a Region constraint went from (2867,2872) to (2095,1686)); IMPSP-2021: 4 bufbuf_16 unlegalizable (the same 4 the 09-03 chains hit) | |
+| 01:58-10:55 | `optDesign -postRoute -hold` on the scrambled placement | GigaOpt ran 9 h, then launched a full `globalDetailRoute` at 10:55 (66% overcon, 15,115 short segments after track assignment) | |
+| 11:58 | killed by hand (pid 3007000). Nothing after 01:14 was ever saved. | | |
+
+So the whole campaign target was reached at 01:14 and the tool spent the
+next ten hours undoing it. The refinePlace was there for the case where the
+ECO loop had *inserted* diodes (new cells need legalizing); on a
+zero-baseline database it re-legalized the entire design against the region
+constraints and the 4 unlegalizable buffers, which is what moved 47k cells.
+`-preserveRouting` preserves wires, not the cells under them.
+
+### Fixes (commit c554fbb)
+
+- `antenna_eco.tcl`: parse the baseline count up front (`_antenna_count`,
+  same three regexes as the passes). Baseline 0 -> no ecoRoute loop, no
+  refinePlace, no optDesign, no timeDesign; the database is left as loaded.
+- `winner_chain.sh`: `ASIC_CHAIN_FROM=export` skips steps 1+2;
+  `ASIC_EXPORT_SRC=<ckpt>` names the checkpoint to export (default stays
+  `05_antenna_clean.enc`). This is the "start-checkpoint knob" the 09-03
+  lessons list asked for.
+- The 09-03 `antenna_fix*.tcl` / `antenna_then_chain.sh` are now tracked.
+
+### Export (tmux `export_16b`, 11:58 ->, `logs/export_16b_sh.log` + `logs/chain_export.log`)
+
+`ASIC_CHAIN_FROM=export ASIC_EXPORT_SRC=05_route_opt.enc winner_chain.sh
+20260902_iter16b_e35_fp16_die2900`. Fill = 196,806 decap+filler. The
+post-fill verification quartet, against armC's export (09-02) as reference:
+
+| check | iter16b | armC |
+|---|---|---|
+| verifyConnectivity -type all | 1000+ unconnected terminals on VSS (report cap) | 999 + 1 special-wire |
+| verifyGeometry | Overlap 1000 (cap), 0 short / wiring / antenna | Overlap 1000 |
+| verifyProcessAntenna | 0 | 0 |
+| verifyWellTap | 0 | 0 |
+
+The connectivity count did NOT drop even though the 06_export.tcl
+`globalNetConnect` rerun (the fix prescribed in the 09-03 VNB note above)
+demonstrably executed this time (`<CMD> globalNetConnect ... -inst *
+-override` x6 in chain_export.log). So "post-power-stage cells missing the
+logical assignment" is not (only) what these are. The .rpt carries the total
+only; classification needs `verifyConnectivity -type special -net VSS` with
+the error limit raised on `06_final.enc` in a separate session once the
+export session exits. The SRAM `wmask1[3:0]` pins tied to VSS with no
+physical geometry (NRDB-629, 16 macros x 4) are a known 64 of them. Black-box
+LVS is the arbiter either way. Innovus `verifyGeometry` Overlap was retired
+as a signal on day 2 (KLayout is the truth); it is listed for the armC match.
+
+Chain order after export is KLayout -> LVS-bb -> Tempus. armC's netgen has
+been running >25 h, so the chain's Tempus is a day away; Tempus needs only
+`outputs/` (netlist, SPEF, as-implemented SDC), so a two-corner Tempus is
+launched separately as soon as the export lands
+(`signoff/tempus/run_two_corner.sh`, results in `tempus_<corner>/`).
+Corner labels matter here: iter16b's P&R database is at ss_100C_1v60 with
+the x1.5 macro derate (corner audit above), so the 100C run is the one
+comparable with Innovus's +0.916 and the n40C_1v76 run is the campaign
+corner.
+
+### The "1000+ unconnected VSS terminals" classified (13:53, `scripts/classify_vss.tcl`, `reports/vss_classify/`)
+
+`verifyConnectivity -type special -net {VSS VDD} -error 200000` on
+`06_final.enc`: **199,895** unconnected terminals, all on VSS, of which
+**199,894 are `VNB`** (the p-well substrate-tie pin) spread over every cell
+family - 78,698 plain logic cells, 63,588 FE_OFC, 25,876 FE_RC, 19,578 DECAP,
+11,892 FE_OCPC, 197 FE_USKC, 62 FE_PHC, 3 antenna diodes. `VNB`/`VPB` ports
+are on `pwell`/`nwell`, which the tech LEF declares `TYPE MASTERSLICE`: no
+metal, nothing to route, nothing the connectivity checker can trace. The
+substrate tie is physical, by the tap cells (`verifyWellTap` 0). So this is
+a checker artifact of the sky130 well-pin modelling, present on every
+export in the campaign, and the 09-03 diagnosis above ("post-power-stage
+cells missing globalNetConnect") was an artifact of the 1000-line cap
+listing hold cells first: the globalNetConnect rerun is still correct, but
+it was never going to move this number. Signoff sheet: report "VNB: n/a
+(MASTERSLICE)", not a count.
+
+The one non-VNB item: `GEN_WAYS[1]...g_bank[0]...u_sram/gnd` at
+(695.145, 2691.62), an 0.49 um **m3** square that is the first RECT of the
+macro's single-PORT `gnd` pin (LEF 317.885,167.89 mirrored through the S
+placement at 637.04,2413.765). Internal port shape, 1 of ~4,800 in that
+port; the macro's ground is fed by its full-height m4 straps, which the PG
+grid hits (the other 15 macros and every other shape of this one are
+clean). Benign; LVS on the merged GDS is the confirmation.
+
+Also listed: **106 dangling VDD wire ends on met4**, at x = 257.1 + 60k and
+six y levels (37.6, 488.2, 634.6, 1015.9, 1467.6, 1848.9, 2411, 2862) - the
+vertical VDD stripes ending at macro-row boundaries. Stubs, not opens
+(armC listed 1). Worth a `editTrim` / stripe-end cleanup in a future
+02_power.tcl, not a signoff blocker.
+
+Sim netlist `_pnr_sim.v` written by the same session with the corrected
+`saveNetlist -excludeLeafCell`.
+
+### Voltus static IR on iter16b (16:10) - hypothesis 1 closed, iter17 PDN item defined
+
+First rail analysis in the campaign (`signoff/voltus/voltus.md`, "First
+static IR result"). Ring-as-supply, tech-only PGVs, macros excluded: VDD
+worst drop 119 mV / VSS bounce 121 mV against a 53 mV (3 %) budget; met5
+(ring) carries <3 mV of it, the stripes/rails carry the rest, and the map
+puts the whole hub inside the macro ring in the worst band with gradients
+only at the four corner gaps. **Hypothesis 1 ("met5 stripes eat horizontal
+supply - thin them") is answered negative**: the top layer is not the
+problem and thinning it would worsen the hub. The PDN is under-provisioned
+INTO the hub: the macro ring walls it off. iter17 gets met5 straps across
+the macro ring with via stacks into the hub (02_power.tcl), trialled with
+Voltus what-if stripes first. EM not analysed (no sky130 EM rules loaded).

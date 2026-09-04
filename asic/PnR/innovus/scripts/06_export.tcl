@@ -109,9 +109,13 @@ _step report-summary {summaryReport -noHtml -outfile [pnr_rpt signoff summary.rp
 # ---------------------------------------------------------------------------
 _step netlist {saveNetlist [pnr_out ${RUN_TAG}_pnr.v]}
 
-# Netlist for gate-level simulation: physical-only cells carry no function and
-# break a simulator if left in.
-_step netlist-sim {saveNetlist -excludeLeafCell -physicalInsts [pnr_out ${RUN_TAG}_pnr_sim.v]}
+# Netlist for gate-level simulation. saveNetlist already omits physical-only
+# instances (filler/decap/tap) by default - verified on iter16b's export
+# (0 FILLER/DECAP/TAP in _pnr.v) - so the only difference from _pnr.v is the
+# absence of leaf-cell definitions (the sim binds the PDK's Verilog models).
+# "-physicalInsts" was never a saveNetlist option (IMPTCM-48 on every export
+# since armC); fixed 2026-09-04.
+_step netlist-sim {saveNetlist -excludeLeafCell [pnr_out ${RUN_TAG}_pnr_sim.v]}
 
 _step sdf {write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]}
 

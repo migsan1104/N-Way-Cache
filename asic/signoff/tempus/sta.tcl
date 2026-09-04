@@ -19,7 +19,13 @@ if {[info exists env(SIGNOFF_PNR_SCRIPTS)]} {
 }
 source [file join $pnr_scripts innovus_config.tcl]
 
+# SIGNOFF_TEMPUS_TAG (optional) suffixes the output dir - e.g. "ss_n40C_1v76"
+# -> tempus_ss_n40C_1v76/ - so runs at several corners on one package do not
+# overwrite each other (run_two_corner.sh, 2026-09-04).
 set out [file join $env(SIGNOFF_RESULTS) tempus]
+if {[info exists env(SIGNOFF_TEMPUS_TAG)] && $env(SIGNOFF_TEMPUS_TAG) ne ""} {
+    append out "_$env(SIGNOFF_TEMPUS_TAG)"
+}
 file mkdir $out
 
 set netlist [file join $PNR_OUT_DIR ${RUN_TAG}_pnr.v]
@@ -47,6 +53,15 @@ spefIn $spef      -rc_corner rc_slow
 spefIn $spef_fast -rc_corner rc_fast
 
 setAnalysisMode -analysisType onChipVariation -cppr both
+# SIGNOFF_SI=1: signal-integrity-aware delay calculation (crosstalk on
+# delays). The Innovus export's timeDesign -signoff ran SI-aware and found
+# 9 hold violators (-0.075) that the plain calculator did not; a Tempus
+# number without SI is not comparable to it. Added 2026-09-04.
+if {[info exists env(SIGNOFF_SI)] && $env(SIGNOFF_SI) eq "1"} {
+    setDelayCalMode -SIAware true
+    setSIMode -analysisType default
+    puts "TEMPUS: SI-aware delay calculation ON"
+}
 
 # Constraints, in preference order (decision 2026-09-01, user call):
 #
@@ -65,10 +80,70 @@ set sdc_asimpl [file join $PNR_OUT_DIR ${RUN_TAG}_setup.sdc]
 # Either branch is followed by interactive constraints (the vclk_io block
 # below), which Tempus rejects with TCLCMD-1048 unless a constraint mode is
 # enabled interactively - so enable it for BOTH branches, not just the replay.
+# The export writes two as-implemented SDCs that differ in exactly four
+# lines: CTS's negative source latency on the clk port (update_io_latency).
+# write_sdc -view setup_view emits only the -max values (-4.59 here) and
+# -view hold_view only the -min values (-1.85); the Innovus DB itself holds
+# all four early/late x min/max combos per view. Three Tempus passes on
+# iter16b (2026-09-04) showed the checker takes max-qualified latency for
+# the capture clock and min-qualified for launch, so a view with only one
+# kind is internally inconsistent: setup SDC alone -> hold +4.6 (fake);
+# both SDCs in one mode -> the 2nd create_clock wipes clk (TCLCMD-1594);
+# setup SDC + hold's -min lines -> hold +2.8 and setup -0.22 (both fake).
+# Correct emulation: one constraint mode PER VIEW, and within each mode set
+# every min/max combo to that view's own value.
+set sdc_hold [file join $PNR_OUT_DIR ${RUN_TAG}_hold.sdc]
+# SIGNOFF_PERIOD (optional, ns): what-if STA at another clock period on the
+# SAME routed package. Both as-implemented SDCs are copied into $out with
+# every "create_clock ... -period P -waveform {0 P/2}" rewritten; nothing
+# else changes (CTS, hold fixes and I/O budgets were built for the exported
+# period, so this is "the routed netlist meets/does not meet setup at P",
+# never an Fmax). io_vclk.tcl re-reads the period from the clk object.
+if {[info exists env(SIGNOFF_PERIOD)] && $env(SIGNOFF_PERIOD) ne ""} {
+    set _P [expr {double($env(SIGNOFF_PERIOD))}]
+    set _H [expr {$_P / 2.0}]
+    foreach _v {sdc_asimpl sdc_hold} {
+        set _src [set $_v]
+        if {![file readable $_src]} { continue }
+        set _dst [file join $out "whatif_p${_P}_[file tail $_src]"]
+        set _f [open $_src r]; set _t [read $_f]; close $_f
+        set _n [regsub -all -- {-period\s+[0-9.]+\s+-waveform\s+\{[0-9.]+\s+[0-9.]+\}} $_t \
+                    [format {-period %.6f -waveform {0.000000 %.6f}} $_P $_H] _t]
+        set _f [open $_dst w]; puts -nonewline $_f $_t; close $_f
+        set $_v $_dst
+        puts "TEMPUS WHAT-IF: $_v -> $_dst ($_n clock definitions rewritten to period $_P ns)"
+    }
+}
+proc _mirror_source_latency {sdc from to} {
+    # Re-issue every "set_clock_latency -source ... -$from ..." line of $sdc
+    # with -$to so both qualifiers carry the same value in this mode.
+    set f [open $sdc r]; set n 0
+    while {[gets $f l] >= 0} {
+        if {[regexp "^\\s*set_clock_latency\\s+-source\\s.*-$from\\s" $l]} {
+            regsub -- "-$from\\s" $l "-$to " l2
+            eval $l2; incr n
+        }
+    }
+    close $f
+    return $n
+}
 if {[file readable $sdc_asimpl]} {
     update_constraint_mode -name func -sdc_files [list $sdc_asimpl]
+    set_interactive_constraint_modes [list func]
+    set _n [_mirror_source_latency $sdc_asimpl max min]
+    puts "TEMPUS: setup_view <- $sdc_asimpl (+ $_n -max source latencies mirrored to -min)"
+    if {[file readable $sdc_hold]} {
+        create_constraint_mode -name func_hold -sdc_files [list $sdc_hold]
+        # attach the mode to a view BEFORE making it interactive (TCLCMD-1047)
+        update_analysis_view -name hold_view -constraint_mode func_hold
+        set_analysis_view -setup {setup_view} -hold {hold_view}
+        set_interactive_constraint_modes [list func_hold]
+        set _n [_mirror_source_latency $sdc_hold min max]
+        puts "TEMPUS: hold_view <- $sdc_hold (+ $_n -min source latencies mirrored to -max)"
+    } else {
+        puts "TEMPUS WARN: no hold SDC ($sdc_hold) - hold_view shares the setup SDC, hold slack is NOT trustworthy"
+    }
     set_interactive_constraint_modes [all_constraint_modes -active]
-    puts "TEMPUS: constraints = as-implemented export $sdc_asimpl"
 } else {
     set_interactive_constraint_modes [all_constraint_modes -active]
     set_propagated_clock [all_clocks]

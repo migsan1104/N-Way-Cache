@@ -123,3 +123,11 @@ openflex/PPA/*/archive/
 openflex/PPA/snapshot_*/
 asic/PnR/innovus/.timing_file_*
 asic/signoff/quantus/validate/out_*/
+# Voltus debris and regenerable power-grid views (2026-09-04): run_pgv.sh
+# rebuilds pgv/ in ~1 min (techonly); pm.ob/.stat/cellIDMap/work are tool
+# scratch written next to the launch directory.
+asic/signoff/voltus/pgv/
+asic/signoff/voltus/work/
+asic/signoff/voltus/.stat/
+asic/signoff/voltus/cellIDMap
+asic/signoff/**/pm.ob

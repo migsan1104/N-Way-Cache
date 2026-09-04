@@ -193,3 +193,73 @@ when a lull appears in the P&R queue, not by displacing an iteration.
    data (step 2).
 5. **Licence contention** — Voltus shares the SSV tree with Tempus; do not run
    both against a full P&R queue.
+
+## Log
+
+- **2026-09-04 15:00** - first execution of step 1 (`run_pgv.sh`,
+  `pgv_common.tcl` / `pgv_techonly.tcl` / `pgv_stdcells.tcl`). Voltus
+  23.14 (ssv231) checked out `vtsxl`; licence allows 8 CPUs. `techonly`:
+  437 cells, TECH view 100%, ~40 s -> `pgv/techonly/`. `stdcells` started
+  15:01 (Spectre bundled in ssv231, corner `tt`, VPWR 1.76 V, bulk
+  VPB/VNB declared, 25 C) -> `pgv/stdcells/`; log `pgv/logs/stdcells.log`.
+  Decisions: 1.76 V not 1.8 (campaign corner); `tt` models (PGV cap/leak
+  are corner-insensitive at the level the static run needs); no
+  `-lef_layermap` (auto-generated). Next: step 2 static rail on iter16b
+  `06_final.enc`, supply entry = PG ring edges, declared as such.
+
+## First static IR result: iter16b, 2026-09-04 16:10 (attempt 7 of 7)
+
+Flow that finally ran (`static_rail.tcl` / `run_static_rail.sh <stamp>`):
+`read_lib -lef` -> `read_view_definition mmmc.tcl` -> `read_verilog` ->
+`set_top_module` -> `read_def` (the export DEF) -> `globalNetConnect` ->
+`read_spef` -> static power (vectorless, activity 0.2) -> `set_pg_nets`
+(3 % threshold) -> `set_rail_analysis_mode -method static -accuracy xd
+-power_grid_library techonly.cl` -> `set_power_pads -format xy` -> one
+`analyze_rail -type net <n>` per net. Six earlier attempts and their lessons
+are in `../WALKTHROUGH_2026-09-04.md` section 8 (restoreDesign loses the
+floorplan across Innovus 21 -> Voltus 23; `init_design` puts Voltus into
+timer mode where DEF is ignored; `analyze_rail -type net` takes one net;
+report names are `static_<net>.ptiavg` only after the rails are connected).
+
+Supply model: **the PG ring is the supply** - 228 ideal sources per net at
+50 um pitch on the ring centrelines (no package exists). With only one
+source per side the ring itself dropped 0.22 V (VDD 275 mV worst) - that
+run is kept as `results/<stamp>/voltus_attempt6_4sources/` as the
+"entry-point artefact" reference.
+
+| net | worst | average | budget (3 %) | nodes over budget | drop in met5 (ring) | drop met4..met1 |
+|---|---|---|---|---|---|---|
+| VDD | 119 mV (1.641 V) | 78 mV | 53 mV | 542k / 784k | 0.2 mV | 118 mV |
+| VSS | 121 mV | 80 mV | 53 mV | 543k / 784k | 2.9 mV | 121 mV |
+
+Worst hub cell: ~1.52 V effective (13.6 % lost). **FAIL against the 3 %
+budget, 2.2x over; also over a 5 % budget.** Total static current 325 mA
+on VDD (850 mW at 1.76 V incl. macros; power at default activities, SPEF
+not applied to the switching term - see caveats).
+
+Where (ir_linear.gif): everything outside the macro ring within 1 % of
+nominal; the ENTIRE hub inside the macro ring in the worst band; gradients
+only at the four diagonal corner gaps. The macro ring walls the hub off and
+current reaches it through the corners. The 96 met5 + 311 met4 stripe
+segments feed the periphery fine.
+
+Consequences:
+1. **DRC.md hypothesis 1 (met5 over-provisioned, thin it for tracks) is
+   answered NEGATIVE.** met5 carries no drop; the PDN is under-provisioned
+   into the hub, not over-provisioned at the top.
+2. **iter17 PDN item:** met5 straps across the macro ring from the perimeter
+   into the hub with via stacks to the hub's met4 stripes, in 02_power.tcl
+   before placement. Trial it with Voltus what-if stripes on this database
+   first (one re-route, not several).
+3. EM: NOT analysed. The Quantus techfile has no EM rules, so the "0
+   current-density violations" line is empty, not clean. Needs sky130 Jmax
+   per layer in the ICT (`-process_techgen_em_rules`) or an `-em_models`
+   file.
+
+Caveats attached to the numbers: (a) macros excluded (no PGV: Spectre
+rejects the ngspice models; LEF-only macro view died on an internal
+assertion) - 16 SRAMs, ~157 mA, on the channel edges -> interior is
+optimistic; (b) standard cells at LEF-based accuracy (xd), not
+characterised; (c) vectorless activity 0.2; (d) switching power without
+SPEF; (e) sources ideal (no package R/L); (f) grid at 100 C, cells at the
+n40C_1v76 libs.

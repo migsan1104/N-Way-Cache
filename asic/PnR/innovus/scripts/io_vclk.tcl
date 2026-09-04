@@ -69,7 +69,15 @@ if {$_vlat eq "auto"} {
 if {$_vlat > 0} {
     set_interactive_constraint_modes [all_constraint_modes -active]
     set _per ""
-    catch {set _per [get_property [get_clocks clk] period]}
+    # SIGNOFF_PERIOD (Tempus what-if, sta.tcl) must win: on 2026-09-04 the
+    # queried period came back 4.0 after the SDC copies said 3.0, the
+    # virtual clock stayed at 4 ns against a 3 ns core clock, and Tempus
+    # timed the 3:4 edge pairing (a 1 ns window) - every I/O group "failed".
+    if {[info exists ::env(SIGNOFF_PERIOD)] && $::env(SIGNOFF_PERIOD) ne ""} {
+        set _per [expr {double($::env(SIGNOFF_PERIOD))}]
+    } else {
+        catch {set _per [get_property [get_clocks clk] period]}
+    }
     if {$_per eq ""} { catch {set _per [get_attribute [get_clocks clk] period]} }
     if {$_per eq "" || ![string is double -strict $_per]} {
         set _per [config_env ASIC_IO_VCLK_PERIOD 4.000]

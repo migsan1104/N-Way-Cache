@@ -108,3 +108,24 @@ bugs (period query dialect; single-corner latency minting fake reg2out hold
 4.318 on iter7). OPEN ITEM: this run's REG2REG setup (-5.919 / 37,180 vio)
 disagrees with the 09-01 corrected run (-4.291 / 16,936) on the same stamp +
 branch - diff tempus.log vs tempus_vclk.log before quoting either.
+
+## The exported-SDC source-latency split (2026-09-04) - READ before quoting any hold number
+
+Every Tempus hold number before today was wrong (armC +5.145, iter16b
+pass 1 +4.608). Cause: Innovus CTS (`update_io_latency`) sets a negative
+source latency on `clk`; `write_sdc -view setup_view` exports only the
+`-max` values, `-view hold_view` only the `-min` values, and `sta.tcl`
+loaded the setup SDC into both views. Tempus uses max-qualified latency
+for the capture clock and min-qualified for launch, so a one-kind view is
+inconsistent. Loading both SDCs in one mode is also wrong (second
+`create_clock` overwrites `clk`, TCLCMD-1594, and setup collapsed to
+-4.8). Fix in `sta.tcl`: constraint mode `func` = setup SDC + every
+`-source ... -max` line mirrored as `-min`; mode `func_hold` = hold SDC +
+every `-min` mirrored as `-max`, attached to `hold_view` via
+`update_analysis_view` BEFORE `set_interactive_constraint_modes`
+(TCLCMD-1047 otherwise). New knobs: `SIGNOFF_TEMPUS_TAG` (output dir
+suffix, used by `run_two_corner.sh`) and `SIGNOFF_PERIOD` (what-if period:
+rewrites `create_clock` in SDC copies under `$out`). Full story:
+`../WALKTHROUGH_2026-09-04.md` section 4. Also: Tempus drops to an
+interactive prompt on a script error under tmux - feed `< /dev/null` or
+send `exit`.
