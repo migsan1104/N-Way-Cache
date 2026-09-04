@@ -89,20 +89,30 @@ source /ecel/UFAD/miguel.sanchez1/Cache/asic/PnR/innovus/scripts/antenna_eco.tcl
 EOT
 # antenna_eco.tcl ends with its own exit; export runs in a fresh session so a
 # clean-but-antenna-dirty verdict still leaves judgment to the log reader.
+# ASIC_CHAIN_FROM=export skips steps 1+2 and exports ASIC_EXPORT_SRC (default
+# 05_antenna_clean.enc) directly - for a checkpoint already judged DRC 0 +
+# antenna 0 (iter16b 05_route_opt.enc, 2026-09-04).
+EXPORT_SRC="${ASIC_EXPORT_SRC:-05_antenna_clean.enc}"
+if [ "${ASIC_CHAIN_FROM:-}" = "export" ]; then
+  [ -r "$RUN/checkpoints/$EXPORT_SRC" ] || { echo "no checkpoint $RUN/checkpoints/$EXPORT_SRC"; exit 1; }
+  echo "== CHAIN steps 1+2 skipped (ASIC_CHAIN_FROM=export, src=$EXPORT_SRC) =="
+else
 echo "== CHAIN step 1+2: hold-only + eco + antenna (innovus) =="
 ( cd "$RUN" && innovus -no_gui -files chain.tcl -log logs/chain )
 grep -aE 'CHAIN (pass|PLATEAU|HOLDCLEAN|STOP)|ANTENNA (pass|PLATEAU|ECO FINAL)' "$RUN/logs/chain.log" | tail -8
 grep -aq 'CHAIN STOP' "$RUN/logs/chain.log" && { echo "CHAIN halted: route not clean"; exit 2; }
 AF=$(ls -t "$RUN"/reports/antenna_eco/antenna_final.rpt 2>/dev/null | head -1)
-AV=$(grep -aoE 'Verification Complete: [0-9]+ Violations' "$AF" 2>/dev/null | grep -oE '[0-9]+' || echo "?")
+if grep -aq 'No Violations Found' "$AF" 2>/dev/null; then AV=0; else
+AV=$(grep -aoE 'Total number of process antenna violations: *[0-9]+' "$AF" 2>/dev/null | grep -oE '[0-9]+$' || echo "?"); fi
 DV=$(grep -aoE 'ANTENNA ECO FINAL: verify_drc = [0-9]+' "$RUN/logs/chain.log" | grep -oE '[0-9]+$' || echo "?")
 echo "post-antenna: antenna=$AV drc=$DV (both must be 0 to proceed)"
 [ "$AV" = "0" ] && [ "$DV" = "0" ] || { echo "CHAIN halted before export - judge reports"; exit 3; }
+fi
 
-echo "== CHAIN step 3: export =="
-( cd "$RUN" && ASIC_PNR_RUN_STAMP=$STAMP ASIC_ANTENNA_SRC=05_antenna_clean.enc \
+echo "== CHAIN step 3: export ($EXPORT_SRC) =="
+( cd "$RUN" && ASIC_PNR_RUN_STAMP=$STAMP ASIC_ANTENNA_SRC=$EXPORT_SRC \
   innovus -no_gui -files <(echo "source $SCR/innovus_config.tcl
-pnr_restore_stage 05_antenna_clean.enc
+pnr_restore_stage $EXPORT_SRC
 source $SCR/06_export.tcl") -log logs/chain_export )
 
 echo "== CHAIN step 4: signoff triplet =="

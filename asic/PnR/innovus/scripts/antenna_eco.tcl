@@ -17,21 +17,42 @@ if {[dbGet -e top] eq ""} {
 setAnalysisMode -analysisType onChipVariation -cppr both
 
 verifyProcessAntenna -report [pnr_rpt antenna_eco antenna_base.rpt]
-pnr_note "ANTENNA baseline report written"
+# Parse the baseline the same way the passes are parsed below. A clean
+# baseline means NO ecoRoute, NO refinePlace, NO optDesign: on iter16b
+# (2026-09-04) the unconditional refinePlace after a 0-violation pass moved
+# 46,888 instances (mean 235 um) and the following optDesign -postRoute
+# escalated into a full reroute of a scrambled design.
+proc _antenna_count {rpt} {
+    set _f [open $rpt r]; set _t [read $_f]; close $_f
+    set n -1
+    if {[regexp {No Violations Found} $_t]} { set n 0 } \
+    elseif {![regexp {Total number of process antenna violations:\s*(\d+)} $_t -> n]} {
+        regexp {Verification Complete\s*:\s*(\d+)\s+Violation} $_t -> n
+    }
+    return $n
+}
+set base [_antenna_count [pnr_rpt antenna_eco antenna_base.rpt]]
+pnr_note "ANTENNA baseline: $base violations"
 
 setNanoRouteMode -drouteFixAntenna true \
                  -routeAntennaCellName sky130_fd_sc_hd__diode_2 \
                  -routeInsertAntennaDiode true
 
 set prev 999999999
-for {set p 1} {$p <= 3} {incr p} {
+for {set p 1} {$p <= 3 && $base != 0} {incr p} {
     ecoRoute -fix_drc
     verifyProcessAntenna -report [pnr_rpt antenna_eco antenna_pass${p}.rpt]
     # verifyProcessAntenna leaves its total in the report; parse it back.
     set _f [open [pnr_rpt antenna_eco antenna_pass${p}.rpt] r]
     set _t [read $_f]; close $_f
     set n -1
-    regexp {Verification Complete\s*:\s*(\d+)\s+Violation} $_t -> n
+    # The report file ends with "Total number of process antenna violations: N";
+    # the "Verification Complete: N Violations" line is log-only (found
+    # 2026-09-03 on iter16b: every pass read -1). Accept both.
+    if {[regexp {No Violations Found} $_t]} { set n 0 } \
+    elseif {![regexp {Total number of process antenna violations:\s*(\d+)} $_t -> n]} {
+        regexp {Verification Complete\s*:\s*(\d+)\s+Violation} $_t -> n
+    }
     pnr_note "ANTENNA pass $p: $n violations"
     if {$n == 0} { break }
     if {$n >= $prev} { pnr_note "ANTENNA PLATEAU: $n >= $prev"; break }
@@ -40,9 +61,14 @@ for {set p 1} {$p <= 3} {incr p} {
 }
 
 # Diodes are new placed cells: re-check legality, hold, and geometry DRC.
-catch {refinePlace -preserveRouting true}
-catch {optDesign -postRoute -hold}
-catch {timeDesign -postRoute -hold -outDir [file dirname [pnr_rpt antenna_eco x]] -prefix antenna_eco}
+# Only when something was actually inserted (baseline != 0); see note above.
+if {$base != 0} {
+    catch {refinePlace -preserveRouting true}
+    catch {optDesign -postRoute -hold}
+    catch {timeDesign -postRoute -hold -outDir [file dirname [pnr_rpt antenna_eco x]] -prefix antenna_eco}
+} else {
+    pnr_note "ANTENNA baseline clean - ecoRoute/refinePlace/optDesign skipped, database untouched"
+}
 clearDrc
 verify_drc -limit 100000 -report [pnr_rpt antenna_eco drc_final.rpt]
 set d [llength [dbGet -e top.markers]]
