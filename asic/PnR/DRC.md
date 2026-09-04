@@ -701,3 +701,330 @@ clean - correlated-external vclk (late=early=11.901, measured ff-early 4.318
 recorded), reg2out hold deferred; IN2REG setup honest (-4.028), REG2OUT
 setup passes at the 0.3 budget, no phantom holds. Five validation rounds,
 four script bugs + one modeling artifact fixed on iter7's corpse.
+
+## Morning 2026-09-03: iter16 well under the beat, iter15 dead, armC signoff run
+
+Overnight state (night_watch armed 19:49, BEAT=706, no gate fired yet):
+
+- **iter16 (die 2780)**: post-GR overflow 1.97% H / 1.68% V (armE 7.18/4.13).
+  Detail route in-flight counts by iteration: 620, 606, 539, 504, 460, 448,
+  417, 288, 246 ... still falling at iteration ~15. armE FINISHED at 706, so
+  iter16 is already ~65% better before post-route opt/ecoRoute. Die growth
+  thesis confirmed: space at the ring corners, not density pressure.
+- **iter16b (die 2900)**: post-GR 0.72% H / 0.34% V - lowest of the campaign;
+  detail route started ~10:15, no count yet.
+- **iter15 (damping)**: 12455, 11570, 11667, 11092, 11334, 11237 across
+  iterations 15-21 - flat. DEAD, as the 16.4% H post-place overflow forecast.
+  Left to time out on its own.
+- Cost of the die: post-CTS reg2reg WNS iter16 -2.339 / iter16b -2.176 vs
+  armE -1.255 at the same stage (longer wires). Per the 09-01 priority call
+  (DRC-clean over Fmax) the chain does hold-only opt, so expect that to
+  carry through. Post-CTS overflow: iter16 5.31%H (same as armE), iter16b
+  3.75%H.
+
+armC fallback package (export14c, 09-02 20:32): export OK, KLayout BEOL
+238,746 items (= armE's 238,391 macro-internal baseline). Tempus had died at
+sta.tcl's `create_clock vclk_io` with TCLCMD-1048: the as-implemented-SDC
+branch never called `set_interactive_constraint_modes` (iter7 ran the
+fallback branch, which does). Fixed in sta.tcl, rerun 10:26 (tmux
+tempus14c, results/.../armC/tempus, log tempus_armC2):
+
+| group | WNS | TNS | #vio |
+|---|---|---|---|
+| IN2REG | -5.840 | -2400 | 1205 |
+| REG2REG | -1.468 | -1.468 | 1 |
+| REG2OUT | 0.000 | 0 | 0 |
+| IN2OUT | 0.000 | 0 | 0 |
+| hold (all) | +5.145 | 0 | 0 |
+
+vclk_io latency auto-measured **4.834** (iter7 was 11.901 - armC's tree is
+7 ns shallower, the hub/density work paid off there). IN2REG: 965 of the
+1000 census paths start at `rst` (reset buffer tree into the flop D pins via
+sync-reset logic), the rest are `cpu_req_addr`/`cpu_req_id`/`mem_resp_rdata`
+at ~-1.9. Same boundary item as iter7, not a P&R item. The single REG2REG
+violator disagrees with Innovus's +0.699 on the same DB - sta.tcl now writes
+per-group reg2reg/reg2out/in2out.rpt (rerun tempus14c_grp) to identify it.
+lvs_bb on armC launched after Tempus in the same tmux; armE lvs14bb netgen
+still running (~24 h, comp.out 314 MB).
+
+### 09-03 ~11:00: the REG2REG violator is hold-fix padding - and so is IN2REG
+
+`report_timing -path_group reg2reg` returns "no constrained paths" in Tempus
+(the summary's reg2reg/in2reg are categories, not path groups); sta.tcl now
+selects by `-from/-to [all_registers]` etc. The single REG2REG violator:
+
+    RESPONSE_UNIT_HIT_FIFO_rd_ptr_r_reg[0]/Q_N -> ... -> cpu_req_ready
+      -> and3b (n_126728) -> clkbuf_1, clkdlybuf4s50, 4x dlygate4sd3_1
+      -> inreg_valid_r_reg/D          slack -1.468, 5.7 ns of it delay cells
+
+The delay cells are FE_PHC hold-fix insertions on `inreg_valid_r_reg/D`,
+the AND of the `cpu_req_valid` INPUT and the `cpu_req_ready` reg2reg net.
+Innovus's +0.699 was pre-hold-fix; the chain's `optDesign -postRoute -hold`
+added 2.2 ns to this path. Same story on the IN2REG side: the worst `rst`
+path carries 9 delay cells = 7.285 ns; the exported netlist has **715
+FE_PHC cells** (391 dlygate4sd3, 102 clkdlybuf).
+
+Root cause: golden.sdc references I/O delays to the ideal `clk` edge at the
+port. With the clock propagated (7.7 ns tree) every input-fed flop looks
+like a ~7 ns hold violation to Innovus, which pads it. Tempus's
+latency-matched vclk model - the one we decided is the truth for I/O -
+shows those paths at +5.1 hold margin, so the padding is (a) unnecessary,
+(b) the entire IN2REG setup wall (-5.84 = 0.7 + 4.83 + padding vs a 11.5
+required), (c) the REG2REG violator. This is not an rst/boundary item after
+all; it is the P&R hold fix running under a different I/O model than
+signoff.
+
+Fix (applies to the iter16/16b chain BEFORE its gate fires): the vclk block
+is factored out of sta.tcl into `scripts/io_vclk.tcl` and winner_chain.sh's
+chain.tcl sources it right after setAnalysisMode, before the hold opt, so
+P&R and signoff use the identical I/O model. chain.tcl also writes
+reports/chain/hold_before_fix.rpt and reg2reg_after_hold.rpt. Validation on
+armC's own base (armE 05_route.enc -> io_vclk -> hold opt, saved as
+05_armC_holdvclk.enc, NO export): tmux holdvclk14c, reports/holdvclk/.
+Expect: FE_PHC count well under 715, reg2reg unchanged from +0.699, in2reg
+setup no longer buried. If it validates, armC's fallback package should be
+re-cut from that DB (chain passes + export + trio) rather than shipped with
+the padding.
+
+**Validation result (holdvclk14c, 12:00)** - armE 05_route.enc -> io_vclk ->
+`optDesign -postRoute -hold`, no export:
+
+| | raw SDC (shipped armC) | vclk first |
+|---|---|---|
+| hold cells added | 638 + 22 re-fix (715 FE_PHC total) | **49** (104 total) |
+| reg2reg setup after hold fix | +0.699 -> **-1.468 at Tempus** | +0.423 -> **+0.402** |
+| in2reg setup, vclk view | -5.840 / 1205 eps | **+1.504** |
+| hold WNS after | +5.145 (over-padded) | +0.001 |
+| verify_drc after hold opt | - | 618 |
+
+The 49 cells fixed a real reg2reg hold violation (-0.296, out_tag_reg ->
+tag_banks). Conclusion: the in2reg "wall" and the reg2reg violator were
+both artifacts of hold-fixing under an I/O model that disagrees with
+signoff. io_vclk.tcl is now in the chain (before the hold opt) and in
+sta.tcl. Checkpoint 05_armC_holdvclk.enc is the padding-free armC base if
+the fallback has to be re-cut.
+
+Two bugs found on the way, both fixed:
+- io_vclk.tcl's latency parser scanned every numeric token, including the
+  "3" in the report header's "Generated on: Thu Sep 3" - it won whenever
+  the tree was shallower than the day of the month (Innovus armC: 2.961 ->
+  "3"; Tempus got 4.834 only because 4.834 > 3). Now parses data rows only.
+- **night_watch never could fire**: pnr_note is a Tcl puts, which reaches
+  the tmux pane but NOT flow.log, and night_watch grepped flow.log. iter16
+  gated at 123 with no reaction. night_watch now reads the tmux pane
+  (session iter$tag) first; restarted 12:01 on iter16 + iter16b, and it
+  launched chain_16 immediately.
+
+Latency note for later: Innovus reports armC's tree at 2.961 (05_route.enc,
+its own RC) while Tempus reports 4.834 on the exported netlist + Quantus
+SPEF + macro derates. That 1.9 ns gap between the P&R and signoff timers
+is its own item once the chains are through.
+
+Route results, die knob (fp_iter16, no damping): **iter16 (2780) detail
+route ended 69, 123 after the antenna pass -> chain_16 running. iter16b
+(2900) detail route ended 8** (16 in the antenna pass), stage-05 gate
+pending. Against 571 (armC) / 706 (armE) on the fp7 die: the corner needed
+space, not pressure. iter16b is the 9/13 candidate; iter16 the backup.
+
+## 09-03 afternoon: both chains halt; iter16b's 35 are six DFT probe cells
+
+Both winner chains finished ~13:00 without exporting. io_vclk.tcl did its
+job inside the chain: 3 hold cells added per run (not 715), reg2reg setup
+stayed positive. The plateau ECO made zero progress on either run because
+ecoRoute cannot move cells, and the residual was a placement defect:
+
+| | iter16 (die 2780) | iter16b (die 2900) |
+|---|---|---|
+| stage-05 gate | 123 | 38 |
+| reg2reg after vclk hold fix | +0.252 | +0.920 |
+| eco pass 1 / 2 | 46 / 46 | 35 / 35 |
+| chain residual | 45 (40 short, 4 MetSpc, 1 NSMet) | 35 (32 short, 2 MetSpc, 1 NSMet) |
+| of which probe-cell rail shorts | 4 | **24** |
+
+**Root cause (iter16b).** 24 of the 35 markers are "Special Wire of Net
+VDD/VSS & Blockage of Cell FE_USKC*_CTS_*" on met1: six instances of
+`sky130_fd_sc_hd__probec_p_8`, a DFT current-probe cell whose met1 OBS
+overlaps the rails. Genus and DC exclude `*probe_*`/`*probec_*` (the
+mapped netlist has zero), but `PNR_DONT_USE_PATTERNS` in innovus_config.tcl
+only listed `lpflow_*`, so CCOpt's useful-skew step saw probec_p_8 in its
+"usable buffers" list and used it as a delay element. The markers were
+already in the stage-05 gate (24 of 38); checkPlace does not flag them
+because the cell is legally on its row - the LEF geometry is the problem.
+The four bufbuf_16 IMPSP-2020 "cannot legalize" warnings from the chain's
+hold opt were stale: all four are placed and clean now.
+
+**Fix (interactive session tmux legal16b, scripts/legalize_init.tcl +
+legalize_fix.tcl on 05_route_opt.enc):** setDontUse on the probe family,
+ecoChangeCell each of the six to buf_8, ecoRoute the 12 touched nets:
+
+| | before | after swap |
+|---|---|---|
+| verify_drc | 35 | **9** |
+| hold WNS | +0.001 | +0.006 |
+| reg2reg setup | +0.920 | +0.914 |
+
+Checkpoint `05_legal_swap.enc`. Durable fixes: `sky130_fd_sc_hd__probe_*`
+and `probec_*` added to `PNR_DONT_USE_PATTERNS` (parity with synthesis);
+winner_chain.sh takes `ASIC_CHAIN_SRC` (start checkpoint) and runs
+`checkPlace` at the top as a report-only gate. The region/fence section of
+that report is always ~14.5k: way0-3/hub are soft instance groups from
+the floorplan, not fences.
+
+Residual 9 after the swap: 4 met4 short/spacing against GEN_WAYS[0]
+bank2/bank3 SRAM pins (y 470-474, the bottom macro row's pin edge), 3 met1
+wire-wire shorts in the SW (x 222-423, y 720-929), 1 met2 short into the
+W3B3 macro OBS, 1 NSMet on VSS met4 at (922, 2860). Next: rip-up/reroute of
+exactly those 11 nets (legalize_reroute.tcl), then the chain from the
+legal checkpoint.
+
+### 09-03 evening: the last markers are macro-threading artifacts
+
+Rip-up/reroute of the 11 residual nets (legalize_reroute.tcl) gave 10, and
+every marker moved instead of clearing. A census of signal wires inside the
+16 SRAM bodies (`reports/legalize/probe3.txt`) explains it:
+
+| macro | met1 segs | met2 segs | met4 | nets on met1-3 inside |
+|---|---|---|---|---|
+| way0 bank3 (bottom row) | 2361 | 2468 | 0 | 356 |
+| way3 bank3 (right column) | 8966 | 8437 | 20 | 702 |
+| way2 bank0 (left column) | 7104 | 7890 | 53 | 653 |
+| all 16 | 2.3k-9k each | 2.3k-8.4k each | 0-53 | 278-720 each |
+
+`sram_1rw1r_32_256_8_sky130.lef` has OBS on met1-met3 only, as 254k /
+184k / 8k shape-level rectangles with routable gaps between them, no met4
+OBS at all (met4 is 452 full-height 0.38-wide vdd/gnd straps exported as
+PINs), and the floorplan creates no routing blockages. NanoRoute therefore
+threads signals through the macro interiors on met1/met2 and lands vias
+between the met4 straps. That is how it escaped the 145-pin port-0 edge of
+each bottom/left-row macro, which fp_iter16 turns toward the die edge with a
+24 um strip (EDGE 40 - core margin 16) to get out through. The residual
+markers are the few spots where a threaded wire touches an OBS rect or a
+strap by 0.1-0.4 um.
+
+Surgery that worked (all in tmux legal16b, checkpoints 05_legal_fix*.enc):
+guidance routing blockages over the affected macro bodies (met1-4,
+`-exceptpgnet`), rip up ONLY the offending nets, `routeDesign` with
+`-routeSelectedNetOnly`, then `deleteRouteBlk -all` so the thousands of
+other threading wires are not flagged against the blockages.
+
+| step | verify_drc | hold | reg2reg |
+|---|---|---|---|
+| after probe-cell swap | 9 | +0.006 | +0.914 |
+| reroute 11 nets, no guidance | 10 | | |
+| fix2: small blockages at the hotspots | 10 | +0.006 | +0.914 |
+| fix3: whole-macro guidance, 7 nets | **7** | +0.006 | +0.914 |
+
+The 10 -> 7 step is the first time a marker went away rather than moved.
+Remaining after fix3: 3 at the bank-3 top edge (met5 track shared with a
+through-net + a met3 nick), 1 in the left-edge strip beside way2 bank0, 2
+met4 collisions in the strip beside W3B3, 1 NSMet on VSS. fix4 reroutes
+each knot as a group (offender + partners) and adds a 1.6 um met4 VSS patch
+over the overhanging via.
+
+**Floorplan lesson for iter17.** The clean fix is blanket routing blockages
+over the macro bodies in the floorplan - but that removes the interiors the
+router is using to escape the port-0 edges, so it only works if those edges
+face inward (flip the ring macros so the 145-pin edge points at the core)
+or the EDGE margin grows from 40 to ~120 um. Either is a full 24 h P&R
+(place 14 h, CTS 6.5 h, route 2.3 h on iter16b), i.e. a 09-05 result if
+started 09-04. Not needed for the 9/13 package if iter16b closes.
+
+fix4 (7 -> **14**): rerouting each knot as a group (offender + partner nets)
+cleared the left-strip and W3B3 offenders but the long partners
+(FE_OCPN775860_n, FE_OFN341307_n, FE_OFN262365_n_268829) landed in new
+knots; the 1.6 um met4 VSS patch added a spacing marker and did not cure
+the NSMet. fix5 (from fix3, offenders only, one guidance set each: 7 ->
+**9**): left strip cleared; W3B3 net moved 2 um past the spot blockage;
+FE_OFN321786_n_244585, denied bank3's interior on all five layers,
+threaded bank2 instead and took 5 nicks in the bank2/bank3 channel. That
+net (buf_6 at (2023,502) -> nand4 at (1874.7,384.4) inside the 40 um
+channel) has no legal path with every other net frozen: the channel is the
+escape route for both macros' edge pins. Clearing it needs a collective
+re-plan of the channel (area rip-up of all signal wires in
+{1846 380 1888 510} + routeDesign on the cut set), which is tomorrow's
+first move. Timing never moved through fix2-fix5: hold +0.006, reg2reg
++0.914. Checkpoints 05_legal_fix3.enc (7, best) ... 05_legal_fix5.enc (9).
+Session tmux legal16b stays open with fix5 loaded.
+
+fix6 (from fix3, 7 -> **10**): collective re-plan of the bank2/bank3
+channel {1846.5 380 1888 510} + the strip above bank3 {1846.5 486.5 2035 545}
+(4,164 + 10,002 segments, 1,037 nets ripped up and rerouted together, met4
+guarded over both macro bodies), plus the fix5 recipes. It CLEARED the
+stubborn FE_OFN321786_n_244585 and the left-strip net - the first time that
+net went away - but the 1,037-net re-plan seeded 6 new nicks in the strip
+above bank3 (y 555-596), the W3B3 net collided again 8 um further left, and
+FE_OCPN775860_n re-took its met5 track. reg2reg +0.914 -> +0.748, hold
++0.006. Checkpoint 05_legal_fix7.enc pending: full incremental routeDesign
+from fix3 (NanoRoute free to rip up any net, 40 detail iterations, met4
+guarded over all 16 macro bodies during the route only) - running
+unattended in tmux legal16b from ~20:55.
+
+**fix7 (from fix3): verify_drc 7 -> 1.** Full incremental `routeDesign`
+(40 detail iterations, timing+SI driven, NanoRoute free to rip up any net)
+with met4 guidance blockages over all 16 macro bodies during the route
+only (removed before verify). Every signal marker cleared - the bank3 knot,
+W3B3, the strip nicks, all of it. The one survivor is the NSMet on VSS at
+(922, 2860): a M3M4 power via at the bottom end of a 22 um met4 stub whose
+enclosure hangs past the stub end, i.e. a PDN artifact from 02_power, not
+routing. fix8 replaces that via with `editPowerVia` (delete in the box,
+re-add inside the stub/strap overlap) and re-verifies. Lesson for the
+ledger: targeted reroutes with everything else frozen cannot close a
+capacity-limited strip; the full router with rip-up can. Should have been
+the first move after the probe-cell swap, not the seventh.
+
+**fix8-fix10: verify_drc 1 -> 0.** There was no via under the NSMet marker
+(the earlier probe had misread it): the marker was the bare bottom end of
+the VSS met4 stripe stub {920.1 2859.97 922.1 2882.46}, a PDN-generation
+artifact. `editDelete -area` will not remove a FIXED special wire (fix9 added
+a second stub on top instead); fix10 deleted the old one by object
+(`dbDeleteObj`), leaving the redrawn stub {920.1 2861.0 922.1 2883.0} with
+its vias regenerated by `editPowerVia`. **iter16b: verify_drc = 0 at
+05_legal_fix10.enc, hold +0.005, reg2reg +0.916 (fix7 timing; fix8-10 only
+touched PG).** Antenna not yet re-measured - the chain does that.
+
+Pre-export item found on the way: `verifyConnectivity -type special -net VSS`
+lists 1000+ unconnected `VNB` terminals, all on `FE_PHC*` hold-fix cells
+and a few resized `g*` cells - instances created AFTER 02_power.tcl's
+`globalNetConnect ... -inst *` ran, so they never received the VPB/VNB
+(and VPWR/VGND) logical assignment. The power-stage connectivity report had
+0 VNB problems, so this is purely the post-power-stage instances. Fix:
+re-run the globalNetConnect block at export (06_export.tcl), which would
+otherwise ship an LVS open on every hold cell's well tie.
+
+## Corner provenance audit (2026-09-03 ~20:40): iter16/16b and every Tempus run were at the WRONG corner
+
+The campaign corner since run 2 (MACROS.md 08-28, DRC.md line 43 "iters 3+")
+is cells `ss_n40C_1v76` + vendor macro x1.5 late / x0.67 early, set by
+`run_v3.sh` through `ASIC_SIGNOFF_LIB`. Two things silently fell off it:
+
+| run | setup cells (analysis_views.rpt / logs) | macro derate | netlist |
+|---|---|---|---|
+| armC P&R (armC.log, holdvclk, export14c) | ss_n40C_1v76 | 1.5 / 0.67 | run-2 (ss1v76_d1p5) |
+| **armC Tempus (tempus14c_*, tempus_armC3/4)** | **ss_100C_1v60** | 1.5 | - |
+| **iter16 / iter16b P&R (knobs.txt 09-02 13:03/13:07)** | **ss_100C_1v60** | 1.5 / 0.67 | run-2 (ss1v76_d1p5) |
+| iter16b legalize + chain_f10 (restored DB) | ss_100C_1v60 (from the DB) | 1.5 / 0.67 | - |
+
+Cause: iter16/16b were launched with the armE knob set but WITHOUT
+`ASIC_SIGNOFF_LIB` (knobs.txt has no such line), so `project_config.tcl`'s
+default `ss_100C_1v60` won; `signoff/env.sh` never sets it either, so
+`sta.tcl` (which builds its MMMC from innovus_config.tcl) has timed every
+Tempus run at ss_100C_1v60 regardless of the P&R corner.
+
+Consequences:
+- The "unexplained" armC clock-latency gap (Innovus 2.961 vs Tempus 4.834
+  ns) is the corner: 1.6 V/100 C cells vs 1.76 V/-40 C, a 1.6x delay ratio.
+  Same for Tempus reg2reg -1.468 vs Innovus +0.699. The hold-fix-padding
+  analysis (io_vclk) stands - its before/after was Innovus vs Innovus.
+- iter16b was placed, CTS'd, routed and hold-fixed at the slower cell corner
+  with the guardband-only x1.5 macro derate, i.e. pessimistic on cells,
+  optimistic on the macro relative to MACROS.md's 08-20 rule (x2.0 belongs
+  with ss_100C_1v60). Its +0.916 reg2reg at 4.0 ns is therefore not
+  comparable to armC's +0.699. At the campaign corner it will read higher.
+- Fix going forward: winner_chain.sh exports ASIC_SIGNOFF_LIB =
+  ss_n40C_1v76 by default so Tempus runs at the campaign corner; the
+  Innovus steps keep the DB's own libs (restored MMMC), which for iter16b
+  means the conservative corner. chain_f10 was already running before this
+  was found - its Tempus will be at ss_100C_1v60; re-run Tempus at
+  ss_n40C_1v76 on the exported package and report both, labelled.
+- armC's Tempus numbers in this ledger (09-01/09-03) need the same re-run
+  before any of them are quoted.

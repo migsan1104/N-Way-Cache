@@ -28,7 +28,11 @@ while [ "$(date +%s)" -lt "$deadline" ]; do
         [ -n "${DONE[$stamp]:-}" ] && continue
         f=$RUNS/$stamp/logs/flow.log
         if [ ! -f "$f" ]; then pending=1; continue; fi
-        line=$(grep -aoE 'DRC GATE FAILED: [0-9]+|DRC gate passed: [0-9]+' "$f" | tail -1)
+        # pnr_note is a Tcl puts: it reaches the tmux pane, NOT flow.log
+        # (found 2026-09-03: iter16 gated at 123 and nothing fired). Read
+        # the pane (session iter$tag) first, flow.log as a fallback.
+        line=$( { tmux capture-pane -p -t "iter$tag" -S -20000 2>/dev/null; cat "$f"; } \
+                | grep -aoE 'DRC GATE FAILED: [0-9]+|DRC gate passed: [0-9]+' | tail -1)
         if [ -z "$line" ]; then
             # flow died without reaching the gate? innovus gone + no gate line
             if ! pgrep -f "runs/$stamp" >/dev/null 2>&1; then

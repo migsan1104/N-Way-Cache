@@ -223,7 +223,11 @@ set DECAP_CELLS   {sky130_fd_sc_hd__decap_12 sky130_fd_sc_hd__decap_8
 # Carried over from run_genus.tcl: the low-power-flow cells are excluded there
 # (level shifters, isolation, some double-height). Placement must honour the
 # same list or it will use cells synthesis deliberately refused.
-set PNR_DONT_USE_PATTERNS {sky130_fd_sc_hd__lpflow_*}
+# probe_*/probec_* (DFT current-probe cells) were missing here until
+# 2026-09-03: Genus/DC excluded them, but CTS useful-skew on iter16b picked
+# six probec_p_8 as delay cells, and their met1 OBS overlapping the rails
+# was 24 of the 35 residual verify_drc markers. Same list as synthesis now.
+set PNR_DONT_USE_PATTERNS {sky130_fd_sc_hd__lpflow_* sky130_fd_sc_hd__probe_* sky130_fd_sc_hd__probec_*}
 
 # ---------------------------------------------------------------------------
 # Shared helpers

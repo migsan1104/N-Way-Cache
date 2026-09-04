@@ -38,6 +38,28 @@ proc _step {label body} {
 }
 
 # ---------------------------------------------------------------------------
+# Global net connections, again
+# ---------------------------------------------------------------------------
+# 02_power.tcl's globalNetConnect ... -inst * only binds the instances that
+# exist when it runs. Every cell created after it - hold-fix FE_PHC cells,
+# resized cells, the fillers and decaps just inserted above - has no VPWR/
+# VGND/VPB/VNB assignment, and verifyConnectivity lists each of them as an
+# unconnected terminal (iter16b 2026-09-03: 1000+ VNB pins, all on FE_PHC*).
+# Exported as-is that is an LVS open on every hold cell's well tie. Same
+# block as 02_power.tcl; the variables come from innovus_config.tcl.
+_step globalNetConnect {
+    foreach pin $PG_CELL_POWER_PINS  { globalNetConnect $PG_POWER_NET  -type pgpin -pin $pin -inst * -override }
+    foreach pin $PG_CELL_GROUND_PINS { globalNetConnect $PG_GROUND_NET -type pgpin -pin $pin -inst * -override }
+    if {$SRAM_MACRO} {
+        foreach pin $PG_MACRO_POWER_PINS  { globalNetConnect $PG_POWER_NET  -type pgpin -pin $pin -inst * -override }
+        foreach pin $PG_MACRO_GROUND_PINS { globalNetConnect $PG_GROUND_NET -type pgpin -pin $pin -inst * -override }
+    }
+    globalNetConnect $PG_POWER_NET  -type tiehi -inst * -override
+    globalNetConnect $PG_GROUND_NET -type tielo -inst * -override
+    pnr_note "globalNetConnect re-applied to all instances (post-fill)"
+}
+
+# ---------------------------------------------------------------------------
 # Verification - the checks that decide whether this run counts
 # ---------------------------------------------------------------------------
 _step connectivity {verifyConnectivity -type all -noAntenna > [pnr_rpt signoff connectivity.rpt]}

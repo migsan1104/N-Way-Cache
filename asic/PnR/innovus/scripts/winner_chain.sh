@@ -24,16 +24,48 @@ export ASIC_PNR_RUN_STAMP="$STAMP"
 export ASIC_QRC_TECH="${ASIC_QRC_TECH:-$REPO/asic/signoff/quantus/techfiles/sky130A_nom.tch}"
 export ASIC_SRAM_MACRO_DERATE="${ASIC_SRAM_MACRO_DERATE:-1.5}"
 export ASIC_MACRO_DERATE_EARLY="${ASIC_MACRO_DERATE_EARLY:-0.67}"
+# Campaign setup corner (MACROS.md "Run 2 sign-off corner", run_v3.sh):
+# ss_n40C_1v76 cells + the x1.5 macro derate above. Without this, sta.tcl
+# (Tempus) falls back to project_config.tcl's ss_100C_1v60 - which is what
+# every Tempus run before 2026-09-03 20:40 silently did, and why armC's
+# Innovus-vs-Tempus latency (2.961 vs 4.834) never reconciled. Restored
+# Innovus checkpoints keep the MMMC they were built with; this affects the
+# Tempus step and any fresh-MMMC session.
+export ASIC_SIGNOFF_LIB="${ASIC_SIGNOFF_LIB:-/apps/cds/IC618/local/opdk/share/pdk/sky130A/libs.ref/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__ss_n40C_1v76.lib}"
+[ -r "$ASIC_SIGNOFF_LIB" ] || { echo "ASIC_SIGNOFF_LIB not readable: $ASIC_SIGNOFF_LIB"; exit 1; }
 
+# ASIC_CHAIN_SRC: checkpoint the chain starts from (default: the raw stage-05
+# route). iter16b 2026-09-03: the legalize session (legalize_init/fix.tcl)
+# fixed placement on top of 05_route_opt.enc and saved 05_legal_*.enc; the
+# chain re-runs from there so the whole hold/eco/antenna/export/signoff
+# sequence is still the one documented path to a signed-off package.
+export ASIC_CHAIN_SRC="${ASIC_CHAIN_SRC:-05_route.enc}"
 cat > "$RUN/chain.tcl" <<'EOT'
 source /ecel/UFAD/miguel.sanchez1/Cache/asic/PnR/innovus/scripts/innovus_config.tcl
-pnr_restore_stage 05_route.enc
+pnr_restore_stage [config_env ASIC_CHAIN_SRC 05_route.enc]
+# Placement-legality gate (2026-09-03): a chain that plateaus on an illegal
+# placement wastes the eco passes - ecoRoute cannot move cells. Report only;
+# the region/fence section is soft guides (way0-3/hub) and always non-zero.
+checkPlace [pnr_rpt chain checkplace_start.rpt]
 set _qrc [config_env ASIC_QRC_TECH {}]
 if {$_qrc ne ""} { foreach _c {rc_slow rc_fast} { catch {update_rc_corner -name $_c -qx_tech_file $_qrc} } }
 setAnalysisMode -analysisType onChipVariation -cppr both
+# Match the signoff I/O model BEFORE hold fixing (armC lesson 2026-09-03:
+# under golden.sdc's ideal-edge I/O reference the hold opt inserted 715
+# delay cells that Tempus's latency-matched view proved unnecessary, and
+# they cost reg2reg setup +0.699 -> -1.468). io_vclk.tcl = same block
+# sta.tcl uses; io_vclk.txt lands in reports/chain/.
+set _vclk_out [file dirname [pnr_rpt chain io_vclk.txt]]
+set io_vclk_applied 0
+if {[catch {source /ecel/UFAD/miguel.sanchez1/Cache/asic/PnR/innovus/scripts/io_vclk.tcl} _m]} {
+    pnr_note "CHAIN io_vclk FAILED ($_m) - hold opt proceeds under the raw SDC (armC-style padding expected)"
+}
+pnr_note "CHAIN io_vclk applied = $io_vclk_applied"
+catch {report_timing -early -max_paths 1 -path_type summary > [pnr_rpt chain hold_before_fix.rpt]}
 setOptMode -reset
 setOptMode -fixCap true -fixTran true -fixFanout true
 optDesign -postRoute -hold
+catch {report_timing -late -from [all_registers] -to [all_registers] -max_paths 1 -path_type summary > [pnr_rpt chain reg2reg_after_hold.rpt]}
 set prev 999999999
 for {set p 1} {$p <= 6} {incr p} {
     clearDrc
