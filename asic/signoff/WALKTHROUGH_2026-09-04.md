@@ -167,21 +167,29 @@ These passes are NOT SI-aware; the Innovus signoff was and reported 9 hold
 violators at -0.075. An SI-aware pass (`run_si_pass.sh`, `SIGNOFF_SI=1`)
 is the tie-breaker.
 
-What-if at 3.0 ns on the same package (campaign corner): reg2reg **+1.284,
-0 violators** - the internal logic meets 3 ns. The I/O groups fail (reg2out
--1.808 x40, in2reg -1.373 x748) under the unchanged 0.7/0.3 external
-budgets and a virtual-clock period the run recorded as 4.0, so the I/O side
-of the what-if is not a usable number; it would need re-budgeting anyway.
-Statement that is safe: "post-route STA shows the register-to-register
-logic meets a 3.0 ns period at ss_n40C_1v76".
+What-if at 3.0 ns on the same routed package (`SIGNOFF_PERIOD=3.0`, no
+SI). The first pass left the I/O virtual clock at 4 ns against a 3 ns core
+clock, and Tempus timed the tightest 3:4 edge pairing - a 1 ns window - so
+every I/O group "failed"; `io_vclk.tcl` now takes the period from
+`SIGNOFF_PERIOD`. Corrected:
+
+| 3.0 ns, macro x1.5 | reg2reg | reg2out | in2reg | hold | violators |
+|---|---|---|---|---|---|
+| ss_n40C_1v76 | +1.284 | +0.192 | met | +0.018 | 0 |
+| ss_100C_1v60 | +0.569 | -0.308 (33) | -0.418 (24) | +0.018 | 57 I/O paths |
+
+Safe statements: "the 4 ns implementation meets 3.0 ns post-route at the
+campaign corner including its I/O budgets"; at the hot slow corner the
+core meets 3 ns and the I/O paths miss by ~0.4 ns under the unchanged
+0.7 / 0.3 ns external budgets, which a real 3 ns implementation (iter16c)
+re-optimises. Never quote either as an Fmax.
 
 ### 4c. SI-aware pass (`run_si_pass.sh`, SIGNOFF_SI=1)
 
-| ss_n40C_1v76, SI on | slack |
-|---|---|
-| reg2reg | +1.593 |
-| reg2out | +0.917 |
-| worst hold | +0.010 (0 negative of the 50 listed) |
+| SI on, macro x1.5 | reg2reg | reg2out | worst hold | violators |
+|---|---|---|---|---|
+| ss_n40C_1v76 | +1.593 | +0.917 | +0.010 | 0 |
+| ss_100C_1v60 | +1.022 | +0.499 | +0.010 | 0 |
 
 Crosstalk costs ~0.7 ns of setup margin and 8 ps of hold margin against the
 plain-calculator pass, and no path goes negative. This is the number to

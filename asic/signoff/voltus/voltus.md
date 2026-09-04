@@ -263,3 +263,41 @@ optimistic; (b) standard cells at LEF-based accuracy (xd), not
 characterised; (c) vectorless activity 0.2; (d) switching power without
 SPEF; (e) sources ideal (no package R/L); (f) grid at 100 C, cells at the
 n40C_1v76 libs.
+
+## What-if straps (2026-09-04 16:47-17:05) - the iter17 PDN, sized on iter16b
+
+`create_what_if_shape -type wire -nets {VDD VSS} -layer met5 -direction hor
+-pitch P -width 2 -spacing 2 -add` over the core, then one
+`create_what_if_shape -type via -nets <n> -layer {met4 met5} -method auto`
+per net (wires alone float: +224 resistors, drop unchanged), then
+`set_rail_analysis_mode ... -import_what_if_shapes true`. Knob
+`VOLTUS_WHATIF_M5_PITCH`, output tag `VOLTUS_TAG`.
+VDD worst: 119 mV (none) -> 65 mV (120 um, met5 now carries 64 of it) ->
+47 mV (60 um) vs 53 mV budget. VSS 66 mV at 120 um. Decision for iter17:
+met5 2 um @ 60 um (~12 % of met5 tracks); 4 um is the headroom knob.
+
+## EM screen with ASSUMED limits (2026-09-04 17:36-17:50) - not a signoff
+
+SKY130's EM limits are not in the open PDK (requested with the Pegasus
+email). `em_models_assumed.ict` (EM-only ICT, one statement per line - the
+parser rejects braces after a jmax_factor table) carries generic Al-rule
+assumptions: li1 0.3, met1/2 1.0, met3/4 2.0, met5 3.0 mA per um width DC
+avg at 110 C; vias mcon 0.15, via1 0.2, via2/3 0.3, via4 1.5 mA per cut.
+Knob `VOLTUS_EM_ICT` on `static_rail.tcl` (options ride on the single
+`set_rail_analysis_mode` call - IMPTCM-113 otherwise).
+
+iter16b, ring-as-supply, macros excluded, default activity:
+| net | J/Jmax average | J/Jmax worst | elements > 1 |
+|---|---|---|---|
+| VDD | 0.23 | 4.49 | 22,447 |
+| VSS | 0.24 | 4.47 | ~22k |
+
+Where (rj.gif): the four diagonal corner gaps where the hub current enters,
+the short channels between adjacent macros on the left/right columns, and a
+few full-height met4 stripes beside the macro columns. Hub interior and
+periphery < 0.3. Same mechanism as the IR drop: ~325 mA funnels into the
+hub through a few 2 um met4 stripes. The iter17 met5 straps spread that
+current over 24-48 straps and relieve both. With real limits the ratio may
+move 2x either way; the location will not. Results:
+`results/<stamp>/voltus_em_screen/`. Sheet wording: "EM screened against
+assumed limits, worst J/Jmax 4.5 at the hub corner feeds".

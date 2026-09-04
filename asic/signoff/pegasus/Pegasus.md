@@ -181,6 +181,17 @@ maintaining /apps/cds.
 > Thanks,
 > Miguel Sanchez
 
+**Add-on paragraph (2026-09-04, for the same email or a separate note to the
+advisor) - SKY130 electromigration limits:**
+
+> One related ask. The open SKY130 PDK does not include the electromigration
+> (current-density) limits; its rule documentation refers to SkyWater's
+> "electrical design rules" document for them. If the department's shuttle
+> or academic access with SkyWater/efabless includes that document, I would
+> like a copy: it is the one input missing for Voltus EM signoff on my
+> design, and it would apply to any student doing power-integrity work on
+> SKY130.
+
 Send to: ECE IT help desk (the address that handles /apps and
 ece-itop-licsvr), cc advisor. When it lands: record the path here, set
 `PEGASUS_VERIFY_HOME` in `../env.sh`, shake down `run_pegasus_drc.sh`.

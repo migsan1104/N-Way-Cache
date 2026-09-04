@@ -6,7 +6,7 @@ set REPO   /ecel/UFAD/miguel.sanchez1/Cache
 set STAMP  $env(ASIC_PNR_RUN_STAMP)
 set RUN    $REPO/asic/PnR/innovus/runs/$STAMP
 set PGV    $REPO/asic/signoff/voltus/pgv/techonly/techonly.cl
-set OUT    $env(SIGNOFF_RESULTS)/voltus
+set OUT    $env(SIGNOFF_RESULTS)/voltus[expr {[info exists env(VOLTUS_TAG)] && $env(VOLTUS_TAG) ne "" ? "_$env(VOLTUS_TAG)" : ""}]
 set VDD_V  1.76
 set IR_BUDGET_FRAC 0.03      ;# voltus.md step 3: <= 3 % static drop
 file mkdir $OUT $OUT/power $OUT/rail
@@ -89,8 +89,36 @@ foreach _m [glob -nocomplain [file dirname [file dirname $PGV]]/macros/*.cl] { l
 puts "VOLTUS: power-grid libraries: $PGVS"
 set_pg_nets -net VDD -voltage $VDD_V -threshold [expr {$VDD_V * (1.0 - $IR_BUDGET_FRAC)}]
 set_pg_nets -net VSS -voltage 0.0    -threshold [expr {$VDD_V * $IR_BUDGET_FRAC}]
+# VOLTUS_WHATIF_M5_PITCH (um): trial horizontal met5 VDD/VSS straps across
+# the whole core (over the macro ring) at that pitch, width 2 / spacing 2,
+# as Voltus what-if shapes - the iter17 PDN candidate, sized here on the
+# routed iter16b database before anything is re-routed (2026-09-04).
+set _wi 0
+if {[info exists env(VOLTUS_WHATIF_M5_PITCH)] && $env(VOLTUS_WHATIF_M5_PITCH) ne ""} {
+    set _wp [expr {double($env(VOLTUS_WHATIF_M5_PITCH))}]
+    create_what_if_shape -type wire -nets {VDD VSS} -layer met5 -direction hor \
+        -area {16 16 2884 2884} -pitch $_wp -width 2 -spacing 2 -add
+    # Wires alone float (first trial: +224 resistors, drop unchanged). Vias on
+    # every met4/met5 crossing in the area tie the straps to the ring and to
+    # the existing met4 stripes.
+    foreach _n {VDD VSS} {   ;# VOLTUS_ERA-3058: vias are one net per call
+        create_what_if_shape -type via -nets $_n -layer {met4 met5} -method auto \
+            -area {16 16 2884 2884} -add
+    }
+    set _wi 1
+    puts "VOLTUS: what-if met5 horizontal VDD/VSS straps, pitch $_wp um, over the full core"
+}
+set _em {}
+if {[info exists env(VOLTUS_EM_ICT)] && [file readable $env(VOLTUS_EM_ICT)]} {
+    # EM limits (EM-only ICT). With em_models_assumed.ict this is a SCREEN
+    # against assumed limits (see that file's header), not signoff. The
+    # options must ride on the one set_rail_analysis_mode call (IMPTCM-113).
+    set _em [list -process_techgen_em_rules true -ict_em_models $env(VOLTUS_EM_ICT) -em_temperature 110]
+    puts "VOLTUS: EM analysis ON with limits from $env(VOLTUS_EM_ICT) (assumed limits => screen only)"
+}
 set_rail_analysis_mode -method static -accuracy xd -analysis_view setup_view \
-    -power_grid_library $PGVS -temperature 100 -verbosity true
+    -power_grid_library $PGVS -temperature 100 -verbosity true \
+    -import_what_if_shapes [expr {$_wi ? "true" : "false"}] {*}$_em
 set_power_data -reset
 set_power_data -format current [glob $OUT/power/static_*.ptiavg]
 set_power_pads -net VDD -format xy -file $OUT/rail/vdd.pp

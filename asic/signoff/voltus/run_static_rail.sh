@@ -11,7 +11,7 @@ export ASIC_SIGNOFF_LIB="${ASIC_SIGNOFF_LIB:-/apps/cds/IC618/local/opdk/share/pd
 export ASIC_QRC_TECH="${ASIC_QRC_TECH:-$REPO/asic/signoff/quantus/techfiles/sky130A_nom.tch}"
 export ASIC_SRAM_MACRO_DERATE="${ASIC_SRAM_MACRO_DERATE:-1.5}" ASIC_MACRO_DERATE_EARLY="${ASIC_MACRO_DERATE_EARLY:-0.67}"
 source $REPO/asic/signoff/env.sh
-mkdir -p "$SIGNOFF_RESULTS/voltus"
+OUTD="$SIGNOFF_RESULTS/voltus${VOLTUS_TAG:+_$VOLTUS_TAG}"; mkdir -p "$OUTD"
 echo "== VOLTUS static rail: $STAMP / $CKPT  $(date)"
-voltus -no_gui -files $HERE/static_rail.tcl -log "$SIGNOFF_RESULTS/voltus/static_rail" < /dev/null
+voltus -no_gui -files $HERE/static_rail.tcl -log "$OUTD/static_rail" < /dev/null
 echo "VOLTUS_STATIC_EXIT=$? $(date)"

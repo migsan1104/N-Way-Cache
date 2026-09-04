@@ -1,0 +1,94 @@
+# em_models_assumed.ict - ASSUMED electromigration limits for SKY130, 2026-09-04.
+#
+# SkyWater publishes no EM limits in the open PDK (they sit in the electrical
+# design-rules document, requested separately). Every number below is an
+# ASSUMPTION from generic aluminium-interconnect rules of this generation:
+#   conductors: DC-average limit in mA per um of drawn width, scaled with
+#               film thickness (li1 0.10 um, met1/2 0.36, met3/4 0.845,
+#               met5 1.26 - thicknesses from quantus/sky130A.ict)
+#   vias:       DC-average limit in mA per cut, by cut area (cut sizes
+#               mcon 0.17, via1 0.15, via2/3 0.20, via4 0.80 um)
+#   reference temperature 110 C; scaled 2.0x at 100 C down to 0.36x at 125 C
+# Results obtained with this file are an EM SCREEN, never an EM signoff.
+# Replace with SkyWater's values when they arrive (same syntax).
+process "sky130A" {
+    background_dielectric_constant 1.0
+    layout_scale 1.0
+    temp_reference 25
+    em_tref 110
+    em_variables w
+    em_conductor_unit mA
+    em_via_unit mA
+    em_via_area_unit mA
+}
+conductor "li1" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 0.30 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+conductor "met1" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 1.00 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+conductor "met2" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 1.00 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+conductor "met3" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 2.00 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+conductor "met4" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 2.00 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+conductor "met5" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 3.00 * w
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+via "mcon" {
+    em_model {
+        em_vcwidth 0.17
+        em_jmax_dc_avg PWL 0.15 0.0289
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+via "via1" {
+    em_model {
+        em_vcwidth 0.15
+        em_jmax_dc_avg PWL 0.2 0.0225
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+via "via2" {
+    em_model {
+        em_vcwidth 0.2
+        em_jmax_dc_avg PWL 0.3 0.04
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+via "via3" {
+    em_model {
+        em_vcwidth 0.2
+        em_jmax_dc_avg PWL 0.3 0.04
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
+via "via4" {
+    em_model {
+        em_vcwidth 0.8
+        em_jmax_dc_avg PWL 1.5 0.64
+        jmax_factor 100 2.077 105 1.434 110 1.000 115 0.704 120 0.500 125 0.358
+    }
+}
