@@ -1166,7 +1166,8 @@ at 4.0 ns with hold >= +0.010. Fails badly -> iter16b stays the 9/13 package.
 |---|---|---|---|---|---|
 | 16c | 3 ns probe | clock 3.0 ns + campaign corner (vs 16b, same floorplan) | raw CTS -3.152 / after postCTS opt -3.002 reg2reg (density 50.5 %) | **11** (16b: 38) at the gate, 20:05; halted before post-route opt | **routed at 3 ns**: router timer post-route reg2reg **+1.857** (0 of 62,411 paths), I/O group -1.992 x106; hold unfixed -0.388 reg2reg / -3.573 I/O (gate halt precedes hold opt). 5 h 15 min on 16 CPUs |
 | 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | setup -1.796 reg2reg, hold 0.000 (16b -2.176) | **134,154** (met2 52 %, shorts 79 %, 67 % in three ring corners, 2.6 % in bodies) | gate FAIL 23:05 — corner pockets shrank 151 -> 111 um (EDGE 80 on die 2900) with the body escape blocked; post-route reg2reg **+1.246** (best yet). Straps NOT the DRC driver (met5 < 1 %) |
-| 17b | die 2980 | die 2900 -> 2980 (vs 17; corner pockets back to 151 um), + li1 fixes | launched 23:11 | — | pending |
+| 17b | die 2980 | die 2900 -> 2980 (vs 17; corner pockets back to 151 um), + li1 fixes (li1-OBS LEF, bounded sroute) | postCTS -1.587 reg2reg, hold 0.000 | **84,316** at the gate 04:25 (met2 59 %, shorts 80 %, **93 % in the four ring corners**, 0 in bodies of note) | gate FAIL — pockets back to 151 um cut markers only 37 %; corner shorts are 98 % `FE_OFN*` buffered signal nets = wedge/hub crossing traffic with no path over the bodies. Router timer post-route reg2reg **+1.498** (best), I/O -1.337, hold -0.352 r2r / -3.217 I/O unfixed |
+| 18 | met4 open | `ASIC_FP_MACRO_BLK_LAYERS="met1 met2 met3"` (vs 17b; met4 threading over the bodies allowed again, LEF has no met4 OBS) | launched 09-05 15:11, tmux `iter18`, gate ~20:00 | — | pending |
 
 
 ### KLayout on the iter16b package (18:24)
@@ -1291,3 +1292,48 @@ met2/met4 in the squeezed pockets. Post-route timing reg2reg +1.246 /
 I/O -1.097, hold -0.179 unfixed (gate halt) = best setup of the campaign.
 iter17b (23:11): die 2980 restores the 150.8 um pockets with everything
 else equal; recipe also carries the bounded sroute and the li1-OBS LEF.
+
+### iter17b gate autopsy (2026-09-05, run ended 04:25, read 14:30) — corners, not pocket width
+
+Run `20260905_iter17b_e35_fp17_die2980_1v76` = iter17 with `ASIC_FP_DIE=2980`
+(knobs.txt diff vs iter17: die and the li1-OBS macro LEF only). Stage-05 DRC
+gate: **84,316** markers saved in `05_route.enc` (90,494 + 2,776 antenna
+before the final pass; iter17 134,154). From `reports/route/drc.rpt` (awk,
+no Innovus session): met2 50,123 / met3 14,809 / met1 11,706 / met4 6,924 /
+met5 640; Metal_Short 67,819 / PRL spacing 15,575 / min-area 789. Location:
+78,767 of 84,316 (93 %) fall in the sixteen 200-um bins of the four ring
+corners (x and y each in 400-800 or 2200-2600); worst bin (2200,2200) 12,244,
+then (600,2200) 10,182, (400,2200) 8,558, (2200,600) 6,994. The outer 400-um
+ring band holds 2,112. Route congestion.rpt 4.01 % H / 5.40 % V (iter17
+5.24 / 8.09); NanoRoute GR overflow 2.30 / 2.99 (iter17 3.88 / 4.90).
+
+Net census of the corner markers (both nets of every marker): 146,098
+`FE_OFN*`/`FE_RN*`/`FE_DBTN*` (Genus fanout/buffer nets) vs 3,191 named RTL
+nets, 3,076 `n_<k>`, 2,142 `CTS_*`, 40 PG, 3 macro pins. So the corners are
+not pin escape, clock, or PDN: they are through-traffic between the wedges
+and the hub that in iter16b crossed the macro bodies (mostly on met4, which
+the vendor LEF does not obstruct) and now has only the four corner gaps.
+Widening the pockets 111 -> 151 um removed 37 % of the markers and none of
+the pattern, so die size is not the lever. Timing kept improving with the
+extra room: router-timer post-route reg2reg **+1.498** (17 +1.246, 16b
++0.916), I/O -1.337, hold -0.352 reg2reg / -3.217 I/O (no hold fix before
+the gate). `classify_drc` was not run on 17b (awk on the report instead).
+
+Decision (user, 15:05): **iter18 = iter17b + `ASIC_FP_MACRO_BLK_LAYERS="met1
+met2 met3"`**, one variable: met4 stays open over the macro bodies so the
+crossing traffic has its layer back, met1-met3 blockages keep the interior
+threading closed (all of iter16b's residual DRCs were low-layer threading).
+Launched 15:11 via the new `scripts/launch_from_knobs.sh` (re-exports
+17b's `knobs.txt` + the override; `runs/<stamp>/launch.sh` is the record),
+run `20260905_iter18_e35_fp17_die2980_blkm123_1v76`, tmux `iter18`, gate
+about 20:00. Gate criteria unchanged from iteration 17: a few hundred
+markers at most, none inside macro bodies, then the iter16b legalisation
+recipe. Fails -> iter16b stays the 9/13 package with IR documented as the
+open item and the iter17 line becomes the post-9/13 story.
+
+In parallel the iter16b li1 package chain (`chain_16b_li1`) was found idle
+at the Innovus prompt since 01:43 (export from `07_li1fix.enc` complete,
+`winner_chain.sh` fed no `exit`, tmux tty never reached EOF); `exit` typed
+15:00, KLayout BEOL running on the li1-fixed GDS, then LVS bb with the PG
+netlist, then Tempus. Friday's `drc.lyrdb` kept as `drc_pre_li1fix.lyrdb`.
+`winner_chain.sh` now ends the export session with `exit`.

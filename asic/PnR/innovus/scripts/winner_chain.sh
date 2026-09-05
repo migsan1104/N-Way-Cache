@@ -113,7 +113,8 @@ echo "== CHAIN step 3: export ($EXPORT_SRC) =="
 ( cd "$RUN" && ASIC_PNR_RUN_STAMP=$STAMP ASIC_ANTENNA_SRC=$EXPORT_SRC \
   innovus -no_gui -files <(echo "source $SCR/innovus_config.tcl
 pnr_restore_stage $EXPORT_SRC
-source $SCR/06_export.tcl") -log logs/chain_export )
+source $SCR/06_export.tcl
+exit") -log logs/chain_export )   # exit: without it innovus idles at its prompt in a tmux tty (16b li1 chain lost 13 h on 09-05)
 
 echo "== CHAIN step 4: signoff triplet =="
 export SIGNOFF_PNR_STAMP=$STAMP

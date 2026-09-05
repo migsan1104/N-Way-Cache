@@ -131,3 +131,8 @@ asic/signoff/voltus/work/
 asic/signoff/voltus/.stat/
 asic/signoff/voltus/cellIDMap
 asic/signoff/**/pm.ob
+
+# Voltus/Innovus scratch under signoff/ (2026-09-05)
+asic/signoff/.stat/
+asic/signoff/work/
+asic/signoff/cellIDMap

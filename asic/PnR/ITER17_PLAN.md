@@ -1,4 +1,4 @@
-# Iteration 17 — plan (brainstorm 2026-09-04 16:50; launched 18:03; GATE FAILED 23:05; iter17b = die 2980 launched 23:11)
+# Iteration 17 — plan (brainstorm 2026-09-04 16:50; launched 18:03; GATE FAILED 23:05; iter17b die 2980 GATE FAILED 09-05 04:25; iter18 = met4 open, launched 15:11)
 
 **Result 2026-09-04 23:05:** route gate FAILED at 134,154 markers (100k
 reported): met2 52 % / met3 21 % / met1 16 % / met4 10 % / met5 < 1 %; 79 %
@@ -10,6 +10,15 @@ the blockages closed the through-body escape. Timing was the campaign's best
 **iter17b = iter17 + ASIC_FP_DIE=2980** (pockets back to 151 um) + the li1
 fixes (bounded sroute, li1-OBS LEF), launched 23:11 as
 `20260905_iter17b_e35_fp17_die2980_1v76`, tmux `iter17b`.
+
+**Result 2026-09-05 04:25 (iter17b):** gate FAILED at 84,316 markers, 93 % of
+them in the four ring corners even with the pockets back at 151 um; the
+shorting nets are 98 % Genus fanout-buffer nets, i.e. wedge/hub crossing
+traffic that lost its met4 path over the macro bodies. Timing best yet
+(post-route reg2reg +1.498). Conclusion: pocket width is not the lever, the
+blockage layer set is. **iter18 = iter17b + `ASIC_FP_MACRO_BLK_LAYERS="met1
+met2 met3"`** launched 15:11 as `20260905_iter18_e35_fp17_die2980_blkm123_1v76`
+(tmux `iter18`), one variable. Full autopsy in `DRC.md`.
 
 **Launched 2026-09-04 18:03** (user: "go with your recommendations on D1-D6"):
 run `20260904_iter17_e35_fp17_die2900_1v76`, tmux `iter17`, 4.0 ns, ss_n40C_1v76,
