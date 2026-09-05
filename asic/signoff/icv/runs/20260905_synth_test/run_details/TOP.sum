@@ -1,0 +1,35 @@
+
+                                 IC Validator 
+
+         Version T-2022.03-SP3-4 for linux64 - Nov 21, 2022 cl#8146030
+
+                    Copyright (c) 1996 - 2022 Synopsys, Inc.
+   This software and the associated documentation are proprietary to Synopsys,
+ Inc. This software may only be used in accordance with the terms and conditions
+ of a written license agreement with Synopsys, Inc. All other use, reproduction,
+   or distribution of this software is strictly prohibited.  Licensed Products
+     communicate with Synopsys servers for the purpose of providing software
+    updates, detecting software piracy and verifying that customers are using
+    Licensed Products in conformity with the applicable License Key for such
+  Licensed Products. Synopsys will use information gathered in connection with
+    this process to deliver software updates and pursue software pirates and
+                                   infringers.
+
+ Inclusivity & Diversity - Visit SolvNetPlus to read the "Synopsys Statement on
+            Inclusivity and Diversity" (Refer to article 000036315 at
+                        https://solvnetplus.synopsys.com)
+
+Called as: icv -c TOP -i ../../tests/beol_test.gds -f GDSII -host_init 1 -vue ../../sky130_beol_min.rs
+
+Parsing finished
+Saved runset to cache: /home/UFAD/miguel.sanchez1/.icvrscache/48097bec29abbe0952020be0162ea399-D22C0B00-4B05-49D7-B007-7ECF1ADD9396-ece-lnx-10-487799.rscache
+Runset Compile Time=0:00:04 User=3.59 Sys=0.10 Mem=0.881 GB
+
+Virtual Machine Init Time=0:00:00 User=0.00 Sys=0.00 Mem=0.881 GB
+
+Overall Disk Usage Disk=0.000 GB
+Network Disk Usage Peak=0.000 GB
+Group File Disk Usage Peak=0.000 GB
+Overall engine Time=0:00:04
+
+Overall Master Mem=0.881 GB

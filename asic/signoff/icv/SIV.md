@@ -1,11 +1,13 @@
 # Synopsys IC Validator (ICV) for sky130 physical verification
 
 Side project: bring up ICV as a **second DRC engine** to corroborate the KLayout
-`sky130A_mr.drc` signoff (later LVS). Not on the 9/13 critical path. Everything in this
-directory is investigation and scaffolding; **no ICV job has been run on a design**.
+`sky130A_mr.drc` signoff (later LVS). Not on the 9/13 critical path. **No ICV rule has
+executed on any layout: the installed T-2022.03 cannot check out the Apex-only manager
+key on the server (section 6, 2026-09-05).** Runsets compile; fixtures, parser and README
+are ready for a newer ICV install.
 
-Files: `SIV.md` (this), `sky130_beol_min.rs` (4-rule PXL runset, untested),
-`run_icv_drc.sh` (wrapper; dry-run unless `--run`).
+Files: see `README.md` (file table). Sections 1-4 below are the 2026-09-04 investigation,
+sections 5-7 the dated log.
 
 ## 1. Tool inventory (verified 2026-09-04)
 
@@ -219,3 +221,129 @@ Inferred, not verified:
   `$PWD` (the guide says so for the Custom Compiler flow).
 - Whether a full run actually checks out `ICValidator-Manager-Apex` (only the
   GeometryEngine pre-check was observed) and how many seats exist.
+
+## 6. Log 2026-09-05 -- first execution attempt: LICENSE WALL (verified)
+
+**Step 1 (synthetic validation) -- ICV could not execute a single rule.** Everything below
+was observed by running commands; nothing is recalled from memory.
+
+Test fixture built first (KLayout 0.30.12, `tests/make_test_gds.py` -> `tests/beol_test.gds`,
+dbu 0.001 um like the design GDS): per layer (met1 68/20, met2 69/20) one 0.10 um wide wire
+(width violation), one 0.10 um gap (spacing violation), one 0.09/0.09 diagonal corner pair
+(euclidean 0.127, violation), one U-notch with a 0.10 um slot (same-polygon spacing
+violation), and three MUST-NOT-FLAG structures: a 0.14 um wide wire, a 0.14 um gap, and a
+0.10/0.10 diagonal corner pair (euclidean 0.1414 > 0.14; a manhattan/projection check would
+flag it). A subcell `SUB` with one met1 0.10 um gap is placed twice, to learn how each tool
+counts hierarchical errors. KLayout reference (`tests/beol_test.drc`, same
+`width/space(0.14, euclidian)` idiom as `sky130A_mr.drc`), item counts:
+
+| mode | m1.1 | m1.2 | m2.1 | m2.2 | note |
+|---|---|---|---|---|---|
+| deep | 1 (TOP) | 4 (TOP) + 1 (SUB) | 1 | 4 | the SUB violation is reported ONCE, in cell SUB |
+| flat | 1 | 6 | 1 | 4 | SUB counted per placement |
+
+Three violating *sites* per layer become **4 items** because the diagonal corner pair is
+reported as two partial edge pairs (a vertical and a horizontal one); the 0.1414 pair and the
+two exact-minimum structures are correctly silent. So even inside KLayout "item count" is not
+"violation-site count"; expect the same when comparing with ICV.
+
+ICV run (`runs/20260905_synth_test/`, command
+`icv -c TOP -i ../../tests/beol_test.gds -f GDSII -host_init 1 -vue ../../sky130_beol_min.rs`):
+runset compiled in 4 s, then **`License denied!`**, exit code 67, no `TOP.LAYOUT_ERRORS`.
+`run_details/licmsg`:
+
+```
+Pre-Checking (ICValidator2-GeometryEngine/2022.03) ... license is installed
+Requesting (ICValidator-Manager/2022.03)      ... license denied   (FlexNet -5,234 "No such feature exists")
+Requesting (ICValidator-Manager-2020/2022.03) ... license denied   (FlexNet -5,234)
+Unable to verify initial DP licenses.  License denied!
+```
+
+Root cause, verified:
+- `lmstat -c 27020@ece-itop-licsvr.ece.ufl.edu -i` (the Calibre `lmstat` copy; `-i` works
+  even though `-a`/`-f` usage queries fail with -7,10015): the server carries
+  `ICValidator-Manager-Apex 2026.03 x100`, `ICValidator2-GeometryEngine 2026.03 x500`,
+  `ICValidator2-CompareEngine 2026.03 x100`, `ICValidator-Live 2026.03 x400`,
+  `ICValidator-Workbench x100`, `ICValidator-AddOn-ML x100`, all expiring 13-oct-2026.
+  There is **no** `ICValidator-Manager` (Elite) and no `ICValidator-Manager-2020` (Base).
+- The installed ICV **T-2022.03-SP3-4** only knows the Elite and Base schemes: `icv -h`
+  lists `-lic_base` / `-lic_elite` only; `icv -lic_apex ...` is rejected as a usage error
+  (exit 33, usage text printed, no license request made); the run above never requested
+  `ICValidator-Manager-Apex`. The shipped manuals are U-2022.12 and *do* document
+  `-lic_apex` and "Apex licensing is the default scheme" -- the docs are one release newer
+  than the binary (`/apps/syn/icv/doc/*.pdf` dated Dec 2022, binary `cl#8146030` Nov 2022).
+- The license cache `~/.cache/Synopsys/icv/license/` contained only two files, both written
+  by this run (`ICValidator-Manager`, `ICValidator-Manager-2020`: `NOT_INSTALLED`), so a
+  stale cache is not the cause.
+- No other ICV version is installed (`/apps/syn/icv` is the only `icv*` tree under `/apps`;
+  `/apps/syn/.installer` lists icc2/sentaurus/syn only).
+
+Inferred (not verifiable here): Apex licensing was introduced between T-2022.03 and
+U-2022.12, so **any ICV release >= U-2022.12 (up to the 2026.03 version the keys allow)
+would check out `ICValidator-Manager-Apex` and run.** This is an IT install request, not a
+configuration fix. Nothing on the client side (env var, `-keys`, cache) renames the feature.
+Retry policy followed: one failed run + one informed retry (`-lic_apex`, rejected before
+any license request); no further checkouts attempted.
+
+Consequences for the plan in the task: steps 1 (execution part), 2 and the execution half
+of 3 are blocked. Done instead: fixtures + KLayout reference (above), runset extended and
+compiled (section 7), summary parser written against the documented LAYOUT_ERRORS format,
+README. Per-rule ICV counts and run times: **none exist**.
+
+## 7. Log 2026-09-05 (cont.) -- what was built despite the wall
+
+Verified by running commands:
+- `sky130_beol.rs` (32 rules: li.1 li.3, ct.1/1_a/1_b/2, m1.1/2, via.1a/1a_a/1a_b/2,
+  m2.1/2, via2.1a/1a_a/1a_b/2, m3.1/2, via3.1/1_a/1_b/2, m4.1/2, via4.1/1_a/1_b/2, m5.1/2)
+  compiles with `icv -cache-only` in 7 s, exit 0, no errors; with `-D BEOL_EXTRA` (+13:
+  ct.4 m1.4 via.4a via2.4 m3.4 via3.4 m4.3 via4.4 m5.3 li.6 m1.6 m2.6 m4.4a) also 7 s,
+  exit 0. Logs: `runs/20260905_compile/compile{,_extra}.log`. Every value is quoted from
+  `sky130A_mr.drc` with the deck line number next to the rule (lines 894-1429 re-read
+  today for li/ct/via*/m1..m5; the BEOL_EXTRA enclosure/area values are the 2026-09-04
+  reading in 3.2, except via3.4 0.06 and m4.4a 0.240 re-read today).
+- Function names/arguments used, each checked in the refman syntax block today:
+  `internal1/external1(layer, distance < d, extension = RADIAL)`, `not_rectangles(layer)`,
+  `rectangles(layer, sides = {length1 = <= L, length2 = <= L})` (constraint operators
+  table 87: `<`, `<=`, `==`, ranges `[a,b]`), `not_inside(l1, l2)`, `outside(l1, l2)`,
+  `not_interacting(l1, l2)`, `not/and(l1, l2)`, `area(layer, value < a)`,
+  `enclose(l1, l2, distance < d, extension = RADIAL)`, `error_options(...,
+  report_flat_violation_count = true)`. The `width` argument of external1 (candidate for
+  the huge-metal split) was not readable in the text dump; left for later.
+- Design GDS facts (KLayout read, 5 s, read-only): 454 cells, 3,037,386 instances under
+  the top cell, dbu 0.001 um; hierarchical shape counts met1 2.01 M, met2 1.87 M, met3
+  565 k, met4 345 k, met5 21.6 k, li1 7.7 k, mcon 5.2 k, via1 277, via2 202, via3 114,
+  via4 13; `areaid_ce` 81/2 has 4 shapes (inside the macro cells), `areaid_mt` 81/10 is
+  absent (so the via "outside moduleCut" selections equal the full via layers here).
+- `run_icv_drc.sh`: 5th arg = CPUs via `-host_init`, refused above `ICV_MAX_CPUS` (4);
+  prints a LICENSE DENIED line instead of retrying. `bash -n` clean; dry run OK; `cpus=8`
+  correctly refused.
+- `icv_summary.py`: parses ERROR SUMMARY / ERROR DETAILS of a LAYOUT_ERRORS file (ASCII;
+  the binary PYDB is only for VUE) and, with `--klayout`, a .lyrdb. On
+  `tests/fixture.LAYOUT_ERRORS` (typed from the manual's example) it returns 1/5/1/4
+  and the per-structure split TOP 3 / SUB 1; on `tests/beol_test_1.lyrdb` it matches the
+  direct count (1/5/1/4).
+
+Inferred / open (ordered by how much they block "signoff-grade second engine"):
+1. **License**: ICV >= U-2022.12 needed (IT). Until then nothing executes. Ask for the
+   version matching the 2026.03 keys.
+2. **Semantics unvalidated**: RADIAL == euclidean, `internal1` == width, corner-pair and
+   notch counting, `rectangles(sides)` as max-length -- all from the manual only. The
+   fixture + expected table in README "Validation plan" settles them in one 30-min run.
+3. **Huge-metal split** (m1.3ab/m2.3ab/m3.3cd/m4.*) not translated; the small-value check
+   over-reports huge-vs-narrow pairs below the small value and misses pairs between the
+   small and the huge value. Needs ICV edge layers or `external1(width = ...)`.
+4. **Two-adjacent-edge enclosures** (li.5, m1.5, via.5a, via2.5, via3.5), ring vias, and
+   the s8-cell exemptions: not started (3.3 items 3, 4, 6).
+5. **Macro waiver**: the 16 OpenRAM macros produce ~155 k KLayout items that the sheet
+   waives by location; ICV needs either a cell-based exclusion (`error_options(pcell_list)`
+   / a `not()` against a macro-box layer) or post-filtering of bboxes with the
+   `classify_lyrdb.py` geometry. Not implemented.
+6. **Run time**: unknown; KLayout needs 4.6 h / 16 threads for the full BEOL deck on this
+   GDS, and ICV is capped at 4 CPUs here. Time one rule (`-svc "m3.*"`) first.
+7. **Count semantics**: item vs site vs flat vs hierarchical (section 6 table) -- compare
+   per rule and by location; never by grand total.
+
+No design job was launched; nothing outside `asic/signoff/icv/` was written (the
+`/tmp/x` dry-run target was never created because dry runs do not mkdir). No tmux
+sessions were used. License checkouts attempted: one (denied); the `-lic_apex` retry was
+rejected by the binary before contacting the server.

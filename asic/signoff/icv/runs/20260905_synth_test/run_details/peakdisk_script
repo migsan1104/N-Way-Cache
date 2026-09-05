@@ -1,0 +1,32 @@
+#! /bin/sh
+
+GROUPDIR="/ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details/group"
+DETAILSDIR="/ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details"
+TOUT=${DETAILSDIR}/fsize.tmp
+FOUT=${DETAILSDIR}/fsize.txt
+
+die() { echo "$@"; exit -1; }
+
+diskkbytes() { sed -n '/^[0-9]/s/\ttotal//p' $1; }
+listdirs() { ls -lSA ${GROUPDIR} ${GROUPDIR}/CACHE_DIR; }
+header() { date; echo "du -ck  --block-size=1 ${GROUPDIR}:"; du -ck --block-size=1 ${GROUPDIR}; echo; }
+
+[ -d "${GROUPDIR}" ]   || die 'No group directory specified or found'
+[ -d "${DETAILSDIR}" ] || die 'No details directory specified or found'
+
+header > $TOUT
+
+if [ -f $FOUT ]; then
+    /bin/true
+    newval=$(diskkbytes $TOUT)
+    oldval=$(diskkbytes $FOUT)
+    if [ "$newval" -gt "$oldval" ]; then
+        listdirs >> $TOUT
+        mv $TOUT $FOUT
+    else
+        rm -f $TOUT
+    fi
+else
+    listdirs >> $TOUT
+    mv $TOUT $FOUT
+fi
