@@ -145,3 +145,22 @@ right; they measure different failure classes. Methodology going forward:
 - **Shorts/opens = Innovus verify_drc + netgen LVS** - this is what the
   arms' 706/627/571 numbers actually track, and why driving them to zero
   remains the campaign's core work even though "DRC" geometry is ~clean.
+
+## 2026-09-04 18:24 — KLAYOUT VERDICT, iter16b exported GDS (the 9/13 package)
+
+`sky130A_mr.drc`, beol=true feol=false, 16 threads, 13:50-18:24 (4.6 h) on
+`runs/20260902_iter16b_e35_fp16_die2900/outputs/Cache_16384B_assoc4_sram.gds`
+(filled, macros merged). Classifier now in the repo:
+`signoff/drc/classify_lyrdb.py <drc.lyrdb> --die 2900 --edge 40`.
+
+| class | items | what |
+|---|---|---|
+| total | 156,510 | |
+| inside macro footprints | 155,341 | li.3 79,927 / li.7 30,430 / m1.2 16,765 / m2.2 13,908 ... - OpenRAM bitcell arrays vs the periphery deck, vendor GDS golden (same class as the iter14 verdict's 238k) |
+| outside, routing layers | **3** | 1 **m3.2** met3 spacing 0.225 < 0.30 um at (2412.75, 992.15) = the right macro column's inner edge (x 2413.765), a met3 wire against the macro edge; 2 **via3.2** (via3 spacing 0.2) at cell-local (0,0) in the Innovus via masters `..._VIA23` / `..._VIA4` (multi-cut via cells, not top-level routing) |
+| outside, std-cell layers | 1,166 | ct.1_b (mcon max length 0.17) 848 + ct.2 (mcon spacing 0.19) 318, ALL in one 2 um column at x = 1460.3-1461.7 spanning y 100-486 and 2400-2761 = the row ends against the bank2 halo (x 1462) in the bank1/bank2 channel of the bottom and top macro rows, ~5 per std-cell row. Cell-boundary/abutment class (the iter14 verdict's 288 were the same family); triage pending - why only that channel is the open question |
+
+Verdict for the sheet: **BEOL geometry clean on routing layers except one
+met3 spacing item at a macro edge**; the endcap mcon column is a
+placement-boundary artefact to triage, not a routing failure. iter14 for
+comparison: 297 outside / 9 routing-layer.

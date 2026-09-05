@@ -96,13 +96,48 @@ addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
 
 pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH"
 
+# Horizontal straps (iter17, 2026-09-04). OFF unless ASIC_PG_STRIPE_H_LAYER is
+# set, so no other run changes. The vertical met4 stripes stop at the SRAM
+# macros (LEF OBS met1-met4), so the hub inside the macro ring is fed only
+# through the four corner gaps: Voltus static IR on iter16b = 119/121 mV vs a
+# 53 mV budget (voltus.md "First static IR result"). met5 is free over the
+# macros; horizontal met5 straps ring-to-ring cross them and stack down onto
+# the hub's met4 stripes. Pitch sized on iter16b's own DB with Voltus what-if
+# shapes: 120 um -> 65 mV, 60 um -> 47 mV (ITER17_PLAN.md section 3).
+set PG_STRIPE_H_LAYER [config_env ASIC_PG_STRIPE_H_LAYER {}]
+if {$PG_STRIPE_H_LAYER ne ""} {
+    set PG_STRIPE_H_WIDTH   [config_env ASIC_PG_STRIPE_H_WIDTH 2]
+    set PG_STRIPE_H_SPACING [config_env ASIC_PG_STRIPE_H_SPACING 2]
+    set PG_STRIPE_H_PITCH   [config_env ASIC_PG_STRIPE_H_PITCH 60]
+    addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
+              -layer $PG_STRIPE_H_LAYER \
+              -direction horizontal \
+              -width $PG_STRIPE_H_WIDTH \
+              -spacing $PG_STRIPE_H_SPACING \
+              -set_to_set_distance $PG_STRIPE_H_PITCH \
+              -start_from bottom
+    pnr_note "horizontal straps: $PG_STRIPE_H_LAYER width $PG_STRIPE_H_WIDTH pitch $PG_STRIPE_H_PITCH"
+}
+
 # ---------------------------------------------------------------------------
 # Follow pins
 # ---------------------------------------------------------------------------
 # Connects the standard-cell rows' VPWR/VGND rails to the ring and stripes.
+# li1 is NOT allowed for PG routing (2026-09-04 21:20 finding, DRC.md "li1
+# under the macros"): the SRAM LEF obstructs met1-met4 only, so sroute with an
+# unbounded layer change dropped to li1 and bridged the met1 rails ACROSS the
+# macro bodies on li1 (iter16b: 368 of 370 li1 special wires inside macro
+# footprints, up to 371 um long, on top of the macro's own li1 = VSS/VDD
+# shorts into the SRAM periphery that verify_drc cannot see). The LEF now also
+# carries an li1 OBS; this range is the belt to that suspender.
+set PG_SROUTE_LAYER_RANGE [config_env ASIC_PG_SROUTE_LAYER_RANGE {met1 met4}]
 sroute -nets [list $PG_POWER_NET $PG_GROUND_NET] \
        -connect { corePin padPin blockPin } \
-       -allowJogging 1 -allowLayerChange 1
+       -allowJogging 1 -allowLayerChange 1 \
+       -layerChangeRange $PG_SROUTE_LAYER_RANGE
+set _li1 [llength [dbGet -p2 top.nets.sWires.layer.name li1 -e]]
+if {$_li1 > 0} { pnr_fail "stage 02: $_li1 li1 special wires exist after sroute - PG on li1 is forbidden (see comment above)" }
+pnr_note "sroute layer range $PG_SROUTE_LAYER_RANGE; li1 special wires: $_li1"
 
 # ---------------------------------------------------------------------------
 # Checks

@@ -96,8 +96,11 @@ set_pg_nets -net VSS -voltage 0.0    -threshold [expr {$VDD_V * $IR_BUDGET_FRAC}
 set _wi 0
 if {[info exists env(VOLTUS_WHATIF_M5_PITCH)] && $env(VOLTUS_WHATIF_M5_PITCH) ne ""} {
     set _wp [expr {double($env(VOLTUS_WHATIF_M5_PITCH))}]
+    # VOLTUS_WHATIF_M5_WIDTH (um, default 2): the headroom knob - iter17
+    # fallback sizing (2026-09-04 20:40): 4 um at 120 and at 60 um pitch.
+    set _ww [expr {[info exists env(VOLTUS_WHATIF_M5_WIDTH)] && $env(VOLTUS_WHATIF_M5_WIDTH) ne "" ? double($env(VOLTUS_WHATIF_M5_WIDTH)) : 2.0}]
     create_what_if_shape -type wire -nets {VDD VSS} -layer met5 -direction hor \
-        -area {16 16 2884 2884} -pitch $_wp -width 2 -spacing 2 -add
+        -area {16 16 2884 2884} -pitch $_wp -width $_ww -spacing 2 -add
     # Wires alone float (first trial: +224 resistors, drop unchanged). Vias on
     # every met4/met5 crossing in the area tie the straps to the ring and to
     # the existing met4 stripes.
@@ -106,7 +109,7 @@ if {[info exists env(VOLTUS_WHATIF_M5_PITCH)] && $env(VOLTUS_WHATIF_M5_PITCH) ne
             -area {16 16 2884 2884} -add
     }
     set _wi 1
-    puts "VOLTUS: what-if met5 horizontal VDD/VSS straps, pitch $_wp um, over the full core"
+    puts "VOLTUS: what-if met5 horizontal VDD/VSS straps, pitch $_wp um, width $_ww um, over the full core"
 }
 set _em {}
 if {[info exists env(VOLTUS_EM_ICT)] && [file readable $env(VOLTUS_EM_ICT)]} {

@@ -1146,3 +1146,110 @@ problem and thinning it would worsen the hub. The PDN is under-provisioned
 INTO the hub: the macro ring walls it off. iter17 gets met5 straps across
 the macro ring with via stacks into the hub (02_power.tcl), trialled with
 Voltus what-if stripes first. EM not analysed (no sky130 EM rules loaded).
+
+## Iteration 17 launched (2026-09-04 18:03) — structural fix, three variables on purpose
+
+Run `20260904_iter17_e35_fp17_die2900_1v76` (tmux `iter17`), decisions D1-D6
+per `ITER17_PLAN.md` taken as recommended: 4.0 ns, ss_n40C_1v76 from stage 00,
+die 2900, iter16b density/cong/gap knobs, 16 CPUs, stop at route (05), DRC gate
+off. Against iter16b it changes (a) `fp_iter17`: macros flipped so the 70-pin
+LEF S edge faces the core, EDGE 40 -> 80 um, blanket met1-met4 route blockages
+3 um inside every macro body (`-exceptpgnet`); (b) PDN: horizontal met5
+VDD/VSS straps 2 um @ 60 um pitch ring-to-ring over the macros
+(`ASIC_PG_STRIPE_H_*`, default off); (c) the corner, which iter16c already
+carries. Keep criteria: route-gate `verify_drc` <= iter16b's 38 with no
+residuals inside macro bodies; Voltus static IR (same script) worst drop
+<= 53 mV or the hub no longer the worst band; Tempus SI both corners positive
+at 4.0 ns with hold >= +0.010. Fails badly -> iter16b stays the 9/13 package.
+
+| iter | aka | variable changed (vs baseline) | postCTS WNS | route DRC | verdict |
+|---|---|---|---|---|---|
+| 16c | 3 ns probe | clock 3.0 ns + campaign corner (vs 16b, same floorplan) | raw CTS -3.152 / after postCTS opt -3.002 reg2reg (density 50.5 %) | **11** (16b: 38) at the gate, 20:05; halted before post-route opt | **routed at 3 ns**: router timer post-route reg2reg **+1.857** (0 of 62,411 paths), I/O group -1.992 x106; hold unfixed -0.388 reg2reg / -3.573 I/O (gate halt precedes hold opt). 5 h 15 min on 16 CPUs |
+| 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | launched 18:03 | — | pending |
+
+
+### KLayout on the iter16b package (18:24)
+
+156,510 items -> 155,341 inside macro footprints, 1,169 outside: 1 m3.2 at
+(2412.75, 992.15) (met3 vs the right macro column edge), 2 via3.2 in via
+masters, 1,166 mcon items in one column at x~1461 (row-end endcaps against
+the bottom/top bank2 halo). Full table: `signoff/drc/drc.md` 09-04 18:24;
+classifier `signoff/drc/classify_lyrdb.py`. Chain moved on to black-box LVS.
+
+### iter17 early signal (19:20) — the two changes compete for met5
+
+place_opt eGR overflow H/V by pass: 9.46/8.28 -> 10.44/9.00 -> 15.12/15.23
+(iter16b 20.69/17.21 -> 4.80/6.00 -> 4.80/8.88; iter16c 14.97/9.78 ->
+5.95/8.04 -> 6.43/12.43). Per layer at pass 2, % gcells over capacity:
+
+| layer | iter17 | iter16b |
+|---|---|---|
+| met1 | 9.49 | 7.48 |
+| met2 | 10.31 | 9.87 |
+| met3 | 7.42 | 7.42 |
+| met4 | 5.53 | 6.89 |
+| **met5** | **7.88** | **0.76** |
+
+The blanket met1-met4 blockages make met5 the only layer over the 16 macro
+bodies, so every macro-crossing net lands there, and the horizontal met5
+straps (VDD+VSS 2 um @ 60 um) take ~10 % of the same layer. Judge at the
+stage-03 summary / route gate per the plan; candidate 17b variants if it
+fails: straps at 120 um or 4 um @ 120 um, blockages met1-met3 only, or the
+straps/blockages split that D2 rejected.
+
+### iter16c routed (20:05) — the 3 ns probe answers "yes, the core closes"
+
+Stage 05 DRC gate: **11** markers (iter16b: 38 at the same gate), all the
+macro-threading class again: 6 of 11 are shorts/spacing against a macro pin
+or blockage (ways 0, 1, 3), 3 are met1 shorts between FE_OFN nets, 2
+spacing. Post-route timing, router timer, ss_n40C_1v76 x1.5 macros, 3.000 ns
+SDC, BEFORE post-route opt (the gate halts the stage): setup reg2reg
++1.857 ns with 0 of 62,411 paths violating; the I/O group -1.992 x106
+(the 0.7/0.3 budgets do not fit in 3 ns, known from the what-if); hold
+-0.388 reg2reg x672 / -3.573 I/O x1,206, expected with no hold fixing yet.
+Consistent with the iter16b what-if (+1.284 at 3 ns on a 4 ns build) and
+with iter16b's own pre-CTS -3.57 -> post-route +0.916 swing: the pre-CTS and
+CTS-stage numbers in this flow are pessimistic by ~4 ns and are not the
+number to judge on. Pending: legalize the 11 -> chain -> Tempus SI at both
+corners to make it a signoff-grade "core meets 3 ns" statement. Not a 9/13
+deliverable (user decision 09-04); post-9/13 opener alongside iter17.
+
+## li1 under the macros (2026-09-04 20:30-21:00) — found by triaging the KLayout mcon column
+
+The 1,166 mcon items (ct.1_b / ct.2) in one 2 um column at x≈1461 were
+where a VSS met4 stripe crosses the row ends against the bank2 halo: sroute
+built a stacked via from the stripe down to **li1** there (`L1M1_PR_2`) and
+its mcon array merges with the decap_6 fillers' own rail contacts. That was
+the symptom. The disease: `sroute -allowLayerChange 1` with no layer range,
+against an SRAM LEF whose OBS covers met1-met4 only, so li1 over the macro
+bodies looks free. sroute bridged the met1 follow-pin rails ACROSS the
+macros on li1 "corewire" shapes.
+
+| | iter16b `06_final.enc` | iter17 `02_power.enc` |
+|---|---|---|
+| li1 special wires | 370 | 392 |
+| of which inside a macro footprint | **368** | **392** |
+| longer than 100 um (rail bridges across a body) | 202 | — |
+| max penetration into a macro | 361 um (full width) | 445 um (full height) |
+| signal wires on li1 | 0 (NanoRoute bottom layer met1) | — |
+
+Under one such VSS wire (1460-1492, y 2760, bank2 top) the macro GDS holds
+27 li1 shapes of its periphery `dff` cells in the first 22 um: on the flat
+GDS these merge with the VSS wire = supply shorts into the SRAM periphery.
+Innovus `verify_drc` cannot see it (no li1 OBS in the abstract) and the
+KLayout in-macro waiver (iter14 verdict: "bitcell arrays vs periphery deck")
+hid it — the 79,927 in-macro `li.3` items include these wires. Every run
+since iteration 1 carries it; the IR results are unaffected (li1 carries
+negligible current) but the GDS is not tape-out clean.
+
+Fix (all uncommitted at 21:00): (1) `02_power.tcl` sroute
+`-layerChangeRange {met1 met4}` (knob `ASIC_PG_SROUTE_LAYER_RANGE`) + a
+`pnr_fail` if any li1 special wire survives; (2) `lef/sram_1rw1r_32_256_8_sky130.lef`
+OBS gains a blanket li1 RECT; (3) `scripts/li1_eco.tcl` deletes the li1
+sWires and `L1M1*` sVias on a finished DB, re-verifies PG connectivity and
+DRC, saves `07_li1fix.enc` (iter16b run launched 20:47, tmux `li1_eco_16b`).
+Then: re-export the package from `07_li1fix.enc` (after the FEOL DRC and
+LVS reading `outputs/` finish), KLayout BEOL again, and compare the in-macro
+`li.3` count — the drop measures how much the old waiver was hiding. iter17
+keeps running (defect is PG-only and orthogonal to its route-gate question);
+it gets the same ECO at export.

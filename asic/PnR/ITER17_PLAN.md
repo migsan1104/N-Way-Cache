@@ -1,4 +1,12 @@
-# Iteration 17 — plan (brainstorm, 2026-09-04 16:50, nothing launched)
+# Iteration 17 — plan (brainstorm 2026-09-04 16:50; LAUNCHED 18:03 with D1-D6 as recommended)
+
+**Launched 2026-09-04 18:03** (user: "go with your recommendations on D1-D6"):
+run `20260904_iter17_e35_fp17_die2900_1v76`, tmux `iter17`, 4.0 ns, ss_n40C_1v76,
+`floorplans/fp_iter17.tcl` (ASIC_FP_EDGE=80, macros flipped, met1-met4 route
+blockages 3 um inset per macro body), `02_power.tcl` horizontal straps via
+`ASIC_PG_STRIPE_H_LAYER=met5 ASIC_PG_STRIPE_H_PITCH=60` (width 2, spacing 2),
+otherwise iter16c's launch line minus `ASIC_PNR_SDC`. Log
+`innovus/runs/<stamp>/logs/flow.log`. Gate criteria: section 5.
 
 Purpose of this page: say what iter16b, iter16c and the proposed iter17
 are, what differs between them and why, and list the decisions still open,
