@@ -1,0 +1,28 @@
+[640351:2026-09-05 01:35:58.951] Starting service 'mapper' (Node ID=0, Host Name=ece-lnx-10)
+[640351:2026-09-05 01:35:58.974] Launched Redis process 640352 on port 34631. Attempting to connect...
+640352:C 05 Sep 2026 01:35:58.981 # oO0OoO0OoO0Oo Redis is starting oO0OoO0OoO0Oo
+640352:C 05 Sep 2026 01:35:58.981 # Redis version=6.0.9, bits=64, commit=00000000, modified=0, pid=640352, just started
+640352:C 05 Sep 2026 01:35:58.981 # Configuration loaded
+640352:M 05 Sep 2026 01:35:58.982 * Running mode=standalone, port=34631.
+640352:M 05 Sep 2026 01:35:58.982 # Server initialized
+640352:M 05 Sep 2026 01:35:58.982 # WARNING overcommit_memory is set to 0! Background save may fail under low memory condition. To fix this issue add 'vm.overcommit_memory = 1' to /etc/sysctl.conf and then reboot or run the command 'sysctl vm.overcommit_memory=1' for this to take effect.
+640352:M 05 Sep 2026 01:35:58.983 # WARNING you have Transparent Huge Pages (THP) support enabled in your kernel. This will create latency and memory usage issues with Redis. To fix this issue run the command 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled' as root, and add it to your /etc/rc.local in order to retain the setting after a reboot. Redis must be restarted after THP is disabled (set to 'madvise' or 'never').
+640352:M 05 Sep 2026 01:35:58.985 * Ready to accept connections
+640352:M 05 Sep 2026 01:35:58.985 * The server is now ready to accept connections at /tmp/icv_yzpFoh/mapper
+[640351:2026-09-05 01:35:58.985] Successfully connected to Redis at 127.0.0.1:34631
+[640351:2026-09-05 01:35:58.987] Successfully connected to local Redis instance at ece-lnx-10.ad.ufl.edu:34631
+[640351:2026-09-05 01:35:58.990] Wrote service info file to run_details/dp_work/service_info
+[640350:2026-09-05 01:36:03.700] [2026-09-05 01:35:59.028] Service 'launcher:0' registered on ece-lnx-10.ad.ufl.edu:42307
+[640376:2026-09-05 01:36:03.701] [2026-09-05 01:35:59.047] Service 'lock_manager' registered on ece-lnx-10.ad.ufl.edu:39673
+[640374:2026-09-05 01:36:03.701] [2026-09-05 01:35:59.053] Service 'cluster' registered on ece-lnx-10.ad.ufl.edu:59291
+[640373:2026-09-05 01:36:03.701] [2026-09-05 01:35:59.058] Service 'license_manager' registered on ece-lnx-10.ad.ufl.edu:58667
+[640375:2026-09-05 01:36:03.701] [2026-09-05 01:35:59.061] Service 'hdb' registered on ece-lnx-10.ad.ufl.edu:39023
+[640350:2026-09-05 01:36:03.701] [2026-09-05 01:36:03.694] Removing service 'launcher:0'
+[640374:2026-09-05 01:36:03.701] [2026-09-05 01:36:03.694] Removing service 'cluster'
+[640375:2026-09-05 01:36:03.701] [2026-09-05 01:36:03.694] Removing service 'hdb'
+[640376:2026-09-05 01:36:03.701] [2026-09-05 01:36:03.694] Removing service 'lock_manager'
+[640373:2026-09-05 01:36:03.701] [2026-09-05 01:36:03.695] Removing service 'license_manager'
+[640351:2026-09-05 01:36:03.701] Received signal 15 (Terminated). Exiting.
+640352:M 05 Sep 2026 01:36:03.702 # User requested shutdown...
+640352:M 05 Sep 2026 01:36:03.702 * Removing the unix socket file.
+640352:M 05 Sep 2026 01:36:03.702 # Redis is now ready to exit, bye bye...

@@ -190,8 +190,13 @@ m5_2 @= { @ "m5.2 : min. m5 spacing : 1.6um";
 
 // ---------------------------------------------------------------------------
 // 6. OPTIONAL (-D BEOL_EXTRA): enclosure / coverage / min-area.  Values were read from
-//    the deck on 2026-09-04 (SIV.md 3.2); enclose(layer1, layer2, distance < d) reports
-//    where layer1 encloses layer2 by less than d.  Unvalidated translation.
+//    the deck on 2026-09-04 (SIV.md 3.2). enclose(layer1, layer2, distance < d):
+//    layer1 is the ENCLOSED layer (the via), layer2 the ENCLOSING one (the metal)
+//    -- icvrefman p.479; argument order was reversed until the 2026-09-05 review
+//    (review/REVIEW_2026-09-05.md A1). Unvalidated translation.
+//    Known simplifications (review A6): m1_4 checks all mcon (deck: mcon outside
+//    areaid_ce, i.e. over-reports inside the SRAM cores); via_4a checks all via1
+//    (deck: only 0.15-wide via1).
 // ---------------------------------------------------------------------------
 #ifdef BEOL_EXTRA
 ct_4 @= { @ "ct.4 : mcon should covered by li";
@@ -199,19 +204,19 @@ ct_4 @= { @ "ct.4 : mcon should covered by li";
 m1_4 @= { @ "m1.4 : mcon must be enclosed by m1";
     not(mcon, met1); }
 via_4a @= { @ "via.4a : min. m1 enclosure of 0.15 via : 0.055um";
-    enclose(met1, via1, distance < 0.055, extension = RADIAL); }
+    enclose(via1, met1, distance < 0.055, extension = RADIAL); }
 via2_4 @= { @ "via2.4 : min. m2 enclosure of via2 : 0.04um";
-    enclose(met2, via2, distance < 0.04, extension = RADIAL); }
+    enclose(via2, met2, distance < 0.04, extension = RADIAL); }
 m3_4 @= { @ "m3.4 : min. m3 enclosure of via2 : 0.065um";
-    enclose(met3, via2, distance < 0.065, extension = RADIAL); }
+    enclose(via2, met3, distance < 0.065, extension = RADIAL); }
 via3_4 @= { @ "via3.4 : min. m3 enclosure of via3 : 0.06um";      // deck 1318 (read 2026-09-05)
-    enclose(met3, via3, distance < 0.06, extension = RADIAL); }
+    enclose(via3, met3, distance < 0.06, extension = RADIAL); }
 m4_3 @= { @ "m4.3 : min. m4 enclosure of via3 : 0.065um";
-    enclose(met4, via3, distance < 0.065, extension = RADIAL); }
+    enclose(via3, met4, distance < 0.065, extension = RADIAL); }
 via4_4 @= { @ "via4.4 : min. m4 enclosure of via4 : 0.19um";
-    enclose(met4, via4, distance < 0.19, extension = RADIAL); }
+    enclose(via4, met4, distance < 0.19, extension = RADIAL); }
 m5_3 @= { @ "m5.3 : min. m5 enclosure of via4 : 0.31um";
-    enclose(met5, via4, distance < 0.31, extension = RADIAL); }
+    enclose(via4, met5, distance < 0.31, extension = RADIAL); }
 li_6 @= { @ "li.6 : min. li area : 0.0561um2";
     area(not_interacting(li1, areaid_ce), value < 0.0561); }
 m1_6 @= { @ "m1.6 : min. m1 area : 0.083um2";

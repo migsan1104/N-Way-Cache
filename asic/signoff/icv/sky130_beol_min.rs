@@ -89,5 +89,5 @@ m2_2 @= { @ "m2.2 : min. m2 spacing : 0.14um";
 //   via3.2 0.20      m4.1/m4.2 0.30   via4.2 0.80   m5.1/m5.2 1.60
 //   enclosures: via2.4 met2>via2 0.04, m3.4 met3>via2 0.065, via3.4 met3>via3 0.06,
 //               m4.3 met4>via3 0.065, via4.4 met4>via4 0.19, m5.3 met5>via4 0.31
-//               -> enclose(metX, viaY, distance < v, extension = RADIAL)
+//               -> enclose(viaY, metX, distance < v, extension = RADIAL)  (enclosed first, enclosing second - icvrefman p.479)
 //   coverage:   ct.4 / m1.4 / via2.4_a ... -> not(viaY, metX) must be empty

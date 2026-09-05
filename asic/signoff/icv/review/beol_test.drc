@@ -1,0 +1,10 @@
+# KLayout reference for beol_test.gds: same idiom as sky130A_mr.drc m1.1/m1.2/m2.1/m2.2
+# (width/space 0.14 euclidian).  Run from tests/:
+#   PATH=$HOME/.local/bin:$PATH klayout -b -r beol_test.drc -rd in=beol_test.gds -rd deep=1
+source($in); report("beol_test", "beol_test_#{$deep}.lyrdb")
+if $deep == "1" then deep else flat end
+m1 = input(68, 20); m2 = input(69, 20)
+m1.width(0.14, euclidian).output("m1.1", "m1.1 : min. m1 width : 0.14um")
+m1.space(0.14, euclidian).output("m1.2", "m1.2 : min. m1 spacing : 0.14um")
+m2.width(0.14, euclidian).output("m2.1", "m2.1 : min. m2 width : 0.14um")
+m2.space(0.14, euclidian).output("m2.2", "m2.2 : min. m2 spacing : 0.14um")

@@ -1,0 +1,7 @@
+Command Line Summary:
+icv
+-c "*"
+-cache-only
+-f GDSII
+-i /dev/null
+../../sky130_beol_min.rs

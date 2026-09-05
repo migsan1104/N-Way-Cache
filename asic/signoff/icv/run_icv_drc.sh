@@ -87,8 +87,12 @@ cd "$RUN_DIR"
 source /apps/settings >/dev/null 2>&1 || { echo "error: cannot source /apps/settings" >&2; exit 1; }
 command -v icv >/dev/null || { echo "error: icv not on PATH after sourcing /apps/settings" >&2; exit 1; }
 
+# set -e + pipefail would kill the script here on any icv failure (the license-
+# denied case included) before the guard below runs - review 2026-09-05 A2.
+set +e
 "${CMD[@]}" 2>&1 | tee icv_stdout.log
 rc=${PIPESTATUS[0]}
+set -e
 
 echo "# icv exit code: $rc"
 if grep -q "License denied" icv_stdout.log 2>/dev/null; then

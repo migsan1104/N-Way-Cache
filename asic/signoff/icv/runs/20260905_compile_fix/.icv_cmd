@@ -1,0 +1,4 @@
+icv GDSII /dev/null ../../sky130_beol_min.rs -i -f -cache-only -c * 
+schematic=UNSPECIFIED
+ICV_HOME_DIR=/apps/syn/icv
+ICV_INCLUDES=UNSET

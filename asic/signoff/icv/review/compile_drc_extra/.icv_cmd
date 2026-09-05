@@ -1,0 +1,4 @@
+icv BEOL_EXTRA ../../sky130_beol.rs -cache-only -D 
+schematic=UNSPECIFIED
+ICV_HOME_DIR=/apps/syn/icv
+ICV_INCLUDES=UNSET

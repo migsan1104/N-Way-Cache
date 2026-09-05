@@ -40,7 +40,7 @@ icv [options] <runset.rs>
   -D name[=val]      runset #define
   -svc/-uvc "cmt"    run only / skip violation blocks whose @ comment matches
   -svn/-uvn name     same by @= violation name
-  -dp <n>            cores (multicore licensing)
+  -host_init <n>     local CPUs (there is NO -dp option in this ICV; review 2026-09-05)
   -cache-only        compile the runset and stop (no execution)
   -ece               exit code EXIT_COMPLETE_WERROR when errors exist
 ```
@@ -69,7 +69,7 @@ m1_1 @= { @ "m1.1 : min. m1 width : 0.14um";                     // @= name, @ c
 m1_2 @= { @ "m1.2 : min. m1 spacing : 0.14um";
     external1(met1, distance < 0.14, extension = RADIAL); }      // spacing, 1 layer
         external2(l1, l2, distance < d, extension = ...)         // spacing, 2 layers
-        enclose(l1, l2, distance < d, extension = ...)           // l1 must enclose l2
+        enclose(l1, l2, distance < d, extension = ...)           // l1 = ENCLOSED layer, l2 = ENCLOSING layer (icvrefman p.479)
         not(l1, l2) / and(l1, l2) / or(l1, l2) / xor(l1, l2)     // booleans
         area(l, value < a)                                       // min area
 ```
@@ -108,14 +108,14 @@ All from `sky130A_mr.drc` (release `2024.2.11_01.09`), BEOL section, `backend_fl
 | ct.2 | min mcon spacing : 0.19 | external1(mcon, < 0.19) |
 | ct.4 | mcon should be covered by li | `not(mcon_not_ce, li1)` non-empty = error |
 | m1.1 / m1.2 | min m1 width / spacing : 0.14 | internal1 / external1 (m1.2 excludes >=3 um "huge" edges; those get m1.3ab 0.28) |
-| m1.4 / 791_m1.4 | mcon must be enclosed by m1; m1 enclosure of mcon 0.03 | not(mcon, met1); enclose(met1, mcon, < 0.03) |
+| m1.4 / 791_m1.4 | mcon must be enclosed by m1; m1 enclosure of mcon 0.03 | not(mcon, met1); enclose(mcon, met1, < 0.03) |
 | via.1a / via.1a_a / via.1a_b | via (outside moduleCut) rectangular; min width 0.15; max length 0.15 | as ct.1 family, on `not(via1, areaid_mt)` |
 | via.2 | min via spacing : 0.17 | external1(via1, < 0.17) |
-| via.4a / via.4a_a | m1 enclosure of 0.15 via 0.055; 0.15 via must be enclosed by m1 | enclose(met1, via1, < 0.055); not(via1, met1) |
+| via.4a / via.4a_a | m1 enclosure of 0.15 via 0.055; 0.15 via must be enclosed by m1 | enclose(via1, met1, < 0.055); not(via1, met1) |
 | m2.1 / m2.2 | min m2 width / spacing : 0.14 (m2.3ab 0.28 for huge) | internal1 / external1 |
 | via2.1a / via2.1a_a / via2.1a_b | via2 rectangular; min width 0.2; max length 0.2 | ct.1 family |
 | via2.2 | min via2 spacing : 0.2 | external1(via2, < 0.2) |
-| via2.4 / via2.4_a ; m3.4 | m2 enclosure of via2 0.04 ; m3 enclosure of via2 0.065 | enclose(met2, via2, < 0.04); enclose(met3, via2, < 0.065) |
+| via2.4 / via2.4_a ; m3.4 | m2 enclosure of via2 0.04 ; m3 enclosure of via2 0.065 | enclose(via2, met2, < 0.04); enclose(via2, met3, < 0.065) |
 | m3.1 / m3.2 | min m3 width / spacing : 0.3 (m3.3cd 0.4 for huge) | internal1 / external1 |
 | via3.1 / via3.1_a / via3.1_b | via3 rectangular; min width 0.2; max length 0.2 | ct.1 family |
 | via3.2 | min via3 spacing : 0.2 | external1(via3, < 0.2) |
@@ -178,7 +178,7 @@ rule has executed. `run_icv_drc.sh` dry-run mode verified (prints the command, e
    `LAYOUT_ERRORS` format. Then compare against KLayout on the same file.
 2. Run on the iter16b top GDS
    (`asic/PnR/innovus/runs/20260902_iter16b_e35_fp16_die2900/outputs/Cache_16384B_assoc4_sram.gds`),
-   top cell `Cache_16384B_assoc4_sram`, and compare against `../drc/drc.md` (expected:
+   top cell `Cache_CACHE_BYTES16384_ASSOC4_EN_SRAM_MACRO1` (the GDS file stem is not the cell name), and compare against `../drc/drc.md` (expected:
    1 m3.2, 2 via3.2 inside via masters, ct.1_b/ct.2 column at x=1460).
 3. Grow the runset to the 22 rules in 3.2, then min-area, then the adjacent-edge family.
 4. LVS: `icvlvsug.pdf`; needs device recognition for sky130 (FEOL layers) -- far off.
@@ -347,3 +347,16 @@ No design job was launched; nothing outside `asic/signoff/icv/` was written (the
 `/tmp/x` dry-run target was never created because dry runs do not mkdir). No tmux
 sessions were used. License checkouts attempted: one (denied); the `-lic_apex` retry was
 rejected by the binary before contacting the server.
+
+## 8. Review 2026-09-05 (review/REVIEW_2026-09-05.md) — corrections applied
+
+A1 enclose() argument order (enclosed first, enclosing second) fixed in both
+runsets and in sections 2/3.2; A2 run_icv_drc.sh now survives an icv failure
+(set +e around the pipeline) so the exit code, the license guard and the
+LAYOUT_ERRORS head actually print; A3 `-dp` does not exist, `-host_init` is
+the CPU knob; A4 top cell name corrected in section 4; A5 an older ICV
+L-2016.06 exists at /apps/syn/validator (does not change the license
+conclusion). Open, minor: A6 m1_4/via_4a simplifications (noted in the
+runset), A7 line-number and count typos in SIV_LVS.md. All 36 rule values,
+all layer numbers, the width/spacing/RADIAL semantics, the synthetic-test
+counts and the license facts were re-verified by the reviewer.

@@ -1,0 +1,10 @@
+09/05/2026 01:25:15 (icv) Licensing related environment variables:
+
+  LM_LICENSE_FILE = "5280@ece-itop-licsvr.ece.ufl.edu:27000@licsvr.ece.ufl.edu:27002@licsvr.ece.ufl.edu:1717@ece-itop-licsvr.ece.ufl.edu:1055@ece-itop-licsvr.ece.ufl.edu:28001@licsvr.ece.ufl.edu"
+  SNPSLMD_LICENSE_FILE = "27020@ece-itop-licsvr.ece.ufl.edu"
+
+09/05/2026 01:25:15 License manager initialized. (Time=0:00:00)
+09/05/2026 01:25:15 Using license file: 27020@ece-itop-licsvr.ece.ufl.edu
+09/05/2026 01:25:15 (icv) Pre-Checking (ICValidator2-GeometryEngine/2022.03)
+09/05/2026 01:25:15 (icv)   ICValidator2-GeometryEngine license is installed. (Time=0:00:00)
+09/05/2026 01:25:20 License manager shutting down. (Time=0:00:00)

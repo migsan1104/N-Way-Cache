@@ -50,7 +50,7 @@ Runsets"). The functions, in the order a minimal LVS runset uses them:
 | netlist-vs-netlist | `read_layout_netlist({{file, SPICE}})`, `map_nmos()/map_pmos()`, `init_compare_matrix(netlist_vs_netlist = FULL_RUNSET \| PARTIAL_RUNSET)` | ch.6 "Netlist-Versus-Netlist Flow" -- lets a Magic-extracted SPICE be compared by ICV without geometry |
 
 Command line (icvug1.pdf Table 2): `icv -c <cell> -i <gds> -f GDSII -s <netlist> -sf SPICE runset.rs`;
-`-C` reruns compare only, `-ex` extraction only, `-cache-only` compile only, `-dp N` multicore
+`-C` reruns compare only, `-ex` extraction only, `-cache-only` compile only, `-host_init N` local CPUs (no `-dp` in this ICV - review 2026-09-05)
 (extra licenses), `-vue` VUE output.
 
 Where results land [docs]: `<cell>.LVS_ERRORS` in the run directory (final PASS/FAIL,
@@ -251,3 +251,6 @@ Until then, the Magic+netgen flow in `../../lvs/` remains the only executable LV
 * 01:00 -- coordinator: ICV layout runs are license-blocked (exit 67); no run attempted.
 * 01:07 -- condensed the three 218 MB NetTran logs (one warning per instance) to unique-message
   summaries; tree is 4 MB. The condensed log shows all supply pins floating in the P&R Verilog (4.6).
+
+
+Review 2026-09-05 (../review/REVIEW_2026-09-05.md, item A7): the Magic tech-file line numbers quoted above are off (device mosfet lines are 6005-6033, device msubcircuit 5842-5997), the antenna diodes are 7 (not 8) and ARE in the Verilog, and the SRAM X-card counts 89/81/9 are substring counts (true X-cards 68/59/8). Also: the GDS holds 29,103 inv_2 placements vs 27,507 in the P&R Verilog - to be understood before any LVS is trusted.
