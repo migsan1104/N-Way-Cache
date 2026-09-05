@@ -1,4 +1,15 @@
-# Iteration 17 — plan (brainstorm 2026-09-04 16:50; LAUNCHED 18:03 with D1-D6 as recommended)
+# Iteration 17 — plan (brainstorm 2026-09-04 16:50; launched 18:03; GATE FAILED 23:05; iter17b = die 2980 launched 23:11)
+
+**Result 2026-09-04 23:05:** route gate FAILED at 134,154 markers (100k
+reported): met2 52 % / met3 21 % / met1 16 % / met4 10 % / met5 < 1 %; 79 %
+metal shorts; 48 % in the wedges, 44 % in the ring band, 2.6 % inside macro
+bodies (the blockages worked), 67 % in three ring corners. Cause: EDGE 80 on
+the same 2900 die shrank every corner pocket from 151 to 111 um a side while
+the blockages closed the through-body escape. Timing was the campaign's best
+(post-route reg2reg +1.246 vs 16b +0.916). D4 therefore reversed:
+**iter17b = iter17 + ASIC_FP_DIE=2980** (pockets back to 151 um) + the li1
+fixes (bounded sroute, li1-OBS LEF), launched 23:11 as
+`20260905_iter17b_e35_fp17_die2980_1v76`, tmux `iter17b`.
 
 **Launched 2026-09-04 18:03** (user: "go with your recommendations on D1-D6"):
 run `20260904_iter17_e35_fp17_die2900_1v76`, tmux `iter17`, 4.0 ns, ss_n40C_1v76,

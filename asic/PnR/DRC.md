@@ -1165,7 +1165,8 @@ at 4.0 ns with hold >= +0.010. Fails badly -> iter16b stays the 9/13 package.
 | iter | aka | variable changed (vs baseline) | postCTS WNS | route DRC | verdict |
 |---|---|---|---|---|---|
 | 16c | 3 ns probe | clock 3.0 ns + campaign corner (vs 16b, same floorplan) | raw CTS -3.152 / after postCTS opt -3.002 reg2reg (density 50.5 %) | **11** (16b: 38) at the gate, 20:05; halted before post-route opt | **routed at 3 ns**: router timer post-route reg2reg **+1.857** (0 of 62,411 paths), I/O group -1.992 x106; hold unfixed -0.388 reg2reg / -3.573 I/O (gate halt precedes hold opt). 5 h 15 min on 16 CPUs |
-| 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | launched 18:03 | — | pending |
+| 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | setup -1.796 reg2reg, hold 0.000 (16b -2.176) | **134,154** (met2 52 %, shorts 79 %, 67 % in three ring corners, 2.6 % in bodies) | gate FAIL 23:05 — corner pockets shrank 151 -> 111 um (EDGE 80 on die 2900) with the body escape blocked; post-route reg2reg **+1.246** (best yet). Straps NOT the DRC driver (met5 < 1 %) |
+| 17b | die 2980 | die 2900 -> 2980 (vs 17; corner pockets back to 151 um), + li1 fixes | launched 23:11 | — | pending |
 
 
 ### KLayout on the iter16b package (18:24)
@@ -1271,3 +1272,22 @@ mtime restored.
 = 49 / 50 mV (meets 53), 4 um @ 60 um = 33 / 33 mV. So option (a) above is
 validated before the route gate: half the strap count at the same metal
 share, still inside budget.
+
+### iter17 gate autopsy (2026-09-04 23:05) — corners, not straps
+
+134,154 markers (100,000 classified, scratchpad `i17drc/classify.tcl` on
+`05_route.enc`): met2 51,726 / met3 21,494 / met1 16,088 / met4 9,523 /
+met5 959; Metal_Short 79,290 / PRL spacing 19,617; wedges 48,355 / ring
+band 44,254 / hub 4,743 / macro bodies 2,648. Top 200 um bins: (2200,400)
+16.5k, (400,2200) 14.9k, (2200,600) 12.0k, (600,2200) 11.8k, (2200,2200)
+11.5k = three ring corners, the iteration-4/7 convergence zones. Geometry:
+with EDGE 80 on die 2900 the corner pocket (bottom-row end to side-column
+start) is 2373.8 - 2263.0 = 110.8 um a side vs 150.8 on iter16b; the
+blanket blockages removed the through-body escape those corners used. The
+macro bodies themselves went from 300-720 threading nets each (16b) to
+2.6 % of markers (the blockages did their job). met5 is < 1 % of markers,
+so the straps are not the DRC driver; the CTS-stage vertical overflow was
+met2/met4 in the squeezed pockets. Post-route timing reg2reg +1.246 /
+I/O -1.097, hold -0.179 unfixed (gate halt) = best setup of the campaign.
+iter17b (23:11): die 2980 restores the 150.8 um pockets with everything
+else equal; recipe also carries the bounded sroute and the li1-OBS LEF.
