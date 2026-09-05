@@ -1337,3 +1337,30 @@ at the Innovus prompt since 01:43 (export from `07_li1fix.enc` complete,
 15:00, KLayout BEOL running on the li1-fixed GDS, then LVS bb with the PG
 netlist, then Tempus. Friday's `drc.lyrdb` kept as `drc_pre_li1fix.lyrdb`.
 `winner_chain.sh` now ends the export session with `exit`.
+
+### KLayout on the li1-fixed iter16b package (2026-09-05 19:10, 4 h) — 3 items outside the macros
+
+Re-export from `07_li1fix.enc` (01:43) -> `sky130A_mr.drc` BEOL, 16 threads:
+**39,333 items** vs 156,510 on Friday's GDS. `classify_lyrdb.py --die 2900
+--edge 40`: inside-macro 39,330, **outside 3** = the two `via3.2` in Innovus
+via masters (VIA23/VIA4, cell-local coordinates) and the one `m3.2` met3
+spacing at the right macro column edge, both already triaged Friday. The
+1,166-item mcon column at x~1461 is gone (it was the L1M1 stacked-via array
+of the li1 PG wires meeting decap rail contacts, removed by the li1 ECO), and
+the in-macro count fell 155,341 -> 39,330 because the `li.3` class (li1 PG
+wires shorting the macro periphery) is gone; what remains inside the macros
+is the vendor bitcell class (m1.2 16,763 / m2.2 13,908 / m1.7 / m2.7 / m3.2
+/ via.2). Friday's database kept as `klayout_drc/drc_pre_li1fix.lyrdb`.
+
+LVS bb on the same package failed in 5 min for a script reason, not a
+design one: the new `*_pnr_lvs.v` (saveNetlist -includePowerGround
+-includePhysicalInst) lists 226 std-cell stub modules before the top, and
+`run_lvs_bb.sh` took the first `module` line as the top cell ->
+magic extracted a lone `sky130_fd_sc_hd__diode_2`, netgen compared it with
+the empty Verilog stub ("has no elements and/or nodes. Not checked").
+Fixed: top = the module that is neither `sky130_*` nor `sram_*` (last such
+line). Misrun outputs in `lvs_bb/misrun_diode_20260905/`, Friday's layout
+spice (pre-fix GDS) in `lvs_bb/old_gds_20260904/`. Relaunched 19:47 in tmux
+`lvs_16b_li1` (log `runs/<16b>/logs/lvs_li1_sh.log`); magic extraction of
+the full design took ~25 h on armC, so the netgen verdict is a Sunday item.
+Tempus (chain step 4, third leg) is running on the li1-fixed export.

@@ -20,7 +20,10 @@ command -v netgen >/dev/null || { echo "ERROR: netgen not installed - see lvs/lv
 OUT="$SIGNOFF_RESULTS/lvs_bb"; mkdir -p "$OUT"
 MACRO_LEF=$REPO_ROOT/asic/PnR/innovus/lef/sram_1rw1r_32_256_8_sky130.lef
 [ -r "$MACRO_LEF" ] || { echo "ERROR: rebadged macro LEF not found" >&2; exit 1; }
-TOP=$(grep -m1 -oE '^module +[A-Za-z_0-9]+' "$NET" | awk '{print $2}')
+# top = the one module that is neither a std-cell stub nor the SRAM macro (the
+# -includePhysicalInst netlist lists 226 leaf stubs first; picking the first
+# module extracted a lone diode_2 on 2026-09-05)
+TOP=$(grep -oE '^module +[A-Za-z_0-9]+' "$NET" | awk '{print $2}' | grep -vE '^(sky130_|sram_)' | tail -1)
 [ -n "$TOP" ] || { echo "ERROR: no module name in $NET" >&2; exit 1; }
 echo "top cell: $TOP (macros black-boxed)"
 
