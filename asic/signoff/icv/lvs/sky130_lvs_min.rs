@@ -80,8 +80,12 @@ pgate_01v8     = (pgate not hvtp) not lvtn; // sky130_fd_pr__pfet_01v8 (not used
 pgate_01v8_hvt = pgate and hvtp;          // sky130_fd_pr__pfet_01v8_hvt (all HD PMOS)
 
 // Connectivity (connect() page: layers connected through by_layer).
+// The gate layers must be in the connect database or nmos()/pmos() refuse to
+// compile ("layers must be connected", icv -cache-only 2026-09-05); the LVS guide
+// says the same (ch.4 MOSFETs: "The gate layer must be connected by using connect()").
 cdb = connect(
     connect_items = {
+        {layers = {poly, ngate_01v8, pgate_01v8, pgate_01v8_hvt}},
         {layers = {poly, li1},            by_layer = licon},
         {layers = {nsd, psd, li1},        by_layer = licon},
         {layers = {ptap, ntap, li1},      by_layer = licon},

@@ -1,3 +1,5 @@
+*.SCALE micron
+* one-cell copy of sky130_fd_sc_hd.cdl (PDK); *.SCALE line added 2026-09-05 for ICV NetTran
 .SUBCKT sky130_fd_sc_hd__inv_1 A VGND VNB VPB VPWR Y
 *.PININFO A:I VGND:I VNB:I VPB:I VPWR:I Y:O
 MMIN1 Y A VGND VNB nfet_01v8 m=1 w=0.65 l=0.15 mult=1 sa=0.265

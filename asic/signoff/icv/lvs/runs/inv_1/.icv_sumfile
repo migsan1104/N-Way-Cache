@@ -22,5 +22,6 @@
 Called as: icv -cache-only ../../sky130_lvs_min.rs
 
 Parsing finished
-Runset Compile Time=0:00:08 User=7.37 Sys=0.13 Mem=0.629 GB
+Saved runset to cache: /home/UFAD/miguel.sanchez1/.icvrscache/75cee4f7f9197a514c8db950ad178afa-D8A1BBD2-DC54-44E1-9EF8-77706FE8D983-ece-lnx-10-515270.rscache
+Runset Compile Time=0:00:08 User=7.47 Sys=0.15 Mem=0.632 GB
 
