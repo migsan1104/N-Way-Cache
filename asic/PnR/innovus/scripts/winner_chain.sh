@@ -124,6 +124,6 @@ TOPC=$(grep -m1 -oE '^module +[A-Za-z0-9_]+' "$RUN"/outputs/*_pnr.v | awk '{prin
 PATH=$HOME/.local/bin:$PATH klayout -b -r /apps/cds/IC618/local/opdk/share/pdk/sky130A/libs.tech/klayout/drc/sky130A_mr.drc \
   -rd input="$GDS" -rd top_cell="$TOPC" -rd report="$O/drc.lyrdb" -rd beol=true -rd feol=false -rd thr=16 > "$O/klayout.log" 2>&1
 echo "klayout items: $(grep -c '<item>' "$O/drc.lyrdb" 2>/dev/null) (classify vs macro boxes before judging)"
-$REPO/asic/signoff/lvs/run_lvs_bb.sh "$GDS" "$(ls "$RUN"/outputs/*_pnr.v | head -1)"
+$REPO/asic/signoff/lvs/run_lvs_bb.sh "$GDS" "$(ls "$RUN"/outputs/*_pnr_lvs.v "$RUN"/outputs/*_pnr.v 2>/dev/null | head -1)"   # prefer the PG+physical netlist (06_export netlist-lvs step)
 ( cd $REPO/asic/signoff/tempus && tempus -no_gui -files sta.tcl -log "$SIGNOFF_RESULTS/tempus/tempus_chain" )
 echo "== CHAIN COMPLETE: results under $SIGNOFF_RESULTS =="

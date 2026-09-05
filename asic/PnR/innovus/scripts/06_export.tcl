@@ -117,6 +117,14 @@ _step netlist {saveNetlist [pnr_out ${RUN_TAG}_pnr.v]}
 # since armC); fixed 2026-09-04.
 _step netlist-sim {saveNetlist -excludeLeafCell [pnr_out ${RUN_TAG}_pnr_sim.v]}
 
+# Netlist for LVS (2026-09-05): the plain _pnr.v has NO power pins and no
+# physical instances, so netgen saw 1.4 M schematic nets vs 380 k in the
+# layout and "(no matching pin)" VPWR/VGND on every cell (iter16b lvs_bb,
+# 09-04). -includePowerGround puts VPWR/VGND/VPB/VNB on every instance and the
+# PG ports on the module; -includePhysicalInst adds the fill/decap/tap
+# instances the layout extraction sees. Used by signoff/lvs/run_lvs_bb.sh.
+_step netlist-lvs {saveNetlist -includePowerGround -includePhysicalInst [pnr_out ${RUN_TAG}_pnr_lvs.v]}
+
 _step sdf {write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]}
 
 # Constraints AS IMPLEMENTED, one per analysis view (2026-09-01). This is the

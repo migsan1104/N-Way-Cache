@@ -57,3 +57,28 @@ stage-06 merged GDS (the export script merges since 2026-08-30).
 
 Not yet run on a full design. Order of work: fix the name map → rerun the
 macro-only shakedown until it passes → run on the v3 winner's merged GDS.
+
+## 2026-09-04/05 — first full black-box run on iter16b, and why it could not match
+
+Run: `run_lvs_bb.sh` inside the export chain, 18:24 magic extract (bb) ->
+19:11 spice (88 MB) -> netgen 19:12-00:55 (killed by hand). comp.out at
+22:55: "Circuit 1 contains 250939 devices, Circuit 2 contains 250938 devices"
+(cells, hierarchical compare — within one), but "380,580 nets vs 1,417,182
+nets" and `VPWR | (no matching pin)`, `VGND | (no matching pin)` on every
+cell class. Cause: `06_export.tcl`'s `_pnr.v` is written by a plain
+`saveNetlist`, which omits power/ground pins and physical instances; the
+layout side has VPWR/VGND/VPB/VNB on every cell, so netgen sees each
+implicit supply pin as its own unconnected net (250 k cells x 4). The
+decap/fill/tap cells were "flattened as unmatched subcells" for the same
+reason (absent from the Verilog). The 2026-08-28 "macro name mismatch" did
+NOT recur: the layout spice carries `sram_1rw1r_32_256_8_sky130` with 9
+devices inside the black box (expect ~0; look at those 9 next time).
+
+Fix (2026-09-05 01:00): `06_export.tcl` gains a `netlist-lvs` step —
+`saveNetlist -includePowerGround -includePhysicalInst` -> `*_pnr_lvs.v`;
+`winner_chain.sh` and `run_lvs_bb.sh` prefer `*_pnr_lvs.v` when it exists.
+The chain relaunched from `07_li1fix.enc` (li1 PG removed; tmux
+`chain_16b_li1`, log `logs/chain_li1_sh.log`) produces the first netlist
+that can match. Expected next failures, in order: the 9 in-macro devices,
+supply-net naming (VDD/VSS vs VPWR/VGND at the top level), then real
+opens/shorts if any.

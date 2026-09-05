@@ -12,7 +12,9 @@ set -euo pipefail
 #             <repo>/asic/signoff/lvs/run_lvs_bb.sh [gds] [netlist.v]'
 HERE=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 GDS="${1:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*.gds 2>/dev/null | head -1)}"
-NET="${2:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*_pnr.v 2>/dev/null | grep -v _sim | head -1)}"
+# Prefer the LVS netlist (PG pins + physical instances, 06_export netlist-lvs);
+# the plain _pnr.v has no power pins and cannot match (2026-09-05, lvs.md).
+NET="${2:-$(ls "$SIGNOFF_PNR_DIR"/outputs/*_pnr_lvs.v "$SIGNOFF_PNR_DIR"/outputs/*_pnr.v 2>/dev/null | grep -v _sim | head -1)}"
 [ -r "${GDS:-}" ] && [ -r "${NET:-}" ] || { echo "ERROR: need GDS and *_pnr.v" >&2; exit 1; }
 command -v netgen >/dev/null || { echo "ERROR: netgen not installed - see lvs/lvs.md" >&2; exit 1; }
 OUT="$SIGNOFF_RESULTS/lvs_bb"; mkdir -p "$OUT"
