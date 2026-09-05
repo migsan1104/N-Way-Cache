@@ -301,3 +301,26 @@ current over 24-48 straps and relieve both. With real limits the ratio may
 move 2x either way; the location will not. Results:
 `results/<stamp>/voltus_em_screen/`. Sheet wording: "EM screened against
 assumed limits, worst J/Jmax 4.5 at the hub corner feeds".
+
+## What-if straps, width sweep (2026-09-04 20:32-21:15) - the iter17 fallback
+
+Knob `VOLTUS_WHATIF_M5_WIDTH` added to `static_rail.tcl` (default 2). Same
+setup as the pitch sweep above (iter16b `06_final.enc`, ring as supply,
+macros excluded, 100 C grid). Worst drop = 1.760 V minus the reported
+minimum node voltage (VDD) / the reported maximum (VSS).
+
+| met5 straps | VDD worst | VSS worst | met5 track share |
+|---|---|---|---|
+| none (baseline) | 119 mV | 121 mV | 0 |
+| 2 um @ 120 um | 65 mV | 66 mV | ~6 % |
+| **2 um @ 60 um (iter17 as launched)** | **47 mV** | **48 mV** | ~13 % |
+| 4 um @ 120 um | 49 mV | 50 mV | ~10 %, half the strap count |
+| 4 um @ 60 um | 33 mV | 33 mV | ~20 % |
+
+Budget 53 mV. iter17's early-global-route table showed met5 over-capacity
+at 7.9 % of gcells vs 0.8 % in iter16b (DRC.md "iter17 early signal"): if
+the route gate confirms met5 contention, 4 um @ 120 um is the fallback that
+still meets the budget with half as many straps crossing the routing;
+4 um @ 60 um is the headroom option for when the macro current (excluded
+here) is finally in the solve. Results:
+`results/<stamp>/voltus_whatif_m5p{120,60}w4/`.

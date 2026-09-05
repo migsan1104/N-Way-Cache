@@ -1253,3 +1253,21 @@ LVS reading `outputs/` finish), KLayout BEOL again, and compare the in-macro
 `li.3` count — the drop measures how much the old waiver was hiding. iter17
 keeps running (defect is PG-only and orthogonal to its route-gate question);
 it gets the same ECO at export.
+
+**li1 ECO result (21:05, `07_li1fix.enc`, `reports/li1_eco/`):** 370 li1
+sWires and their `L1M1_PR_*` sVias deleted, 0 remain. PG connectivity after:
+unconnected terminals = the VNB MASTERSLICE artefact only (same class as
+before) + the 1 macro-internal `gnd`; dangling wires = the same 105 met4 VDD
+stripe-end stubs as before + **42 new met1 VDD rail-end stubs** (the rail
+ends where the li1 via stack used to be; benign, trim at export if wanted).
+Lesson learned the hard way: the vendor LEF is symlinked from every
+checkpoint's `libs/lef/`; editing it in place breaks every restore
+(IMPIMEX-7024). The li1 OBS therefore lives in a generated variant
+(`scripts/make_li1obs_lef.py` -> `lef/*_li1obs.lef`, use via
+`ASIC_SRAM_MACRO_LEF`); the vendor file was reverted byte-exact and its
+mtime restored.
+
+**Fallback sizing measured (21:15, voltus.md width sweep):** 4 um @ 120 um
+= 49 / 50 mV (meets 53), 4 um @ 60 um = 33 / 33 mV. So option (a) above is
+validated before the route gate: half the strap count at the same metal
+share, still inside budget.

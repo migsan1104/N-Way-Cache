@@ -164,3 +164,16 @@ Verdict for the sheet: **BEOL geometry clean on routing layers except one
 met3 spacing item at a macro edge**; the endcap mcon column is a
 placement-boundary artefact to triage, not a routing failure. iter14 for
 comparison: 297 outside / 9 routing-layer.
+
+## 2026-09-04 20:53 — KLayout FEOL pass, iter16b GDS: 0 items
+
+`sky130A_mr.drc` with `feol=true beol=false` (the complement of the 18:24
+run), 16 threads, 20:32-20:53 (21 min vs 4.6 h for BEOL): **0 items**
+(`results/<stamp>/klayout_drc_feol/`). Standard cells, fill/decap and the
+vendor macro are foundry-clean at the front end and P&R adds no FEOL
+geometry, so a clean result is the expected one; the short runtime is the
+FEOL section's smaller rule set on the same 2.5 M flat polygons. The
+"BEOL only" caveat on the signoff sheet is closed. NOTE the BEOL in-macro
+waiver is under re-examination after the li1 finding (DRC.md "li1 under
+the macros"): the BEOL run must be repeated on the re-exported GDS from
+`07_li1fix.enc`.
