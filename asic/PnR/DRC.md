@@ -1433,3 +1433,27 @@ SI-aware Tempus relaunched 20:34 on the li1 export at both corners, 4.0 ns
 `tempus_li1_si`; `run_si_pass.sh` gained `SIGNOFF_TAG_SUFFIX` so these
 cannot overwrite Friday's `*_si` signoff dirs (a first launch without it was
 killed within a minute; Friday's reports verified intact).
+
+### 300 MHz what-if on the li1-fixed iter16b package (2026-09-05 20:34-21:18, SI-aware Tempus, Quantus SPEF)
+
+Same layout, as-implemented SDC with the clock rewritten to 3.333 ns
+(`SIGNOFF_PERIOD`), I/O budgets unchanged at input_delay 0.700 / output_delay
+0.300 ns (absolute, not scaled). Results dirs `tempus_<corner>_d1.5_si_li1`
+(4.0 ns refresh) and `tempus_<corner>_d1.5_si_li1_p3.333`.
+
+| corner | period | reg2reg | reg2out | worst in2reg | hold | violators |
+|---|---|---|---|---|---|---|
+| ss_n40C_1v76 x1.5 (campaign) | 4.000 | +1.593 | +0.917 | clean | +0.010 | 0 (= Friday, li1 ECO changed nothing on signal nets) |
+| ss_100C_1v60 x1.5 | 4.000 | +1.022 | +0.499 | clean | +0.010 | 0 (= Friday) |
+| ss_n40C_1v76 x1.5 (campaign) | **3.333** | **+0.926** | +0.250 | clean | +0.011 | **0** |
+| ss_100C_1v60 x1.5 | **3.333** | **+0.355** | -0.084 | **-0.457** (`GEN_WAYS[0].rindex_rep_r_reg/D`, S0 address decode) | +0.011 | 37, all I/O group |
+
+Reading: the core closes 300 MHz at both slow corners with crosstalk on a
+layout that was optimised for 4.0 ns. Only the I/O group misses, only at
+the slow corner, and by less than half a nanosecond under a 0.7 ns input
+delay assumption the layout was never optimised against (at 4.0 ns those
+paths had 0.5-0.9 ns to spare, so place_opt left them alone). iter19b (P&R
+at 3.333 ns, same floorplan) is the direct answer: the optimiser will work
+those 37 endpoints. Honest claim available today: "signed-off layout meets
+300 MHz reg2reg at both ss corners with SI; I/O closes at the campaign
+corner." Claim after iter19b, if it legalises: "designed and closed at 300 MHz."
