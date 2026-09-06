@@ -1167,7 +1167,7 @@ at 4.0 ns with hold >= +0.010. Fails badly -> iter16b stays the 9/13 package.
 | 16c | 3 ns probe | clock 3.0 ns + campaign corner (vs 16b, same floorplan) | raw CTS -3.152 / after postCTS opt -3.002 reg2reg (density 50.5 %) | **11** (16b: 38) at the gate, 20:05; halted before post-route opt | **routed at 3 ns**: router timer post-route reg2reg **+1.857** (0 of 62,411 paths), I/O group -1.992 x106; hold unfixed -0.388 reg2reg / -3.573 I/O (gate halt precedes hold opt). 5 h 15 min on 16 CPUs |
 | 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | setup -1.796 reg2reg, hold 0.000 (16b -2.176) | **134,154** (met2 52 %, shorts 79 %, 67 % in three ring corners, 2.6 % in bodies) | gate FAIL 23:05 — corner pockets shrank 151 -> 111 um (EDGE 80 on die 2900) with the body escape blocked; post-route reg2reg **+1.246** (best yet). Straps NOT the DRC driver (met5 < 1 %) |
 | 17b | die 2980 | die 2900 -> 2980 (vs 17; corner pockets back to 151 um), + li1 fixes (li1-OBS LEF, bounded sroute) | postCTS -1.587 reg2reg, hold 0.000 | **84,316** at the gate 04:25 (met2 59 %, shorts 80 %, **93 % in the four ring corners**, 0 in bodies of note) | gate FAIL — pockets back to 151 um cut markers only 37 %; corner shorts are 98 % `FE_OFN*` buffered signal nets = wedge/hub crossing traffic with no path over the bodies. Router timer post-route reg2reg **+1.498** (best), I/O -1.337, hold -0.352 r2r / -3.217 I/O unfixed |
-| 18 | met4 open | `ASIC_FP_MACRO_BLK_LAYERS="met1 met2 met3"` (vs 17b; met4 threading over the bodies allowed again, LEF has no met4 OBS) | launched 09-05 15:11, tmux `iter18`, gate ~20:00 | — | pending |
+| 18 | met4 open | `ASIC_FP_MACRO_BLK_LAYERS="met1 met2 met3"` (vs 17b; met4 threading over the bodies allowed again, LEF has no met4 OBS) | postCTS -2.295 reg2reg, hold +0.001 (17b -1.587) | **64,798** at the gate 20:08 (met2 54 %, shorts 79 %, **87 % in the four ring corners**, 40 % in the top-right corner alone) | gate FAIL — opening met4 removed 23 % of markers and none of the pattern; corner shorts still 94 % `FE_*` crossing nets. Router timer post-route reg2reg +1.316 (17b +1.498), I/O -1.100, hold -0.208 r2r / -3.013 I/O unfixed. **Verdict on the fp_iter17 family: the corner convergence is a floorplan-geometry problem (wedge<->hub traffic with only four gaps), not a die-size or blockage-layer knob.** |
 
 
 ### KLayout on the iter16b package (18:24)
@@ -1364,3 +1364,45 @@ spice (pre-fix GDS) in `lvs_bb/old_gds_20260904/`. Relaunched 19:47 in tmux
 `lvs_16b_li1` (log `runs/<16b>/logs/lvs_li1_sh.log`); magic extraction of
 the full design took ~25 h on armC, so the netgen verdict is a Sunday item.
 Tempus (chain step 4, third leg) is running on the li1-fixed export.
+
+### iter18 gate autopsy (2026-09-05 20:08) — the corners are the floorplan, not a knob
+
+Run `20260905_iter18_e35_fp17_die2980_blkm123_1v76` = iter17b knobs +
+`ASIC_FP_MACRO_BLK_LAYERS="met1 met2 met3"` (launch.sh in the run dir).
+Stage-05 gate: **64,798** markers in `05_route.enc` (17b 84,316; 17
+134,154). Layers met2 34,887 / met3 11,828 / met1 11,178 / met4 6,260 /
+met5 520; Metal_Short 51,209 / PRL spacing 12,894 / min-area 546. Location:
+corner pockets 56,536 (87 %), outer ring band 3,577, everything else 4,685;
+the top-right corner square (2200-2600 x 2200-2600) alone holds 26,149
+(40 %), worst bin (2200,2200) 10,312. Corner net census: 104,507 `FE_*`
+buffer nets, 4,836 other signal, 1,381 clock, 37 PG, 4 macro pins - same
+signature as 17b. NanoRoute GR overflow 2.06 % H / 2.70 % V (17b 2.30 /
+2.99); route congestion at the CTS stage was mixed (H better, V worse).
+Timing: post-CTS -2.295 reg2reg (17b -1.587), router-timer post-route
+reg2reg **+1.316** (17b +1.498, 17 +1.246, 16b +0.916), I/O -1.100 (17b
+-1.337), hold -0.208 reg2reg / -3.013 I/O before any hold fix.
+
+Reading across 17 -> 17b -> 18: die +80 um took 37 % of the markers, met4
+open took another 23 %, and the corner share stayed at 93 % / 87 %. Three
+one-variable steps, same picture: the wedge<->hub crossing traffic has only
+the four corner gaps once the macro interiors are closed, and no knob of the
+fp_iter17 family changes that topology. iter16b's ring was viable only
+because the router threaded 300-720 nets through every macro body (illegal
+in spirit, 38 markers to legalise). The met5 straps, the li1-OBS LEF and the
+bounded sroute are all independent of this and worked in every run since 17
+(met5 < 1 % of markers; Voltus what-if 47/48 mV).
+
+Options for the 9/13 package, in the order I would take them:
+1. **iter19 = fp_iter16 (iter16b recipe, unflipped macros, edge 40, no
+   blockages) + met5 straps + li1-OBS LEF + bounded sroute, 4.0 ns, campaign
+   corner.** One variable vs 16b (the PDN, plus the two li1 hygiene items the
+   package needs anyway). Expected: ~38-100 markers at the gate like 16b/16c,
+   the 16b legalisation recipe, and an IR number that meets 53 mV. This is
+   the shortest path to a package with IR fixed.
+2. **iter19b = the same at 3.333 ns** in parallel (16c routed the same
+   floorplan at 3.0 ns with 11 markers), for the 300 MHz claim; independent
+   candidate, not a variable of iter19.
+3. The fp_iter17 family goes post-9/13 with a real fix: open a channel for
+   the crossing traffic (split the ring rows, or move the corner macros so
+   the pockets become 300+ um), not more knobs.
+Not launched; user decision requested 20:15 (push sent).
