@@ -115,3 +115,38 @@ sides; one layout pair parallel-merged?), and the net-count gap, which
 netgen had not reached yet. Run 2 artefacts: `lvs_bb/run2_nopins_20260905/`;
 the 19:42 misrun (top cell = first `module` = diode_2 stub):
 `lvs_bb/misrun_diode_20260905/`. Run 3 launched 22:50 (tmux `lvs_16b_li1`).
+
+### Run 3 (2026-09-06 01:50) - pins present, still "failed pin matching"; ROOT CAUSE = macro not black-boxed
+
+Devices 250,940 vs 250,941 (the ignore-class fix closed the 4-gap; the last one
+is a parallel-merged diode_2 pair), classes equivalent, nets 256,094 vs
+267,867, `Top level cell failed pin matching`. The DEF labels were placed
+correctly (KLayout probe: every label point sits on the pin's met and pin
+shape; the GDS *does* carry pin-purpose shapes on datatype 16, just no text),
+but the layout subckt had **200 ports, not 216**, 30 schematic ports showed
+"(no pin, node is FE_OFN...)" and 28 mem_req_addr/wdata bits cross-matched.
+
+The tell was in the layout spice: **every standard cell had one node on all
+four of VPWR/VGND/VPB/VNB, named `mem_resp_rdata[15]`** (981k instance
+lines touch it). Power and ground are one net in magic's view, and the 16
+missing ports (cpu_req_addr[2..6,17,26,27], cpu_req_valid, cpu_req_id[1],
+cpu_req_wdata[29], cpu_resp_rdata[30], mem_resp_rdata[12,13,25,30]) plus
+mem_resp_rdata[15] all sit on that blob. The macro subckt in the layout had
+**918 ports and the OpenRAM internals** (Xbank_0, Xcontrol_logic_*, Xdata_dff,
+...): `lef read` + `gds noduplicates true` did NOT keep the LEF abstract
+(magic only warned "cell ... already existed before reading GDS!"), and
+magic's extraction of the OpenRAM cells shorts vdd/gnd/signal terminals
+(816 "Ports X and Y are electrically shorted" warnings: gnd-gnd, vdd-S,
+D-vdd, A-G ...). Through 16 macros that merged VPWR+VGND and every net on
+a macro pin - which includes the top-level pins wired straight into the SRAM
+address/data ports (S0 drives `array_rindex` combinationally). Everything
+else in the pin report is cascade from that.
+
+Fix (run 4, launched 17:55 tmux `lvs_16b_bb4`): `blackbox_macros_gds.py`
+(KLayout) rewrites the GDS before magic - the macro cell is emptied, its
+old subcells pruned, and refilled with the LEF PIN rects on datatype 20 plus
+a pin-name text on datatype 16 (the sky130A magic tech reads `METnPIN` text
+as a *port*; datatype 5 would be a plain label). 123 pins, 5,331 rects, no
+two pins touch on a layer (checked), 445k OBS rects dropped. `run_lvs_bb.sh`
+now does this by default (`ASIC_LVS_BB_GDS=0` = old lef-read path) and no
+longer `lef read`s. Run 3 artefacts: `lvs_bb/run3_pins_20260905/`.

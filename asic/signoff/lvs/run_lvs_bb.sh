@@ -34,10 +34,32 @@ DEF=$(ls "$(dirname "$GDS")"/*_pnr.def 2>/dev/null | head -1)
 [ -r "${DEF:-}" ] || { echo "ERROR: no *_pnr.def next to $GDS (needed for pin labels)" >&2; exit 1; }
 python3 "$HERE/def_pins_to_magic.py" "$DEF" > "$OUT/pins.tcl" || { echo "ERROR: def_pins_to_magic failed" >&2; exit 1; }
 echo "pin labels from DEF: $(grep -c '^label' "$OUT/pins.tcl")"
+# Macro black-boxing (2026-09-06, lvs.md run 3): `lef read` + `gds
+# noduplicates true` did NOT keep the LEF abstract - the extracted macro had
+# 918 ports and the OpenRAM internals, whose extraction shorts vdd/gnd/signals
+# and merged VPWR+VGND+17 top pins into one node. Rewrite the GDS first so the
+# macro cell holds only LEF pin rects + port labels (blackbox_macros_gds.py,
+# KLayout, ~3 min); ASIC_LVS_BB_GDS=0 falls back to the old lef-read path.
+READ_GDS=$GDS; LEF_READ="lef read $MACRO_LEF"; BB_ABSTRACT="# (lef-read path: cell is already an abstract view)"
+if [ "${ASIC_LVS_BB_GDS:-1}" = "1" ]; then
+  READ_GDS="$OUT/$(basename "${GDS%.gds}")_bb.gds"
+  klayout -b -r "$HERE/blackbox_macros_gds.py" -rd IN="$GDS" -rd LEF="$MACRO_LEF" -rd OUT="$READ_GDS" > "$OUT/blackbox_gds.log" 2>&1 \
+    || { tail -5 "$OUT/blackbox_gds.log"; echo "ERROR: blackbox_macros_gds failed" >&2; exit 1; }
+  grep -E '^LEF|^macro' "$OUT/blackbox_gds.log"
+  LEF_READ="# macro abstract already in the GDS (blackbox_macros_gds.py)"
+  # magic flattens a device-less cell into its parent (run 4, 2026-09-06: the
+  # 16 macro instances vanished from the spice). Flag the cell as an abstract
+  # view and `ext2spice blackbox on` writes it as an empty .subckt + X calls
+  # (verified on a scratch cell, magic 8.3.509).
+  MACRO_NAME=$(grep -m1 -oE '^MACRO +\S+' "$MACRO_LEF" | awk '{print $2}')
+  BB_ABSTRACT="load $MACRO_NAME
+property LEFview TRUE"
+fi
 cat > "$OUT/extract.tcl" <<EOT
-lef read $MACRO_LEF
+$LEF_READ
 gds noduplicates true
-gds read $GDS
+gds read $READ_GDS
+$BB_ABSTRACT
 load $TOP
 select top cell
 if {[box values] eq "0 0 0 0"} { puts "TOP_CELL_ERROR: $TOP is empty"; quit -noprompt }
@@ -47,10 +69,11 @@ extract do local
 extract unique
 extract
 ext2spice lvs
+ext2spice blackbox on
 ext2spice -o $OUT/$TOP.gds.spice
 quit -noprompt
 EOT
-echo "magic extract (bb): $GDS"
+echo "magic extract (bb): $READ_GDS"
 $MAGIC_RUN -dnull -noconsole -rcfile "$SKY130_MAGICRC" "$OUT/extract.tcl" > "$OUT/magic_extract.log" 2>&1 || { tail -20 "$OUT/magic_extract.log"; exit 1; }
 grep -qE "couldn't be read|TOP_CELL_ERROR" "$OUT/magic_extract.log" && { echo "ERROR: missing/empty cell" >&2; exit 1; }
 [ -s "$OUT/$TOP.gds.spice" ] || { echo "ERROR: no spice produced" >&2; exit 1; }

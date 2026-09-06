@@ -1457,3 +1457,37 @@ at 3.333 ns, same floorplan) is the direct answer: the optimiser will work
 those 37 endpoints. Honest claim available today: "signed-off layout meets
 300 MHz reg2reg at both ss corners with SI; I/O closes at the campaign
 corner." Claim after iter19b, if it legalises: "designed and closed at 300 MHz."
+
+## 2026-09-06 (Sun) — iter19 legalize campaign: four recipes, one floor (52)
+
+iter19 (fp_iter16 + met5 straps 2 µm @ 60 µm + li1obs LEF, 4.0 ns) gated at
+**52** markers; iter19b (3.333 ns) at 18. Population of the 52 (stable across
+every attempt below): ~20 met4 signal-signal shorts in the NE ring-corner
+gap between way1-bank3 and way3-bank3 (x 2318–2410, y 2325–2400), ~14 met4
+shorts/spacing on SRAM **vdd/gnd strap pins** of way0/way1 bank3 (the LEF
+has no met4 OBS, only 629 strap pins 0.38 wide at ~0.68 pitch, so signals
+thread between them), 4 MINWIDTH met5 VDD stubs at x 810/1226/1643/2059
+y≈2776 + the NSMETAL VSS via at (922, 2860), 3 met1 at (370, 2179).
+
+| attempt | recipe (`scripts/legalize_route.tcl` / `legalize_targeted.tcl`) | result |
+|---|---|---|
+| 1 | 16b fix7: met4 rBlkgs over all 16 macro bodies + incremental `routeDesign`, TD+SI on | 63 |
+| 2 | same, no blockages, TD/SI off | 55 (incremental detail route stalls at 22, antenna-fix phase climbs to 46) |
+| 3 | full `routeDesign` from 04_cts.enc, TD/SI/antenna off | 158 (main route 216 at iter 19 vs 164 in the original) |
+| 4 | 16b fix3: rip up the 45 marker nets, met4 rBlkgs over the 2 macros, `routeSelectedNetOnly`, then `ecoRoute -target` | 52 → 52, plateau |
+
+Reading: the original stage-05 route is already the router's best on this
+database; the "0 before the timing-driven pass" seen in the logs is the
+clock pre-pass, not the signal route. iter16b (identical floorplan, no
+straps) closed with the fix2–fix10 sequence, so the straps are the delta:
+their met5 tracks and the met5→met4 via stacks at every ring/pin crossing
+take the NE corner over its routability limit. Voltus what-ifs on 16b
+(worst VDD drop, 1.76 V supply): none 119 mV, 2µm@60 47, 4µm@60 33,
+2µm@120 65, **4µm@120 49 (meets)** → iter20 launched 18:53 = iter19 knobs
+with `ASIC_PG_STRIPE_H_PITCH=120 WIDTH=4`, `ASIC_DRC_GATE=100` so a small
+residual proceeds to post-route opt (`runs/20260906_iter20_*`). Checkpoints:
+`05_route.enc` (52, best), `05_legal_targeted.enc` (52), `05_legal_route.enc`
+(attempt 3, 158 — do not use). Lessons: Innovus `-log` does not capture Tcl
+`puts` (results go to `reports/legalize/*.txt`); `tmux new-session` runs from
+the tmux server's environment (knobs must be embedded in the command);
+`pkill -f <pattern>` matches the calling shell — use `[p]attern`.
