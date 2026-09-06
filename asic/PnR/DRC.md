@@ -1168,6 +1168,8 @@ at 4.0 ns with hold >= +0.010. Fails badly -> iter16b stays the 9/13 package.
 | 17 | fp_iter17 + met5 straps | flip + margin 80 + macro route blockages + horizontal met5 PDN (vs 16b, 4.0 ns) | setup -1.796 reg2reg, hold 0.000 (16b -2.176) | **134,154** (met2 52 %, shorts 79 %, 67 % in three ring corners, 2.6 % in bodies) | gate FAIL 23:05 — corner pockets shrank 151 -> 111 um (EDGE 80 on die 2900) with the body escape blocked; post-route reg2reg **+1.246** (best yet). Straps NOT the DRC driver (met5 < 1 %) |
 | 17b | die 2980 | die 2900 -> 2980 (vs 17; corner pockets back to 151 um), + li1 fixes (li1-OBS LEF, bounded sroute) | postCTS -1.587 reg2reg, hold 0.000 | **84,316** at the gate 04:25 (met2 59 %, shorts 80 %, **93 % in the four ring corners**, 0 in bodies of note) | gate FAIL — pockets back to 151 um cut markers only 37 %; corner shorts are 98 % `FE_OFN*` buffered signal nets = wedge/hub crossing traffic with no path over the bodies. Router timer post-route reg2reg **+1.498** (best), I/O -1.337, hold -0.352 r2r / -3.217 I/O unfixed |
 | 18 | met4 open | `ASIC_FP_MACRO_BLK_LAYERS="met1 met2 met3"` (vs 17b; met4 threading over the bodies allowed again, LEF has no met4 OBS) | postCTS -2.295 reg2reg, hold +0.001 (17b -1.587) | **64,798** at the gate 20:08 (met2 54 %, shorts 79 %, **87 % in the four ring corners**, 40 % in the top-right corner alone) | gate FAIL — opening met4 removed 23 % of markers and none of the pattern; corner shorts still 94 % `FE_*` crossing nets. Router timer post-route reg2reg +1.316 (17b +1.498), I/O -1.100, hold -0.208 r2r / -3.013 I/O unfixed. **Verdict on the fp_iter17 family: the corner convergence is a floorplan-geometry problem (wedge<->hub traffic with only four gaps), not a die-size or blockage-layer knob.** |
+| 19 | 16b + straps | fp_iter16 recipe (iter16c knobs minus the 3 ns SDC) + met5 straps 2 um @ 60 um + li1-OBS LEF + bounded sroute, 4.0 ns, campaign corner, 16 CPUs (vs 16b: the PDN; li1 items are hygiene the package needs anyway) | launched 09-05 20:27, tmux `iter19`, run `20260905_iter19_e35_fp16_die2900_straps_1v76`, gate ~01:30 | — | pending — 9/13 package candidate with IR fixed |
+| 19b | 19 @ 3.333 ns | same as 19 with `constraints/pnr_3p333ns.sdc` (300 MHz); independent candidate, not a variable of 19 (16c routed this floorplan at 3.0 ns with 11 markers) | launched 09-05 20:29, tmux `iter19b`, run `20260905_iter19b_e35_fp16_die2900_straps_p3333_1v76`, gate ~01:30 | — | pending — "designed at 300 MHz" candidate |
 
 
 ### KLayout on the iter16b package (18:24)
@@ -1406,3 +1408,28 @@ Options for the 9/13 package, in the order I would take them:
    the crossing traffic (split the ring rows, or move the corner macros so
    the pockets become 300+ um), not more knobs.
 Not launched; user decision requested 20:15 (push sent).
+
+### Iterations 19 / 19b launched (2026-09-05 20:27 / 20:29) — back to the proven ring, add the PDN fix
+
+User decision 20:25 after the iter18 autopsy: the 9/13 package goes on the
+fp_iter16 floorplan, which legalises (16b: 38 -> 0 in ten passes; 16c at
+3 ns: 11), and takes the three items every run since iter17 has proven
+independent of the corner problem: met5 horizontal straps (Voltus what-if
+47/48 mV vs 53 budget; < 1 % of DRC markers), the li1-OBS macro LEF and the
+met1-met4 bounded sroute (the li1 PG-under-macro finding). Both runs are
+built by `scripts/launch_from_knobs.sh` from iter16c's `knobs.txt` (campaign
+corner, 16 CPUs) with `ASIC_PNR_SDC` pointed at `pnr.sdc` (4.0 ns) for 19
+and at the new `pnr_3p333ns.sdc` for 19b, plus the strap and LEF knobs;
+`runs/<stamp>/launch.sh` is the record. Gate criteria = iter16b's: tens of
+markers, legalisable with the 16b recipe; then Voltus static IR on the
+routed DB (the number that closes the IR item), then the chain.
+
+16b li1 package chain COMPLETE 19:45 (CHAIN_LI1_EXIT=0): KLayout 3 items
+outside the macros (above), LVS bb relaunched separately after the top-cell
+fix (tmux `lvs_16b_li1`), Tempus non-SI at n40C_1v76: reg2reg +2.284,
+reg2out +1.192, hold +0.018, no violators (not the signoff number - no SI).
+SI-aware Tempus relaunched 20:34 on the li1 export at both corners, 4.0 ns
+(tags `*_si_li1`) and 3.333 ns what-if (tags `*_si_li1_p3.333`), tmux
+`tempus_li1_si`; `run_si_pass.sh` gained `SIGNOFF_TAG_SUFFIX` so these
+cannot overwrite Friday's `*_si` signoff dirs (a first launch without it was
+killed within a minute; Friday's reports verified intact).

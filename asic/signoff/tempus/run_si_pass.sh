@@ -17,7 +17,7 @@ source $REPO/asic/signoff/env.sh
 for spec in "${CORNERS[@]}"; do
   corner=${spec%%:*}; derate=${spec#*:}; [ "$derate" = "$spec" ] && derate=1.5
   lib=$PDK/sky130_fd_sc_hd/lib/sky130_fd_sc_hd__${corner}.lib
-  tag="${corner}_d${derate}_si"
+  tag="${corner}_d${derate}_si${SIGNOFF_TAG_SUFFIX:-}"   # SIGNOFF_TAG_SUFFIX keeps what-ifs (SIGNOFF_PERIOD) and re-exports from overwriting a signoff dir (2026-09-05)
   export ASIC_SIGNOFF_LIB=$lib ASIC_SRAM_MACRO_DERATE=$derate SIGNOFF_TEMPUS_TAG=$tag
   out=$SIGNOFF_RESULTS/tempus_$tag; mkdir -p "$out"
   echo "== TEMPUS-SI corner=$corner macro_derate=x$derate -> $out  ($(date))"
