@@ -114,4 +114,4 @@ Still to explain after run 3: the diode_2 class 6 vs 7 (7 instances both
 sides; one layout pair parallel-merged?), and the net-count gap, which
 netgen had not reached yet. Run 2 artefacts: `lvs_bb/run2_nopins_20260905/`;
 the 19:42 misrun (top cell = first `module` = diode_2 stub):
-`lvs_bb/misrun_diode_20260905/`. Run 3 launched 23:20 (tmux `lvs_16b_li1`).
+`lvs_bb/misrun_diode_20260905/`. Run 3 launched 22:50 (tmux `lvs_16b_li1`).
