@@ -82,3 +82,36 @@ The chain relaunched from `07_li1fix.enc` (li1 PG removed; tmux
 that can match. Expected next failures, in order: the 9 in-macro devices,
 supply-net naming (VDD/VSS vs VPWR/VGND at the top level), then real
 opens/shorts if any.
+
+## 2026-09-05 evening: first full black-box compare, two setup defects found and fixed
+
+Run 2 on the li1-fixed export (`outputs/*_pnr_lvs.v`, saveNetlist
+-includePowerGround -includePhysicalInst): magic extraction of the whole
+design took **90 min** (not the 25 h of the armC attempt), netgen 30 min.
+Result: `Circuit 1 contains 250940 devices, Circuit 2 contains 250944` and
+**"Device classes ... are equivalent"**, then `Top level cell failed pin
+matching` and 256,094 vs 267,867 nets. Two causes, neither a layout error:
+
+1. **The GDS has no pin text.** `grep -a cpu_req_valid Cache_*.gds` = 0, so
+   magic's top cell had an empty port list (`.subckt Cache_... ` with no
+   ports) and every schematic port shows as "(no pin, node is <inst>)".
+   Fix: `def_pins_to_magic.py` reads the DEF PINS section (216 pins, layers
+   met1-met4, orientations N/E/S) and emits `box`/`label {name} center
+   <layer>`/`port make` for each; `run_lvs_bb.sh` sources it after `select
+   top cell`. Notes from the scratch test: bus names must be braced (Tcl
+   sees `[31]` as a command), and `port makeall` converted only the label
+   under the current box, so `port make` is issued per label. Verified on a
+   painted scratch cell: all 216 names appear as subckt ports.
+2. **Device-less physical cells.** The netlist instantiates fill_1 x4,
+   fill_2 x196,802, tapvpwrvgnd_1 x153,805; magic extracts them as empty
+   subcells and drops them, netgen keeps the Verilog stubs as classes ->
+   the 4-device difference (fill_1, fill_2, tap, and one diode_2 group).
+   Fix: `netgen_setup_bb.tcl` = PDK setup + `ignore class` for
+   fill_1/2/4/8 and tapvpwrvgnd_1 in both circuits. Decaps have real MOS
+   devices and matched (decap_12: 68,509 both sides).
+
+Still to explain after run 3: the diode_2 class 6 vs 7 (7 instances both
+sides; one layout pair parallel-merged?), and the net-count gap, which
+netgen had not reached yet. Run 2 artefacts: `lvs_bb/run2_nopins_20260905/`;
+the 19:42 misrun (top cell = first `module` = diode_2 stub):
+`lvs_bb/misrun_diode_20260905/`. Run 3 launched 23:20 (tmux `lvs_16b_li1`).

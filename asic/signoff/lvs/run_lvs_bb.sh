@@ -27,6 +27,13 @@ TOP=$(grep -oE '^module +[A-Za-z_0-9]+' "$NET" | awk '{print $2}' | grep -vE '^(
 [ -n "$TOP" ] || { echo "ERROR: no module name in $NET" >&2; exit 1; }
 echo "top cell: $TOP (macros black-boxed)"
 
+# Top-level pin labels: the streamOut GDS carries no pin text (2026-09-05),
+# so netgen failed "Top level cell failed pin matching" with an empty port
+# list. Rebuild them from the DEF PINS section (def_pins_to_magic.py).
+DEF=$(ls "$(dirname "$GDS")"/*_pnr.def 2>/dev/null | head -1)
+[ -r "${DEF:-}" ] || { echo "ERROR: no *_pnr.def next to $GDS (needed for pin labels)" >&2; exit 1; }
+python3 "$HERE/def_pins_to_magic.py" "$DEF" > "$OUT/pins.tcl" || { echo "ERROR: def_pins_to_magic failed" >&2; exit 1; }
+echo "pin labels from DEF: $(grep -c '^label' "$OUT/pins.tcl")"
 cat > "$OUT/extract.tcl" <<EOT
 lef read $MACRO_LEF
 gds noduplicates true
@@ -34,6 +41,7 @@ gds read $GDS
 load $TOP
 select top cell
 if {[box values] eq "0 0 0 0"} { puts "TOP_CELL_ERROR: $TOP is empty"; quit -noprompt }
+source $OUT/pins.tcl
 extract no all
 extract do local
 extract unique
@@ -50,5 +58,7 @@ grep -qE "couldn't be read|TOP_CELL_ERROR" "$OUT/magic_extract.log" && { echo "E
 MD=$(awk '/^\.subckt sram_1rw1r_32_256_8_sky130/,/^\.ends/' "$OUT/$TOP.gds.spice" | grep -cE '^[MXCR]' || true)
 echo "macro subckt device count in layout spice: $MD (expect ~0)"
 echo "netgen LVS (bb): layout vs $NET"
-netgen -batch lvs "$OUT/$TOP.gds.spice $TOP" "$NET $TOP" "$SKY130_NETGEN_SETUP" "$OUT/comp.out" -json > "$OUT/lvs.out" 2>&1 || true
+# netgen_setup_bb.tcl = PDK setup + ignore device-less fill/tap cells that the
+# -includePhysicalInst netlist lists but magic drops (2026-09-05).
+netgen -batch lvs "$OUT/$TOP.gds.spice $TOP" "$NET $TOP" "$HERE/netgen_setup_bb.tcl" "$OUT/comp.out" -json > "$OUT/lvs.out" 2>&1 || true
 grep -E 'Circuits match|do not match|uniquely|Final result' "$OUT/lvs.out" "$OUT/comp.out" 2>/dev/null | tail -6
