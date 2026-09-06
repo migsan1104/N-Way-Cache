@@ -38,7 +38,7 @@ export ASIC_PNR_RUN_STAMP=$STAMP
 mkdir -p "$RUN/logs"
 echo "== legalize_route: $STAMP from ${ASIC_LEGALIZE_SRC:-05_route.enc} ($(date '+%F %T'))"
 TCL=${ASIC_LEGALIZE_TCL:-legalize_route.tcl}      # or legalize_targeted.tcl (attempt 4)
-case "$TCL" in legalize_targeted.tcl) RES=targeted.txt;; *) RES=route_fix.txt;; esac
+case "$TCL" in legalize_targeted.tcl) RES=targeted.txt;; legalize_fixup.tcl) RES=fixup.txt;; legalize_pgfix.tcl) RES=pgfix.txt;; legalize_pgfix2.tcl) RES=pgfix2.txt;; *) RES=route_fix.txt;; esac
 ( cd "$RUN" && innovus -no_gui -files "$HERE/$TCL" -log logs/${TCL%.tcl} )
 F=$(grep -aoE 'LEGAL FINAL verify_drc = [0-9]+' "$RUN/reports/legalize/$RES" 2>/dev/null | tail -1 | grep -oE '[0-9]+$')   # innovus -log does not capture puts; the txt does
 echo "== legalize_route result: verify_drc = ${F:-?} ($(date '+%F %T'))"

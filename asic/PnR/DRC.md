@@ -1491,3 +1491,24 @@ residual proceeds to post-route opt (`runs/20260906_iter20_*`). Checkpoints:
 `puts` (results go to `reports/legalize/*.txt`); `tmux new-session` runs from
 the tmux server's environment (knobs must be embedded in the command);
 `pkill -f <pattern>` matches the calling shell — use `[p]attern`.
+
+### iter19b (3.333 ns twin) closed to 0 the same evening
+
+18 → 8 (`legalize_targeted.tcl`: 15 nets, 4 macro blockages; ecoRoute plateau)
+→ 5 (`legalize_fixup.tcl`: 6 µm rip-up windows around the 3 remaining met4
+shorts at x≈2399–2410, y≈2107–2172, all cleared; the VSS met4 stub
+{920.1 2859.97 922.1 2882.46} deleted) → 1 (`legalize_pgfix.tcl`: the four
+MINWIDTH met5 VDD markers are via4 enclosure pads protruding 0.61 µm below
+the 2 µm strap at x 810/1226/1643/2059 — `editPowerVia -delete_vias`
+top met5 / bottom met4 in the marker box removes them; the VSS site got the
+16b fix9 treatment: stub re-added from y 2861.02 to 2883 with
+`setEdit -type Special` + `editAddRoute/editCommitRoute`, vias re-dropped)
+→ **0** (`legalize_pgfix2.tcl`: the under-enclosed M3M4_PR_1 via at
+(921.1, 2860.135) survives `editPowerVia -delete_vias` and is invisible to
+`editSelect -area -type Special`; `dbQuery -objType {sWire sVia wire via}`
+reports it as `sViaInst` and `dbDeleteObj` removes it — same as 16b fix3).
+Checkpoint `05_legal_pgfix2.enc`; then `legalize_route.tcl` with
+`ASIC_LEGALIZE_SKIP_ROUTE=1` (post-route setup opt → `05_legal_opt.enc`) and
+`winner_chain.sh` from it (19:2x). `verifyConnectivity -type special` lists
+1000 VNB/VPB terminals of post-power-stage cells (FE_PHC*) — the known
+globalNetConnect gap that 06_export.tcl closes, not a regression.
