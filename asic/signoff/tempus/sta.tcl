@@ -166,6 +166,7 @@ source [file join $pnr_scripts io_vclk.tcl]
 if {!$io_vclk_applied} { puts "TEMPUS WARN: I/O vclk not applied - port groups are latency-skewed" }
 
 report_analysis_summary                          > $out/summary.rpt
+report_clock_timing -type summary                > $out/clock_summary.rpt
 report_timing -late  -max_paths 50               > $out/setup.rpt
 report_timing -early -max_paths 50               > $out/hold.rpt
 report_timing -late  -max_paths 1000 -path_type summary > $out/census.rpt
@@ -181,5 +182,7 @@ set _outs  [all_outputs]
 report_timing -late -from $_regs -to $_regs -max_paths 20 > $out/reg2reg.rpt
 report_timing -late -from $_regs -to $_outs -max_paths 20 > $out/reg2out.rpt
 report_timing -late -from $_ins  -to $_outs -max_paths 20 > $out/in2out.rpt
+report_timing -late -from $_ins  -to $_regs -max_paths 20 > $out/in2reg.rpt
+report_timing -late -from [remove_from_collection $_ins [get_ports rst]] -to $_regs -max_paths 20 > $out/in2reg_data.rpt
 puts "TEMPUS: reports in $out"
 exit

@@ -151,3 +151,38 @@ they did not cost the 300 MHz signoff.
 The reroutes cost 11 and 66 ps on the worst reg2out path; reg2reg and hold
 are unchanged. 300 MHz stays closed in SI signoff on the package that also
 passes IR (VSS 29 mV) and EM (VSS 1.010, VDD 1.001).
+
+## 2026-09-07 14:00 - SI signoff rerun on the v8 package (right-channel stripes)
+
+`run_si_pass.sh` both ss corners, SIGNOFF_PERIOD=3.333, SIGNOFF_TAG_SUFFIX=_v8,
+on the 13:38 export of 07_vssfix.enc (ECO v8). 0 violators both corners.
+
+| corner | reg2reg | reg2out | in2reg (all) | in2reg (data ports) | hold |
+|---|---|---|---|---|---|
+| ss_n40C_1v76 | +2.959 | +0.880 | +3.086 (rst) | +3.720 (cpu_resp_ready) | +0.004 |
+| ss_100C_1v60 | +1.440 | +0.723 | +2.045 (rst) | +2.245 (cpu_resp_ready) | +0.004 |
+
+reg2out identical to v7 (+0.880 / +0.723); reg2reg worst path +1.440 vs +1.131 on
+v7 (the top-1 path moved; both corners' worst-50 are the same cones). sta.tcl now
+also writes `in2reg.rpt`, `in2reg_data.rpt` (inputs minus rst) and
+`clock_summary.rpt` (report_clock_timing -type summary).
+
+### The I/O clock model is not latency-matched (found 2026-09-07 13:30-14:00)
+
+`clock_summary.rpt` shows the propagated tree at n40C spans network latency
+~0.45 ns (RESPONSE_UNIT FIFO pointer flops, the reg2out launchers) to ~9.6 ns
+(tag banks); 2.35 to ~11 ns at 100C. The virtual I/O clock's "auto" latency
+(2.282 / 4.714) came from `report_clock_timing -type latency`, which prints a
+single row - it is NOT the tree maximum. Consequences, read straight off the
+path reports: reg2out captures 2.4 ns after the FIFO-pointer launch clock
+(worst path is 4.67 ns of logic at 100C - rd_ptr -> 8:1 FWFT mux -> hit/miss
+select -> cpu_resp_rdata - which a zero-skew model cannot close at 3.333 ns);
+in2reg (rst -> allocated_mem) captures at 10.584 ns against a 4.714 launch.
+The exported SDC also carries Innovus's update_io_latency source latency on
+clk (-7.33 ns setup / -2.97 hold); path reports do not show it applied to the
+launch/capture arrivals. Core reg2reg is unaffected (both ends propagated,
+CPPR). Innovus's own CTS report on 19b: latency 0.139 to 2.501 ns at the CTS
+corner (skew 2.36) - the tree is skewed at CTS already, x4 at signoff RC.
+Next: pessimistic what-if (ASIC_IO_VCLK_LATENCY = tree max, _EARLY = tree
+min, per corner), then decide between CTS rebalancing / boundary-register
+skew group and a registered Response_Unit output.

@@ -91,8 +91,12 @@ foreach it $items {
     editDelete -area $box -type Signal
     incr _cut
 }
+# antenna fixer + router diodes stay ON for every routeDesign in this script, the
+# pass-0 full route included (v5c: a window reroute with the fixer off handed the
+# gate 2 antenna nets; v8c: a clean pass 0 had no antenna check at all)
+setNanoRouteMode -routeWithTimingDriven false -routeWithSiDriven false
+setNanoRouteMode -drouteFixAntenna true -routeInsertAntennaDiode true -routeAntennaCellName sky130_fd_sc_hd__diode_2
 if {$_cut} {
-    setNanoRouteMode -routeWithTimingDriven false -routeWithSiDriven false -drouteFixAntenna false
     setNanoRouteMode -drouteEndIteration 40
     routeDesign
 }
@@ -101,13 +105,28 @@ set drc_rpt [pnr_rpt vss_eco5c drc_pass0.rpt]
 verify_drc -limit 100000 -report $drc_rpt
 set d [llength [dbGet -e top.markers]]
 lq "pass 0 (after [llength $items] markers, $_cut windows): verify_drc = $d"
-# nets named in the INPUT report (e.g. antenna nets handed in as "Wire of Net X" lines
-# with no Bounds) are rerouted in pass 1 even when the fresh verify_drc is clean
-set extra_nets [lsort -u [nets_from_drc $_drc0]]
-lq "pass 1 will also reroute [llength $extra_nets] nets named in the input report"
-setNanoRouteMode -routeWithTimingDriven false -routeWithSiDriven false
-setNanoRouteMode -drouteFixAntenna true -routeInsertAntennaDiode true -routeAntennaCellName sky130_fd_sc_hd__diode_2
-set a -1; set prev_key ""
+set ant_rpt [pnr_rpt vss_eco5c antenna_pass0.rpt]
+verifyProcessAntenna -report $ant_rpt
+set a0 [antenna_count $ant_rpt]
+lq "pass 0: antenna = $a0"
+# Nets named in the INPUT report WITHOUT a marker (antenna nets handed in as bare
+# "Wire of Net X" lines, v5e style) are rerouted in pass 1 even when the fresh
+# verify_drc is clean. Nets whose marker HAS Bounds were already cut by the
+# windows and rerouted by the full routeDesign above - ripping them up again
+# selected-only after a clean pass 0 is what turned v8c's DRC 0 into 8 shorts.
+set bounded {}
+foreach it $items { foreach {_ n} [regexp -all -inline {Wire of Net (\S+)} [lindex $it 1]] { lappend bounded $n } }
+set extra_nets {}
+foreach n [lsort -u [nets_from_drc $_drc0]] { if {[lsearch -exact $bounded $n] < 0} { lappend extra_nets $n } }
+# antenna violators left by pass 0 join them (report header lines: "<net> (<n>)")
+if {$a0 > 0} {
+    set f [open $ant_rpt r]
+    while {[gets $f l] >= 0} { if {[regexp {^(\S+) \(\d+\)\s*$} $l -> n]} { lappend extra_nets $n } }
+    close $f
+}
+set extra_nets [lsort -u $extra_nets]
+lq "pass 1 will also reroute [llength $extra_nets] nets (markerless input-report nets + pass-0 antenna nets)"
+set a [expr {$a0 >= 0 ? $a0 : -1}]; set prev_key ""
 for {set pass 1} {$pass <= $_np} {incr pass} {
     set nets [lsort -u [concat [nets_from_drc $drc_rpt] $extra_nets]]; set extra_nets {}
     if {![llength $nets] && $d == 0} { lq "pass $pass: nothing to reroute"; break }

@@ -555,6 +555,7 @@ audit (>= 20 cuts at every y_link).
 | v5 strap-end + ring via arrays | 28 | 29.4 | 19.1 | 1.001 | 1.78 |
 | v6 stripe-end via arrays | 28 | 29.2 | 19.0 | 1.001 | 1.24 |
 | **v7 y_link via arrays (final)** | **28** | **29.2** | **18.9** | **1.001** | **1.010** |
+| v8 right-channel VDD/VSS stripe pair (LVS fix) | 28 | 29.2 | 18.8 | 1.001 | 1.009 |
 
 Budget 52.8 mV: both rails pass with 2x margin. The 1.010 is three
 segments of one 1 um met3 L-link leg (y_link 443.02, x 15.8-21.1) at
@@ -584,3 +585,12 @@ Innovus probe with `dbSchema` and `dbGet` answers attribute questions in
 20 s; guessing cost three restarts. (7) Each ECO iteration cost ~50 min
 (ECO 8, export 13, Voltus 25) and five were needed after the first one that
 "worked"; the audit inside the ECO (vias, cuts) is what shortened the loop.
+
+## 2026-09-07 14:04 - v8 (right-channel stripe pair) rerun: no change
+
+ECO v8 added a VDD+VSS met4 stripe pair in the 24 um channel right of the
+macro column (the LVS floating-rail fix, see lvs.md) and rerouted ~300 nets.
+Voltus static IR + LEF-limit EM on the v8 export (avg_6): VDD 28 mV / 1.001
+(same single via4), VSS 29.2 mV worst, 18.8 mV avg, EM 1.009 (was 1.010; same
+met3 L-link leg). The grid is unchanged by the channel stripes, as expected -
+they hang off the existing straps and rings. Logs: runs/<19b>/logs/voltus19b8_sh.log.
