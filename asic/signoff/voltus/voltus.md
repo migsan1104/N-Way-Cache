@@ -525,3 +525,22 @@ already fragmented around the jumpers and the next is at 76.98; top down to
 2872.5, highest VDD strap 2836.98), regenerate the via4 arrays with
 editPowerVia (delete then add), regenerate the y_link met3-met4 vias, reroute
 loop with windowed rip-up from pass 3, gate: >= 4 cuts at every stripe end.
+
+**ECO v6 result (06:28, `avg_4`):** VSS IR 29.2 mV worst / 19.0 mV average.
+VSS EM 1.78x -> **1.24x**; every via4 is now under the limit (worst 0.99 at a
+jumper-to-ring via, 2 cuts). The 5 elements left are via3 at (21.1, y_link)
+for y_link 383.18 / 443.02 / 502.86 / 2423.18 / 2483.02 (1.02-1.24x): the
+v5 2 um met3 pad was never built there. The power planner refused four of
+them with IMPPP-354 ("would merge with rings / no legal target / would
+break a design rule") and five more never landed; those y_links sit within
+2 um of the strap band, where the v3 met3 piece already is. The via on the
+1 um leg is the 10-cut one. Lesson: `addStripe` can silently decline; the
+count of shapes you asked for vs the count in the DEF is the check.
+
+**ECO v7** (`scripts/vss_jumper_eco7.tcl`, 06:31, tmux `vsseco19b7`, from
+`07_vssfix_v6.enc`): for every L-link leg without a 2 um pad, a vertical
+met3 pad on the stripe (x 20.1-22.1, y_link +- 2.5) with
+`setAddStripeMode -ignore_DRC true` so the planner does not refuse it
+(verify_drc judges afterwards, and markers naming VDD are counted in the
+gate), then editPowerVia delete+add met3-met4 over it; gate adds a via3 cut
+audit (>= 20 cuts at every y_link).
