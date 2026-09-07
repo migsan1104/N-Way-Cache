@@ -35,18 +35,17 @@ if [ ! -s "$GLSLIB" ]; then mkdir -p "$HERE/gls_lib"
 fi
 command -v xrun >/dev/null || { echo "ERROR: xrun not found (source /apps/settings)" >&2; exit 1; }
 cd "$HERE"; mkdir -p logs
-SCOPE="Test_Complete.GEN_ASSOC_SET[2].DUT.u"
+SCOPE="Test_Complete.GEN_ASSOC_SET[2].DUT.g_gate.u"   # Cache_gls_wrap generate block adds g_gate
 SDFARGS=(); MODEDEF=()
 if [ "$MODE" = "postsynth" ]; then
   MODEDEF=(+define+FUNCTIONAL "+define+UNIT_DELAY=#1")   # sky130 functional models: no specify, `UNIT_DELAY gate delays
 else
-cat > logs/gls_sdf.cmd <<EOC
-COMPILED_SDF_FILE "$SDF"
-SCOPE $SCOPE
-MTM ${GLS_MTM:-MAXIMUM}
-LOG "logs/gls_sdf_annotate.log"
-EOC
-  SDFARGS=(-sdf_cmd logs/gls_sdf.cmd -sdf_verbose)
+# SDF: annotated from inside Cache_gls_wrap.sv ($sdf_annotate on the netlist
+# instance) - the -sdf_cmd route needs the scope as a string and Xcelium did
+# not accept the generate-block path (SDFSNF "scope not found", 2026-09-07;
+# before that a bare-keyword command file annotated nothing at all). Log:
+# logs/gls_sdf_annotate.log. xmelab compiles the ASCII SDF on the fly.
+  SDFARGS=(+define+GLS_SDF_FILE="\"$SDF\"" +define+GLS_SDF_MTM="\"${GLS_MTM:-MAXIMUM}\"" -sdf_verbose)
 fi
 TC=(); [ "${GLS_TIMING_CHECKS:-0}" = "1" ] || TC=(+notimingchecks)
 TAG=${MODE}

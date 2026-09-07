@@ -212,3 +212,26 @@ after step 4, "... at 3.333 ns with timing checks, at both signoff corners".
   Plan step (1) is done; (2) post-layout SDF checks-off waits on the VSS-ECO
   re-export. RTL regression (`./verify_all.sh`, tmux `verify_all_0907`) launched
   02:02 to prove the runner race fix and the ifdef switches before commit.
+- 2026-09-07 03:14-03:30 - post-layout SDF annotation took three tries; the
+  first two are the lesson. (1) The `-sdf_cmd` file was written with bare
+  keywords (`COMPILED_SDF_FILE "x"` / `SCOPE y` / `MTM z`): xmelab warned
+  FLFMSP/FLFUKW "trying to continue", annotated nothing, and the zero-delay
+  netlist (no `UNIT_DELAY` in postlayout mode) sat at time 0 for 17 min with
+  no output at all: a combinational zero-delay loop is what "no output" looks
+  like. (2) With the file in the real syntax (`KEY = value,` pairs ending in
+  `;`) the SDF compiled but the scope `:Test_Complete.GEN_ASSOC_SET[2].DUT.g_gate.u`
+  was refused (SDFSNF "scope not found"; the first attempt's scope had also
+  missed the `g_gate` generate level). (3) Fix that works: `$sdf_annotate` on
+  the netlist instance from inside `Cache_gls_wrap.sv` (`g_gate` block, under
+  `GLS_SDF_FILE` / `GLS_SDF_MTM` quoted-string defines that `run_gls.sh` passes
+  as `+define+GLS_SDF_FILE="\"path\""`). Result on the 19b post-ECO export:
+  "Annotation completed with 0 Errors and 4998 Warnings, No. of Pathdelays =
+  803650, Annotated = 99.76% (801692/803650), Tchecks 193128 all disabled"
+  (`+notimingchecks`). The warnings are SDFNEP for `(posedge S) Y` mux paths
+  the functional models do not declare, plus SDFNDP negative interconnect
+  values clamped to 0; both are the normal noise of this PDK's models. The
+  logs of the two failed attempts are kept as
+  `logs/gls_pl19b_sh.run1_badsdfcmd.log` and `run2_scopenotfound.log`.
+  Run 3 is in tmux `gls_pl19b` on the v2-ECO export (its SDF is the first
+  with real min::max triplets, e.g. `(0.097::0.226)`; the pre-ECO SDF had
+  identical columns).

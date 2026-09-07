@@ -41,6 +41,18 @@ module Cache_gls_wrap #(
     generate
         if (CACHE_BYTES == 16384 && ASSOC == 4 && EN_SRAM_MACRO) begin : g_gate
             `GLS_NETLIST_MODULE u (.*);
+            // Post-layout: annotate the SDF on this instance directly. An
+            // xrun -sdf_cmd file needs the scope as a string, and the
+            // generate-block path (GEN_ASSOC_SET[2].DUT.g_gate.u) was not
+            // accepted (SDFSNF, 2026-09-07); $sdf_annotate resolves `u` itself.
+            // GLS_SDF_FILE / GLS_SDF_MTM are quoted-string defines from
+            // xcelium/run_gls.sh; without GLS_SDF_FILE nothing is annotated.
+`ifdef GLS_SDF_FILE
+            initial begin
+                $display("GLS: annotating %s (MTM %s) on %m.u", `GLS_SDF_FILE, `GLS_SDF_MTM);
+                $sdf_annotate(`GLS_SDF_FILE, u, , "logs/gls_sdf_annotate.log", `GLS_SDF_MTM);
+            end
+`endif
         end else begin : g_rtl
             Cache #(
                 .CACHE_BYTES     (CACHE_BYTES),

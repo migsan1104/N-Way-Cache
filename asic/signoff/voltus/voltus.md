@@ -386,3 +386,60 @@ its ring is invisible in the connectivity report (the straps are connected,
 via the core stripes) and only shows as an IR/EM asymmetry between the two
 rails. The asymmetry is the tell: VDD and VSS share the same geometry, so a
 2x difference means one of them is missing a path.
+
+**ECO v2 result (03:08): DRC clean, IR unchanged.** Voltus on the v2 export
+(`voltus_post_vsseco/`): VSS worst 60.775 mV vs 60.779 mV before. The DEF
+explains it: the LEFT met4 jumpers run x 4.1..15.8 and the strap starts at
+16.5. The first vertical met4 stripe set (core margin 16) puts a VDD stripe
+at x 16.1-18.1, and `addStripe` trims the VSS jumper to 0.3 um before it.
+Left jumper = a stub with one via to the ring and none to the strap. The
+right jumper reaches (vias at x 2893.74 ring and 2882.59 strap) because
+the last stripe set on that side is not in the way. Two lessons:
+`verifyConnectivity -type special` = 0 pieces proved nothing (the stub
+touches the ring, the strap was already connected through the core
+stripes), and "ViaGen created 1 via" per stripe was the tell that only one
+end landed. The DEF SPECIALNETS section and the IR number are the proof,
+not the connectivity report.
+
+**ECO v3** (`scripts/vss_jumper_eco3.tcl`, launched 03:12, tmux
+`vsseco19b3`, from `07_vssfix_v2stub.enc`): per strap and side, if the
+jumper does not overlap the strap, add a met3 link from the stub end to the
+nearest same-net met4 vertical stripe (x 20.1-22.1 on the left, which
+already vias to the strap), stacked vias met3-met4 at both overlaps,
+passing under the VDD stripe on a different layer. Then the same reroute
+loop and gate, plus a count of met3-met4 VSS vias in the edge bands
+(expect 2 per link) as the structural proof before Voltus.
+
+**ECO v3 result (03:22): DRC clean, links only partly landed.** The addStripe
+log is the tell: "ViaGen created 2 via" for 16 links, 1 via for 27, 0 for 5.
+The VDD met4 vertical stripe at x 16.1-18.1 stacks vias down to every VPWR
+rail (`setAddStripeMode -stacked_via_bottom_layer met1`), so wherever a
+VPWR rail crosses the 2 um strap band there is a VDD met3 via pad in the
+link's path, and addStripe trims the met3 link around it. Those pads are
+via-master geometry, not special wires, so they are invisible to a dbGet
+over `sWires`; only the via instances (`sViaInst`, `pt_x`/`pt_y`) show them.
+
+**ECO v4** (`scripts/vss_jumper_eco4.tcl`, 03:29-03:39, from
+`07_vssfix_v3partial.enc`): audit first, fix second. Per left strap, count
+the real M3M4 VSS vias at the stub end and on the VSS vertical stripe; 16
+straps were connected, 32 not. For each of the 32, an L-link on met3: a
+vertical piece over the stub end (x stub_end-1.4..stub_end) from the strap
+band to y_link, and a horizontal piece at y_link from the stub to the far
+edge of the VSS stripe. y_link is the nearest VSS via height on that
+stripe outside the band (a VGND rail crossing), kept 1.5 um from any VDD via
+height at x 15-19, so the crossing under the VDD stripe happens where the
+VDD stripe has no pads and the VSS stripe already has one. Result: 13 DRC
+from 10 signal nets, one reroute pass, DRC 0, antenna 0, VSS pieces 0, and
+the final audit: 48 of 48 straps with a via at both ends. Saved
+`07_vssfix.enc`; export chain and Voltus relaunched 03:39.
+
+**Lessons from v2-v4.** (1) `verifyConnectivity` = 0 pieces is not proof
+of a new path; count the vias in the boxes you care about. (2) addStripe
+silently trims a stripe to avoid other-net PG shapes on its own layer; it
+does not trim for signal wires (those become DRC shorts you can reroute
+away). A stripe that is shorter than the area you asked for is the flag.
+(3) Via-stack pads live in via masters: query `sViaInst`, not `sWires`.
+(4) Three Tcl mistakes cost three restarts (`dbGet $via.box` is not an
+attribute, `$yc(...)` parses as an array, and Innovus reads the whole script
+at `source` time so a patch needs a relaunch); a bare `innovus -execute
+"dbSchema sViaInst"` answers attribute questions in 20 s.
