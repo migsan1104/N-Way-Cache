@@ -150,3 +150,33 @@ as a *port*; datatype 5 would be a plain label). 123 pins, 5,331 rects, no
 two pins touch on a layer (checked), 445k OBS rects dropped. `run_lvs_bb.sh`
 now does this by default (`ASIC_LVS_BB_GDS=0` = old lef-read path) and no
 longer `lef read`s. Run 3 artefacts: `lvs_bb/run3_pins_20260905/`.
+
+## 2026-09-07 07:55 - first LVS bb on iter19b (v7 package, chain af19b8 run 5)
+
+`results/<19b>/lvs_bb/comp.out`: **Netlists do not match.** Device classes
+and cell pin lists equivalent; `wmask1[3:0]` "no matching pin" as before
+(tied in both netlists). The mismatch is a NEW class, not the 16b pin-matching
+one: layout 242,824 devices / 246,776 nets vs netlist 242,360 / 246,476, and
+exactly 300 layout nets with no match, every one of them `<cell>_<n>/VPB`:
+
+| instance class | count |
+|---|---|
+| sky130_fd_sc_hd__inv_8 | 79 |
+| sky130_fd_sc_hd__fill_2 | 60 |
+| sky130_fd_sc_hd__inv_2 | 15 |
+| sky130_fd_sc_hd__mux2_2 | 14 |
+| sky130_fd_sc_hd__inv_4 | 13 |
+| sky130_fd_sc_hd__inv_6 | 11 |
+
+Reading: magic extracted these instances' n-wells as nets of their own,
+i.e. their wells do not touch the tap/VPB well network in the GDS. Router
+antenna diodes are not the cause (167 `diode_2` in the LVS netlist, 166 in
+the DEF, matched). inv_8/inv_2/inv_4/inv_6 are the CTS inverter sizes and
+mux2_2 a datapath cell, so the suspects are instances that ended up in row
+positions without well continuity: cells moved by the antenna legalizer, or
+sitting at row ends / next to the ECO reroute areas. Next: take one instance
+name from comp.out, find it in the DEF (`COMPONENTS`), look at its
+neighbours and the nearest `tapvpwrvgnd` cell in the GDS, and check whether
+`verifyWellTap` (0 violations at export) uses a larger distance than the
+well continuity actually needs. Not attributable to the VSS ECOs without a
+pre-ECO LVS on 19b (none was run; the af19b7 chain was killed before LVS).
