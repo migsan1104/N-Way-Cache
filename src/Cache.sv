@@ -169,6 +169,22 @@ module Cache #(
     logic                         hit_resp_ready;
    
 
+    // ------------------------------------------------------------
+    // iter21 experiment (2026-09-07): the reset port is REGISTERED once
+    // at the boundary and every consumer below uses rst_r. On iter19b the
+    // rst port drove a 17-stage, 6.0 ns tree (ss_100C_1v60, incl. a
+    // 1.13 ns hold-fix delay cell) straight into allocated_mem's D cones.
+    // Now the port sees one flop and the tree gets a full cycle.
+    // Effect on the reset discipline: everything reset-held sees the
+    // reset one edge later and released one edge later. The TB holds rst
+    // 5 edges then idles 2; internally the hold is still 5 edges, ending
+    // one edge before the first request can be accepted.
+    // ------------------------------------------------------------
+    logic rst_r;
+    always_ff @(posedge clk) begin
+        rst_r <= rst;
+    end
+
     assign cpu_req_ready = hit_resp_ready && mshr_alloc_ready;
 
     // A request is ACCEPTED only when valid and ready are both high
@@ -221,7 +237,7 @@ module Cache #(
     logic [CPU_ID_WIDTH-1:0] inreg_id_r;
 
     always_ff @(posedge clk) begin
-        if (rst) inreg_valid_r <= 1'b0;
+        if (rst_r) inreg_valid_r <= 1'b0;
         else     inreg_valid_r <= cpu_req_fire;
     end
 
@@ -243,7 +259,7 @@ module Cache #(
         .CPU_ID_WIDTH (CPU_ID_WIDTH)
     ) ADDR_DECODE (
         .clk            (clk),
-        .rst            (rst),
+        .rst (rst_r),
 
         // Entry 28(A): S0 consumes the registered request.
         .in_valid       (inreg_valid_r),
@@ -286,7 +302,7 @@ module Cache #(
     generate
         if (TAG_READ_ONEHOT) begin : GEN_SET_ONEHOT
             always_ff @(posedge clk) begin
-                if (rst) begin
+                if (rst_r) begin
                     set_onehot_r <= '0;
                 end
                 else begin
@@ -299,7 +315,7 @@ module Cache #(
             // index - they are registered from the same S0 value, so a
             // divergence means a decode/reset bug, not traffic.
             always_ff @(posedge clk) begin
-                if (!rst && dec_valid) begin
+                if (!rst_r && dec_valid) begin
                     assert (set_onehot_r ==
                             (NUM_SETS'(1'b1) << dec_set_id))
                         else $error("Cache E21: set_onehot_r %h != decode of dec_set_id %0d",
@@ -342,7 +358,7 @@ module Cache #(
 
 `ifndef SYNTHESIS
             always_ff @(posedge clk) begin
-                if (!rst) begin
+                if (!rst_r) begin
                     assert (rindex_rep_r == array_rindex)
                         else $error("Cache E28A: way %0d rindex replica %0d != array_rindex %0d",
                                     way_gen, rindex_rep_r, array_rindex);
@@ -362,7 +378,7 @@ module Cache #(
                 .TAG_READ_ONEHOT (TAG_READ_ONEHOT)
             ) FLAG_TAG_DATA_ARRAY (
                 .clk             (clk),
-                .rst             (rst),
+                .rst (rst_r),
 
                 .raddr           (rindex_rep_r),   // Entry 28(A) replica
                 .raddr_onehot    (set_onehot_r),
@@ -398,7 +414,7 @@ module Cache #(
         .SET_INDEX_W (SET_INDEX_W)
     ) REPLACEMENT (
         .clk             (clk),
-        .rst             (rst),
+        .rst (rst_r),
 
         // PLRU is a lookahead: victim computed combinationally from
         // lookup_set, registered, consumed the NEXT cycle. Feed it the S0
@@ -429,7 +445,7 @@ module Cache #(
         .WAY_INDEX_W     (WAY_INDEX_W)
     ) COMPARE_SELECT_REPLACE (
         .clk                      (clk),
-        .rst                      (rst),
+        .rst (rst_r),
 
         .in_valid                 (dec_valid),
         .in_write                 (dec_write),
@@ -545,7 +561,7 @@ module Cache #(
         .MAX_WAITERS      (WORDS_PER_LINE)
     ) MSHR_FILE (
         .clk                  (clk),
-        .rst                  (rst),
+        .rst (rst_r),
 
         .alloc_valid          (miss_select_valid),
         .alloc_ready          (mshr_alloc_ready),
@@ -605,7 +621,7 @@ module Cache #(
         .MSHR_ID_WIDTH (MSHR_ID_WIDTH)
     ) MSHR_REQ_ARBITER (
         .clk           (clk),
-        .rst           (rst),
+        .rst (rst_r),
 
         .req_valid     (mshr_req_valid),
         .req_pending   (mshr_req_pending),
@@ -636,7 +652,7 @@ module Cache #(
         .FIFO_DEPTH_MISS(8)
     ) RESPONSE_UNIT (
         .clk            (clk),
-        .rst            (rst),
+        .rst (rst_r),
 
         .hit_valid      (hit_resp_valid),
         .hit_ready      (hit_resp_ready),

@@ -5,6 +5,7 @@ set RTL_FILES [list \
     src/Reg_r.sv \
     src/Reg.sv \
     src/FIFO_FWFT.sv \
+    src/Skid_Buffer.sv \
     src/FIFO_NF.sv \
     src/Delay_r.sv \
     src/Delay.sv \
