@@ -106,10 +106,17 @@ for {set pass 1} {$pass <= $_np} {incr pass} {
     }
     foreach nn $nets { catch {editDelete -net $nn} }
     deselectAll
-    foreach nn $nets { catch {selectNet $nn} }
-    setNanoRouteMode -routeSelectedNetOnly true
-    routeDesign
-    setNanoRouteMode -routeSelectedNetOnly false
+    if {$pass >= 3} {
+        # BUG FIX 2026-09-07 13:10 (eco8 pass 3 went 6 -> 21 DRC + 4 antenna): the
+        # window cut wires of nets outside $nets; a selected-only reroute left
+        # them OPEN. After a window, route everything unrouted (v5c recipe).
+        routeDesign
+    } else {
+        foreach nn $nets { catch {selectNet $nn} }
+        setNanoRouteMode -routeSelectedNetOnly true
+        routeDesign
+        setNanoRouteMode -routeSelectedNetOnly false
+    }
     deselectAll
     clearDrc
     set drc_rpt [pnr_rpt vss_eco7 drc_pass$pass.rpt]
