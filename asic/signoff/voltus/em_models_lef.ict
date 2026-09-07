@@ -1,0 +1,93 @@
+# em_models_lef.ict - EM limits taken from the SKY130 tech LEF
+# (sky130_fd_sc_hd__nom.tlef, DCCURRENTDENSITY AVERAGE per layer, "Iavg_max
+# at Tj = 90oC"), 2026-09-07. Same file format as em_models_assumed.ict.
+#   conductors: mA per um of drawn width (LEF: met1/met2 2.8, met3/met4 6.8,
+#               met5 10.17). li1 has NO LEF value - the assumed 0.30 is kept.
+#   vias:       mA per cut (LEF: mcon 0.36, via 0.29, via2 0.48, via3 0.48,
+#               via4 2.49); cut areas as in the assumed file.
+#   reference temperature 90 C (the LEF's Tj). jmax_factor keeps the assumed
+#   file's 2.077x per 10 C Arrhenius slope, re-anchored at 90 C, so a run at
+#   -em_temperature 100 derates the LEF limits by 0.481 (an assumption).
+# The LEF does not say whether these are signoff or "typical" limits; treat
+# results as "EM against the PDK tech-LEF limits", still not foundry signoff.
+process "sky130A" {
+    background_dielectric_constant 1.0
+    layout_scale 1.0
+    temp_reference 25
+    em_tref 90
+    em_variables w
+    em_conductor_unit mA
+    em_via_unit mA
+    em_via_area_unit mA
+}
+conductor "li1" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 0.30 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+conductor "met1" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 2.80 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+conductor "met2" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 2.80 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+conductor "met3" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 6.80 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+conductor "met4" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 6.80 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+conductor "met5" {
+    em_model {
+        em_jmax_dc_avg EQU 1 * 10.17 * w
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+via "mcon" {
+    em_model {
+        em_vcwidth 0.17
+        em_jmax_dc_avg PWL 0.36 0.0289
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+via "via1" {
+    em_model {
+        em_vcwidth 0.15
+        em_jmax_dc_avg PWL 0.29 0.0225
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+via "via2" {
+    em_model {
+        em_vcwidth 0.2
+        em_jmax_dc_avg PWL 0.48 0.04
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+via "via3" {
+    em_model {
+        em_vcwidth 0.2
+        em_jmax_dc_avg PWL 0.48 0.04
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}
+via "via4" {
+    em_model {
+        em_vcwidth 0.8
+        em_jmax_dc_avg PWL 2.49 0.64
+        jmax_factor 90 1.000 95 0.694 100 0.481 105 0.334 110 0.232 115 0.163 120 0.116 125 0.083
+    }
+}

@@ -3,6 +3,15 @@
 import Test_Complete_pkg::*;
 
 // Single testbench: runs associativity-major, one active DUT/RAM set at a time.
+// Gate-level simulation switch (2026-09-07): +define+GLS swaps the DUT
+// module for Cache_gls_wrap.sv (P&R netlist for the 16KB/ASSOC=4/macro DUT,
+// RTL for the rest) and GLS_HALF_PERIOD (ns) sets the clock; see
+// xcelium/run_gls.sh. Without GLS nothing changes.
+`ifdef GLS
+  `define TC_DUT_MODULE Cache_gls_wrap
+`else
+  `define TC_DUT_MODULE Cache
+`endif
 module Test_Complete #(
     parameter int CACHE_BYTES = 16384,
     parameter bit EN_SRAM_MACRO = 1'b1,
@@ -309,7 +318,11 @@ module Test_Complete #(
         init_golden_mem();
     end
 
+`ifdef GLS_HALF_PERIOD
+    always #(`GLS_HALF_PERIOD) clk = ~clk;
+`else
     always #5 clk = ~clk;
+`endif
 
     genvar assoc_gen;
 
@@ -320,7 +333,7 @@ module Test_Complete #(
                                         (assoc_gen == ASSOC_IDX_4)  ? 4  :
                                         (assoc_gen == ASSOC_IDX_8)  ? 8  : 16;
 
-            Cache #(
+            `TC_DUT_MODULE #(
                 .CACHE_BYTES (CACHE_BYTES),
                 .EN_SRAM_MACRO (EN_SRAM_MACRO),
                 // Entry 21: measured 2026-08-23 and REJECTED on ASIC

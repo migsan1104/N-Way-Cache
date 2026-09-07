@@ -116,7 +116,7 @@ if {[info exists env(VOLTUS_EM_ICT)] && [file readable $env(VOLTUS_EM_ICT)]} {
     # EM limits (EM-only ICT). With em_models_assumed.ict this is a SCREEN
     # against assumed limits (see that file's header), not signoff. The
     # options must ride on the one set_rail_analysis_mode call (IMPTCM-113).
-    set _em [list -process_techgen_em_rules true -ict_em_models $env(VOLTUS_EM_ICT) -em_temperature 110]
+    set _em [list -process_techgen_em_rules true -ict_em_models $env(VOLTUS_EM_ICT) -em_temperature [expr {[info exists env(VOLTUS_EM_TEMP)] && $env(VOLTUS_EM_TEMP) ne "" ? $env(VOLTUS_EM_TEMP) : 110}]]
     puts "VOLTUS: EM analysis ON with limits from $env(VOLTUS_EM_ICT) (assumed limits => screen only)"
 }
 set_rail_analysis_mode -method static -accuracy xd -analysis_view setup_view \

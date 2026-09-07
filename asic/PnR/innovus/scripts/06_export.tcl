@@ -125,7 +125,15 @@ _step netlist-sim {saveNetlist -excludeLeafCell [pnr_out ${RUN_TAG}_pnr_sim.v]}
 # instances the layout extraction sees. Used by signoff/lvs/run_lvs_bb.sh.
 _step netlist-lvs {saveNetlist -includePowerGround -includePhysicalInst [pnr_out ${RUN_TAG}_pnr_lvs.v]}
 
-_step sdf {write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]}
+# SDF with real min::max triplets: hold view (ff, -40 C) for min, setup view
+# (ss) for max. Plain write_sdf took the current view only - the iter19b SDF
+# (2026-09-07) was the fast corner in both columns (xcelium/GLS.md).
+_step sdf {
+    if {[catch {write_sdf -min_view hold_view -max_view setup_view [pnr_out ${RUN_TAG}_pnr.sdf]} _m]} {
+        puts "WARN: write_sdf -min_view/-max_view failed ($_m) - falling back to the current view"
+        write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]
+    }
+}
 
 # Constraints AS IMPLEMENTED, one per analysis view (2026-09-01). This is the
 # standard signoff handoff artifact: it captures everything the flow changed

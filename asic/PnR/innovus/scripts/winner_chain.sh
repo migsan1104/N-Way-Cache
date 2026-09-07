@@ -99,12 +99,13 @@ if [ "${ASIC_CHAIN_FROM:-}" = "export" ]; then
 else
 echo "== CHAIN step 1+2: hold-only + eco + antenna (innovus) =="
 ( cd "$RUN" && innovus -no_gui -files chain.tcl -log logs/chain )
-grep -aE 'CHAIN (pass|PLATEAU|HOLDCLEAN|STOP)|ANTENNA (pass|PLATEAU|ECO FINAL)' "$RUN/logs/chain.log" | tail -8
-grep -aq 'CHAIN STOP' "$RUN/logs/chain.log" && { echo "CHAIN halted: route not clean"; exit 2; }
+CHAINLOG=$(ls -t "$RUN"/logs/chain.log* 2>/dev/null | grep -E 'chain\.log[0-9]*$' | head -1)
+grep -aE 'CHAIN (pass|PLATEAU|HOLDCLEAN|STOP)|ANTENNA (pass|PLATEAU|ECO FINAL)' "$CHAINLOG" | tail -8
+grep -aq 'CHAIN STOP' "$CHAINLOG" && { echo "CHAIN halted: route not clean"; exit 2; }
 AF=$(ls -t "$RUN"/reports/antenna_eco/antenna_final.rpt 2>/dev/null | head -1)
 if grep -aq 'No Violations Found' "$AF" 2>/dev/null; then AV=0; else
 AV=$(grep -aoE 'Total number of process antenna violations: *[0-9]+' "$AF" 2>/dev/null | grep -oE '[0-9]+$' || echo "?"); fi
-DV=$(grep -aoE 'ANTENNA ECO FINAL: verify_drc = [0-9]+' "$RUN/logs/chain.log" | grep -oE '[0-9]+$' || echo "?")
+DV=$(grep -aoE 'ANTENNA ECO FINAL: verify_drc = [0-9]+' "$CHAINLOG" | grep -oE '[0-9]+$' || echo "?")
 echo "post-antenna: antenna=$AV drc=$DV (both must be 0 to proceed)"
 [ "$AV" = "0" ] && [ "$DV" = "0" ] || { echo "CHAIN halted before export - judge reports"; exit 3; }
 fi

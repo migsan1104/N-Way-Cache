@@ -50,8 +50,11 @@
     initial begin
         rst                <= 1'b1;
         active_test        <= TEST1;
-        active_assoc_idx   <= ASSOC_IDX_1;
-        active_assoc_value <= 1;
+        // active_assoc_idx / active_assoc_value are NOT reset here: they
+        // carry declaration initializers (0 / 1), and a nonblocking write at
+        // time 0 lands AFTER the main loop's blocking `active_assoc_idx = a`,
+        // silently redirecting a single-ASSOC run (ASSOC != 0) to the
+        // ASSOC=1 DUT (found 2026-09-07 by the ASSOC=4 gate-level run).
         active_num_writes  <= TEST1_NUM_WRITES;
         active_num_reads   <= TEST1_NUM_READS;
         in_read_phase      <= 1'b0;
