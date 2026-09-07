@@ -259,3 +259,19 @@ after step 4, "... at 3.333 ns with timing checks, at both signoff corners".
   warnings. And the run-time: 2 min of simulated activity took the
   annotated netlist ~2 min wall, so the full 221k-request suite needs a
   reduced-traffic build (TEST<n>_NUM_* in Test_Complete.sv).
+- 2026-09-07 11:45 - bisect step (1) done, partially: the post-layout
+  `_pnr_sim.v` netlist with the functional unit-delay models
+  (`GLS_MODE=postlayout_nosdf`, added to `run_gls.sh`) ran 4.4 h of wall
+  time for 67.6 us of simulated time (about 670 Test1 writes) with NO
+  monitor error, then was stopped: the full suite is 8.1 ms of simulated
+  time, so this configuration cannot finish (the post-synthesis netlist
+  covered the same 8.1 ms in 2 min 42 s; the post-layout netlist, with its
+  2,500-cell clock tree and hold buffers under `UNIT_DELAY`, is ~100x
+  slower - worth understanding before the next attempt: `-profile` in xrun
+  will say where the time goes). What it does establish: the post-layout
+  netlist is functionally sound at unit delay through the first ~670
+  transactions, exactly where the SDF-annotated run produced X responses at
+  185 ns. So the SDF failure is timing (or the timed models' X handling),
+  not the netlist. Next: reduced-traffic GLS build (Test1 with ~200 writes
+  and reads is enough to reproduce) and step (2), SDF with timing checks on.
+  Log: `logs/gls_plnosdf_sh.run1_slow_noerror.log`.

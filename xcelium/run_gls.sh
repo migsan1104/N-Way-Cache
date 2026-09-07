@@ -22,6 +22,11 @@ MODE="${GLS_MODE:-postlayout}"
 if [ "$MODE" = "postsynth" ]; then
   NET=$(grep -E '^ASIC_NETLIST=' "$RUN/knobs.txt" | head -1 | sed 's/^ASIC_NETLIST=//'); SDF=""
   [ -r "$NET" ] || { echo "ERROR: ASIC_NETLIST from $RUN/knobs.txt not readable: $NET" >&2; exit 1; }
+elif [ "$MODE" = "postlayout_nosdf" ]; then
+  # bisect step for a failing SDF run (GLS.md 2026-09-07 07:30): the post-layout
+  # netlist (CTS, hold buffers, fillers) with the functional unit-delay models
+  NET=$(ls "$RUN"/outputs/*_pnr_sim.v | head -1); SDF=""
+  [ -r "$NET" ] || { echo "ERROR: no *_pnr_sim.v under $RUN/outputs" >&2; exit 1; }
 else
   NET=$(ls "$RUN"/outputs/*_pnr_sim.v | head -1); SDF=$(ls "$RUN"/outputs/*_pnr.sdf | head -1)
   [ -r "$NET" ] && [ -r "$SDF" ] || { echo "ERROR: no *_pnr_sim.v / *_pnr.sdf under $RUN/outputs" >&2; exit 1; }
@@ -37,7 +42,7 @@ command -v xrun >/dev/null || { echo "ERROR: xrun not found (source /apps/settin
 cd "$HERE"; mkdir -p logs
 SCOPE="Test_Complete.GEN_ASSOC_SET[2].DUT.g_gate.u"   # Cache_gls_wrap generate block adds g_gate
 SDFARGS=(); MODEDEF=()
-if [ "$MODE" = "postsynth" ]; then
+if [ "$MODE" = "postsynth" ] || [ "$MODE" = "postlayout_nosdf" ]; then
   MODEDEF=(+define+FUNCTIONAL "+define+UNIT_DELAY=#1")   # sky130 functional models: no specify, `UNIT_DELAY gate delays
 else
 # SDF: annotated from inside Cache_gls_wrap.sv ($sdf_annotate on the netlist
