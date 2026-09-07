@@ -180,3 +180,49 @@ neighbours and the nearest `tapvpwrvgnd` cell in the GDS, and check whether
 `verifyWellTap` (0 violations at export) uses a larger distance than the
 well continuity actually needs. Not attributable to the VSS ECOs without a
 pre-ECO LVS on 19b (none was run; the af19b7 chain was killed before LVS).
+
+### 12:40 - root cause: the right-side channel rows have no power connection
+
+Method: magic's top `.ext` (in the run dir, `extract do local`) gives each
+mismatched instance's placement (`use <cell> <inst> a b x d e y`, 1 unit =
+0.005 um: calibrated on the 16 SRAM macros against the DEF). All 237 mapped
+instances are at x 2865-2885, y 600-2260: the 24 um standard-cell channel
+between the right macro column (ends x 2860) and the core edge (2883.74).
+The nwell there is continuous (KLayout: one polygon per row pair across
+x 2867.9-2883.9, tap contacts at x 2875.6 and 2882.0 in every row), so this
+is not a well-continuity problem. The `merge` lines show what magic did:
+each isolated cell's VPB is merged with its own VPWR and with the
+neighbours' VPWR/VPB, as a tapped well should be, and the resulting cluster
+(that row pair's wells + VPWR rail segment) never reaches the global VPWR
+net. Magic named the cluster after a VPB pin; the real statement is that
+**the VPWR met1 rail of that row segment is floating**. VGND rails in the
+same rows are floating too but the p-substrate ties them to VGND through
+every tap, so netgen sees them as connected.
+
+Why they float, from the DEF: the channel rows are segments broken off by
+the macro (288 VDD + 289 VSS `FOLLOWPIN` rails at x 2868.1-2883.74); no
+vertical stripe crosses the channel (60 um pitch from x 17.1 puts the last
+set at 2837.1/2841.1, under the macro, where met4 is obstructed); the rails
+end at the core edge, 2 um short of the VDD ring (met5 x 2885.7) and 8 um
+short of the VSS ring; and the met5 horizontal straps run parallel to the
+rails, where ViaGen makes no vias. Zero PG via instances of either net in
+x 2860-2884, y 637-2263. The left channel is fed only because the first
+stripe set (x 16.1-22.1) happens to land inside it.
+
+Three tools had said so and were read past: Innovus `verifyConnectivity
+-type special` in every ECO log: "5000 Problem(s) (IMPVFC-96): Terminal(s)
+are not connected" (limit hit); Voltus `grid_weak_conn.txt`: 235 VDD and
+237 VSS met1 entries at x > 2860 ("the 472 right-edge met1 rail stubs",
+recorded 2026-09-07 00:50 as cosmetic); and the LVS mismatch itself.
+Consequence: every cell in those ~290 row segments (CTS inverters inv_8/
+inv_6/inv_4/inv_2, buf_2, nand2, mux2_2 among the fillers and decaps) has
+no VPWR. Silicon would not have worked. iter16b shares the floorplan.
+
+Fix (ECO v8, `scripts/vss_jumper_eco8.tcl`): a VDD+VSS met4 vertical pair in
+the channel (x 2868.6-2870.6 / 2872.6-2874.6, y 610-2305) with stacked vias
+met1..met5: orthogonal to every rail (via stacks down) and to the met5
+straps every 60 um (fed from above); reroute loop for the signal collisions;
+gate = DRC 0, antenna 0, and `verifyConnectivity` unconnected terminals for
+VDD and VSS = 0. Permanent fix for 02_power.tcl: an explicit stripe pair at
+the right core edge (ASIC_PG_EDGE_STRIPES), since the pitch cannot be
+trusted to land one there.
