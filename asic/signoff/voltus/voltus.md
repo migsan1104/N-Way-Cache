@@ -495,3 +495,33 @@ pad, >= 2 at each ring pad). Voltus note: each run writes a new
 `<net>_100C_avg_<n>` subdirectory in the same output dir, so `avg_1` was
 the stub run and `avg_2` the v4 run; the earlier "does not overwrite" note
 above is that, not a stale log.
+
+**ECO v5 result (05:39, v5 export, `avg_3`):** VSS IR 29.4 mV worst / 19.1 mV
+average (VDD 28 mV). VSS EM max 2.71x -> **1.78x**; the strap-end and ring
+crossings are gone from the list. The 28 via4 elements left are all at
+y 17.38 or y 2881.46 on the vertical stripes at x 201..621 and 2481: the
+vertical met4 VSS stripes stop at the core edge (y 16.38 / 2882.46) and reach
+the top and bottom rings through met5 jumpers that addStripe made on its own
+(2 um wide, y 3.98-18.38 and 2880.46-2894.86), so each stripe end is a 2x2 um
+overlap with ONE via4 cut, now carrying ~2.1 mA. These were the 4.0x elements
+before any ECO; the strap jumpers took half their current, v5's pads none.
+Plus 5 via3 at (21.1, y_link) <= 1.25x: the v5 met3 pad kept the old 10-cut
+via (ViaGen "deleted to avoid violation" against it).
+
+Two details learned on the way: (1) `editPowerVia -add_vias 1 -orthogonal_only
+false -area <box>` is how to via a parallel overlap; its "created 1 via,
+deleted 1 via to avoid violation" means the new array replaced the old
+single via, not that nothing happened (the cut audit proved it: 5 cuts at
+every strap-end pad, 4 at every ring pad). (2) The reroute loop can bounce
+on a handful of signal-vs-signal shorts among the nets it keeps rerouting;
+the legalize_fixup windowed rip-up (cut every signal wire within 6 um of
+each marker, reroute together) cleared 8 of them in one pass. A reroute with
+the antenna fixer off leaves antenna violations; feed those nets back in.
+
+**ECO v6** (`scripts/vss_jumper_eco6.tcl`, 05:43, tmux `vsseco19b6`, from
+`07_vssfix_v5em.enc`): extend all 96 met5 stripe-end jumpers by 8 um over
+the met4 stripe (bottom up to y 26.4: the lowest VDD met5 strap at 16.98 is
+already fragmented around the jumpers and the next is at 76.98; top down to
+2872.5, highest VDD strap 2836.98), regenerate the via4 arrays with
+editPowerVia (delete then add), regenerate the y_link met3-met4 vias, reroute
+loop with windowed rip-up from pass 3, gate: >= 4 cuts at every stripe end.
