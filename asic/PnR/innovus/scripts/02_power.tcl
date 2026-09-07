@@ -179,6 +179,29 @@ addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
 
 pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH offset $PG_STRIPE_OFFSET"
 
+# Edge stripe pair (LVS finding, 2026-09-07, lvs.md "root cause"). The stripe
+# pitch decides where the LAST vertical set lands; on iter19b (die 2900,
+# pitch 60, start 17.1) it fell at x 2837/2841, under the right SRAM column,
+# where met4 is obstructed. The 24 um channel of standard-cell rows between
+# that macro column and the core edge then had no stripe at all, the rails
+# stop at the core edge short of the rings, and the met5 straps are parallel
+# to the rails: 288+289 floating VPWR/VGND rail segments, every cell in them
+# unpowered, caught only by LVS. This adds one VDD+VSS pair just inside the
+# right core edge regardless of pitch (the left edge gets the first set by
+# construction: start offset < channel width). Placed 5.5 um in from the
+# edge so it clears the endcaps' met1 and the strap-end jumper landing zone.
+set PG_EDGE_STRIPES [config_env ASIC_PG_EDGE_STRIPES 1]
+if {$PG_EDGE_STRIPES} {
+    lassign [lindex [dbGet top.fPlan.coreBox] 0] _cx1 _cy1 _cx2 _cy2
+    set _ex1 [expr {$_cx2 - 15.5}]
+    addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
+              -layer $PG_STRIPE_LAYER -direction vertical \
+              -width $PG_STRIPE_WIDTH -spacing $PG_STRIPE_SPACING \
+              -area [list $_ex1 $_cy1 [expr {$_ex1 + 2*$PG_STRIPE_WIDTH + $PG_STRIPE_SPACING + 0.5}] $_cy2] \
+              -start_from left -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+    pnr_note "edge stripes: $PG_STRIPE_LAYER pair at x [expr {$_ex1}] (right core edge $_cx2)"
+}
+
 # ---------------------------------------------------------------------------
 # Follow pins
 # ---------------------------------------------------------------------------
