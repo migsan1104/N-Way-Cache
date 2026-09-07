@@ -119,6 +119,55 @@ if {$PG_STRIPE_H_LAYER ne ""} {
     pnr_note "horizontal straps: $PG_STRIPE_H_LAYER width $PG_STRIPE_H_WIDTH pitch $PG_STRIPE_H_PITCH"
 }
 
+# Strap-to-ring jumpers (iter19b Voltus finding, 2026-09-07). addStripe stops a
+# horizontal strap at the FIRST ring it meets on its own layer, so the net whose
+# ring is the outer one (VSS: ring x 4.1-8.1, VDD ring x 10.1-14.1 inside it)
+# gets straps that end at the VDD ring (x 16.5..2883.3) and never touch the VSS
+# ring. VSS was then fed only from the top/bottom edges: 61 mV drop vs VDD's
+# 28 mV, VSS EM 4.0x the LEF limit (voltus.md "VSS straps stop at the VDD
+# ring"). One met4 jumper per strap end, under the inner ring, closes the gap;
+# placed here, before routing, NanoRoute simply routes around it (the same
+# jumpers as a post-route ECO on 19b collided with 94 pin-escape nets).
+set PG_STRAP_JUMPERS [config_env ASIC_PG_STRAP_JUMPERS 1]
+if {$PG_STRIPE_H_LAYER ne "" && $PG_STRAP_JUMPERS} {
+    set jl [config_env ASIC_PG_STRAP_JUMPER_LAYER met4]
+    setAddStripeMode -stacked_via_top_layer $PG_STRIPE_H_LAYER -stacked_via_bottom_layer $jl
+    set die [dbGet top.fPlan.box]; lassign [lindex $die 0] dx1 dy1 dx2 dy2
+    foreach pgnet [list $PG_POWER_NET $PG_GROUND_NET] {
+        set nobj [dbGet -p top.nets.name $pgnet]
+        set ringL ""; set ringR ""; set straps {}
+        foreach w [dbGet $nobj.sWires] {
+            set lay [dbGet $w.layer.name]
+            lassign [lindex [dbGet $w.box] 0] x1 y1 x2 y2
+            if {$lay eq $PG_RING_LAYER_V && ($y2 - $y1) > ($dy2 - $dy1) * 0.5} {
+                if {$x1 < ($dx1 + $dx2) / 2.0} { set ringL [list $x1 $x2] } else { set ringR [list $x1 $x2] }
+            } elseif {$lay eq $PG_STRIPE_H_LAYER && ($x2 - $x1) > ($dx2 - $dx1) * 0.5} {
+                lappend straps [list $x1 $y1 $x2 $y2]
+            }
+        }
+        if {$ringL eq "" || $ringR eq ""} { pnr_note "strap jumpers: $pgnet vertical ring not found - skipped"; continue }
+        set nj 0
+        foreach sb $straps {
+            lassign $sb sx1 sy1 sx2 sy2
+            set w [expr {$sy2 - $sy1}]
+            if {$sx1 > [lindex $ringL 1] + 0.01} {
+                addStripe -nets $pgnet -layer $jl -direction horizontal -width $w \
+                    -area [list [lindex $ringL 0] $sy1 [expr {$sx1 + 1.0}] $sy2] \
+                    -start_from bottom -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+                incr nj
+            }
+            if {$sx2 < [lindex $ringR 0] - 0.01} {
+                addStripe -nets $pgnet -layer $jl -direction horizontal -width $w \
+                    -area [list [expr {$sx2 - 1.0}] $sy1 [lindex $ringR 1] $sy2] \
+                    -start_from bottom -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+                incr nj
+            }
+        }
+        pnr_note "strap jumpers: $pgnet [llength $straps] straps, $nj $jl jumpers to the $PG_RING_LAYER_V ring"
+    }
+    setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
+}
+
 # ---------------------------------------------------------------------------
 # Follow pins
 # ---------------------------------------------------------------------------

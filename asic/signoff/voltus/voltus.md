@@ -207,6 +207,13 @@ when a lull appears in the P&R queue, not by displacing an iteration.
   `-lef_layermap` (auto-generated). Next: step 2 static rail on iter16b
   `06_final.enc`, supply entry = PG ring edges, declared as such.
 
+- **2026-09-07 00:40-02:30** - iter19b static IR + EM: VDD 28 mV PASS, VSS
+  61 mV FAIL, VSS EM 4.0x. Root cause and fix below ("VSS straps stop at the
+  VDD ring"). `em_models_lef.ict` written from the tech LEF's own
+  DCCURRENTDENSITY limits (the "not in the PDK" note in the EM screen section
+  was wrong: `sky130_fd_sc_hd__nom.tlef` has AVERAGE limits at Tj 90 C for
+  every layer and cut), `VOLTUS_EM_TEMP` knob added to `static_rail.tcl`.
+
 ## First static IR result: iter16b, 2026-09-04 16:10 (attempt 7 of 7)
 
 Flow that finally ran (`static_rail.tcl` / `run_static_rail.sh <stamp>`):
@@ -324,3 +331,58 @@ still meets the budget with half as many straps crossing the routing;
 4 um @ 60 um is the headroom option for when the macro current (excluded
 here) is finally in the solve. Results:
 `results/<stamp>/voltus_whatif_m5p{120,60}w4/`.
+
+## VSS straps stop at the VDD ring (iter19b, 2026-09-07)
+
+**Numbers** (`results/<19b>/voltus`, `06_final.enc`, static, ring as supply,
+setup_view, 803 mW): VDD min 1.732 V = 28 mV drop, PASS against the 53 mV
+budget. VSS worst 60.8 mV, 18.8 % of nodes over threshold, map skewed to the
+left edge. EM against the LEF limits (`voltus_em_lef/`, Tj 100 C derate
+0.481): VDD J/Jmax max 1.001 on one element, VSS max 4.02.
+
+**Why VSS and not VDD.** `addStripe` ends a horizontal strap at the first
+ring it meets on its own layer. The core ring is VSS outside (met5 vertical
+segments at x 4.1-8.1 / 2891.7-2895.7) and VDD inside (10.1-14.1). The met5
+VDD straps run 10.1..2889.7, ring to ring. The met5 VSS straps run
+16.5..2883.3: they start *after* the VDD ring and never reach the VSS ring.
+VSS return current therefore enters only through the met4 vertical stripes
+to the top and bottom ring segments, which is both the IR skew and the 4x
+EM: a few met4 stripes carry what 48 straps were supposed to spread.
+
+**Is 61 mV bad?** For timing, no: Tempus closed 3.333 ns with 0 violators
+at ss 100 C 1.60 V, 160 mV below nominal, so 89 mV of combined drop is
+inside the corner. For reliability, yes: the 4x EM on the same structures
+is a wear-out failure, and that is what blocks signoff. The ECO is for EM;
+the IR fix comes with it.
+
+**ECO v1** (`scripts/vss_jumper_eco.tcl`, 01:46-01:52 on
+`05_antenna_clean.enc`): one met4 jumper per strap end under the VDD ring,
+ring x to 1 um past the strap end, stacked vias met4-met5 at both overlaps.
+VSS special connectivity: 0 disconnected pieces (fixed). `verify_drc` = 388:
+360 met4 SHORTs plus 28 spacing, all on the LEFT edge, all "regular wire &
+special wire". The band x 4.1..15.5 on the left is a vertical met4 signal
+channel: pin escape routes for the 77 met1 / 16 met3 left-edge pins, 94
+nets, on every track. A jumper at any strap y crosses about 7 of them. No
+clear landing window exists for a met3 alternative either. Saved as
+`07_vssfix_dirty.enc`, not exported.
+
+**ECO v2** (`scripts/vss_jumper_eco2.tcl`, launched 02:30, tmux
+`vsseco19b2`): the same jumpers, then the antenna_fix6 recipe on the nets
+the DRC report names: `editDelete -net`, `routeSelectedNetOnly`,
+`routeDesign` with TD/SI off and the antenna fixer on, up to 4 passes with a
+plateau guard. NanoRoute treats the new special wires as obstructions, so
+the 94 nets jog around the jumpers. Gate: DRC 0, antenna 0, VSS pieces 0,
+then `07_vssfix.enc`; also prints worst hold/setup slack (19b hold margin is
++0.004 ns, so the re-export chain may need to start from the hold step).
+
+**Permanent fix**: `02_power.tcl` now adds the same jumpers right after the
+horizontal straps (`ASIC_PG_STRAP_JUMPERS`, default on when H straps are on,
+`ASIC_PG_STRAP_JUMPER_LAYER` met4) for whichever net's straps stop short of
+its ring. Placed before routing, the router avoids them and no ECO is needed.
+
+**Lesson**: check `verifyConnectivity -type special` per net AND read the
+strap extents from the DEF after stage 02. A strap that stops 8 um short of
+its ring is invisible in the connectivity report (the straps are connected,
+via the core stripes) and only shows as an IR/EM asymmetry between the two
+rails. The asymmetry is the tell: VDD and VSS share the same geometry, so a
+2x difference means one of them is missing a path.
