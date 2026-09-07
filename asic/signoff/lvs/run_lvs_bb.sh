@@ -73,10 +73,17 @@ ext2spice blackbox on
 ext2spice -o $OUT/$TOP.gds.spice
 quit -noprompt
 EOT
+if [ "${ASIC_LVS_NETGEN_ONLY:-0}" = "1" ] && [ -s "$OUT/$TOP.gds.spice" ]; then
+  echo "magic extract skipped (ASIC_LVS_NETGEN_ONLY=1, reusing $OUT/$TOP.gds.spice)"
+else
 echo "magic extract (bb): $READ_GDS"
 $MAGIC_RUN -dnull -noconsole -rcfile "$SKY130_MAGICRC" "$OUT/extract.tcl" > "$OUT/magic_extract.log" 2>&1 || { tail -20 "$OUT/magic_extract.log"; exit 1; }
 grep -qE "couldn't be read|TOP_CELL_ERROR" "$OUT/magic_extract.log" && { echo "ERROR: missing/empty cell" >&2; exit 1; }
 [ -s "$OUT/$TOP.gds.spice" ] || { echo "ERROR: no spice produced" >&2; exit 1; }
+fi
+# probe_p_8: met5 probe pad extracted as a res_generic_m5 device -> 7-port
+# cell with the routed net on the buffer output node (run 5, 2026-09-06)
+python3 "$HERE/fix_probe_pad.py" "$OUT/$TOP.gds.spice"
 # Sanity: the macro subckt must now be (near-)empty in the layout spice.
 MD=$(awk '/^\.subckt sram_1rw1r_32_256_8_sky130/,/^\.ends/' "$OUT/$TOP.gds.spice" | grep -cE '^[MXCR]' || true)
 echo "macro subckt device count in layout spice: $MD (expect ~0)"
