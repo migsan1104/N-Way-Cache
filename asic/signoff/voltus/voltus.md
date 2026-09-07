@@ -544,3 +544,43 @@ met3 pad on the stripe (x 20.1-22.1, y_link +- 2.5) with
 (verify_drc judges afterwards, and markers naming VDD are counted in the
 gate), then editPowerVia delete+add met3-met4 over it; gate adds a via3 cut
 audit (>= 20 cuts at every y_link).
+
+**ECO v7 result (07:15, `avg_5`) and where the campaign stops.**
+
+| package | VDD worst drop | VSS worst drop | VSS avg | VDD J/Jmax | VSS J/Jmax |
+|---|---|---|---|---|---|
+| pre-ECO (06_final 00:03) | 28 mV | 60.8 mV | 37.5 mV | 1.001 | 4.02 |
+| v2 stubs | 28 | 60.8 | 37.5 | | |
+| v4 L-links (IR fix) | 28 | 30.3 | 19.9 | 1.001 | 2.71 |
+| v5 strap-end + ring via arrays | 28 | 29.4 | 19.1 | 1.001 | 1.78 |
+| v6 stripe-end via arrays | 28 | 29.2 | 19.0 | 1.001 | 1.24 |
+| **v7 y_link via arrays (final)** | **28** | **29.2** | **18.9** | **1.001** | **1.010** |
+
+Budget 52.8 mV: both rails pass with 2x margin. The 1.010 is three
+segments of one 1 um met3 L-link leg (y_link 443.02, x 15.8-21.1) at
+3.30 mA against a 3.27 mA limit; every via on VSS is under 1.0 (11 elements
+between 0.95 and 1.0, all on the same left-edge L-links). VDD's 1.001 is
+one via4 at (17.1, 376.98), a VDD vertical-stripe via to a VPWR rail, present
+since before any ECO. Both are 1 % over an average-DC limit taken from the
+tech LEF at Tj 90 C and derated to 100 C; a 2 um leg (or a second leg) at
+that strap would clear it, but the sixth re-export of the day would cost the
+signoff chain another hour and the number is not what decides the design.
+Stopped here; `07_vssfix.enc` (v7) is the package the chain signs off.
+
+**Campaign lessons in one place.** (1) IR/EM asymmetry between two rails
+with identical geometry means one of them is missing a path; find it in
+the DEF, not the connectivity report. (2) addStripe stops at the first ring
+on its layer, trims silently around other-net PG on its layer, refuses
+stripes it dislikes (IMPPP-354), and only drops vias where shapes cross.
+Count what landed. (3) A 2 um strap on a 2 um stripe gives one via4 cut per
+crossing in this PDK (0.8 cut, 0.8 space): with strap currents of 2-3 mA
+and 1.2 mA per cut, every such crossing is an EM violation by construction.
+Size the PDN (4 um straps: four cuts) or lengthen the overlaps.
+(4) `editPowerVia -add_vias -orthogonal_only false` fills parallel
+overlaps; "created 1, deleted 1" is success. (5) The rip-up/reroute loop
+handles the signal collisions of any PG ECO; use the windowed rip-up when it
+bounces and feed antenna nets back in when the fixer was off. (6) One
+Innovus probe with `dbSchema` and `dbGet` answers attribute questions in
+20 s; guessing cost three restarts. (7) Each ECO iteration cost ~50 min
+(ECO 8, export 13, Voltus 25) and five were needed after the first one that
+"worked"; the audit inside the ECO (vias, cuts) is what shortened the loop.
