@@ -235,3 +235,27 @@ after step 4, "... at 3.333 ns with timing checks, at both signoff corners".
   Run 3 is in tmux `gls_pl19b` on the v2-ECO export (its SDF is the first
   with real min::max triplets, e.g. `(0.097::0.226)`; the pre-ECO SDF had
   identical columns).
+- 2026-09-07 07:30 - POST-LAYOUT GLS FAILS AT THE FIRST TRANSACTIONS (v4 export
+  netlist + SDF, MTM MAXIMUM, `+notimingchecks`, 10 ns clock; log
+  `logs/gls_pl19b_sh.run4_v4export_Xresp.log`). Annotation was complete
+  (99.76 %). At 185 ns, in Test1's first writes, the monitor fired
+  `UNEXPECTED CPU RESPONSE TO FREE SLOT: slot=7 hit=1 rdata=xxxxxxxx`, then
+  slots 1, 2, ... every 100 ns: the netlist asserts `cpu_resp_valid` with an
+  ID the scoreboard does not own and all-X data. `xmsim *E,ERRSEV` stopped
+  the run at 03:56 and the process then sat at 98 % CPU for 3.4 h with no
+  output (the waiter's pattern looked for `xrun: *E`, not `xmsim:`; fixed in
+  the head). The post-synthesis run of the same logic passed at unit delay,
+  so the difference is timing or X-pessimism in the timed cell models, not
+  logic. Bisect plan, in order: (1) post-layout netlist WITHOUT SDF
+  (`+define+FUNCTIONAL +define+UNIT_DELAY=#1`, i.e. the postsynth recipe on
+  the `_pnr_sim.v` netlist) - if it passes, the netlist with CTS/hold
+  buffers is fine; (2) SDF with `GLS_TIMING_CHECKS=1` at 10 ns and
+  `$sdf_annotate` MTM MAXIMUM - the notifier-driven X on a violated
+  `$setuphold` names the flop; (3) look at reset: the clock tree adds
+  4.7 ns of latency (io_vclk 4.714) and the testbench releases `rst`
+  synchronously to its own clock - a flop that sees reset deassert after
+  its (late) clock edge is the classic first-transaction X. Also worth a
+  look: 500 SDFNDP negative interconnect delays clamped to 0 and 1000 NODNTW
+  warnings. And the run-time: 2 min of simulated activity took the
+  annotated netlist ~2 min wall, so the full 221k-request suite needs a
+  reduced-traffic build (TEST<n>_NUM_* in Test_Complete.sv).
