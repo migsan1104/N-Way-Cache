@@ -79,22 +79,6 @@ addRing -nets [list $PG_POWER_NET $PG_GROUND_NET] \
 
 pnr_note "core ring: ${PG_RING_WIDTH}um on $PG_RING_LAYER_H/$PG_RING_LAYER_V"
 
-# ---------------------------------------------------------------------------
-# Stripes
-# ---------------------------------------------------------------------------
-# Pitch is a starting value. Too sparse shows up as IR drop; too dense eats
-# routing resource over the macros. Check the congestion map after 03_place.
-setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
-
-addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
-          -layer $PG_STRIPE_LAYER \
-          -direction vertical \
-          -width $PG_STRIPE_WIDTH \
-          -spacing $PG_STRIPE_SPACING \
-          -set_to_set_distance $PG_STRIPE_PITCH \
-          -start_from left
-
-pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH"
 
 # Horizontal straps (iter17, 2026-09-04). OFF unless ASIC_PG_STRIPE_H_LAYER is
 # set, so no other run changes. The vertical met4 stripes stop at the SRAM
@@ -167,6 +151,33 @@ if {$PG_STRIPE_H_LAYER ne "" && $PG_STRAP_JUMPERS} {
     }
     setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
 }
+
+# ---------------------------------------------------------------------------
+# Stripes
+# ---------------------------------------------------------------------------
+# Pitch is a starting value. Too sparse shows up as IR drop; too dense eats
+# routing resource over the macros. Check the congestion map after 03_place.
+# ORDER (2026-09-07): the vertical stripes come AFTER the horizontal straps and
+# their strap-to-ring jumpers. On iter19b the first set sat at x 16.1-18.1
+# (0.1 um from the core edge) and blocked the met4 jumper that has to run from
+# the VSS ring (x 4.1-8.1) to the strap start (x 16.5): addStripe trimmed the
+# jumper to a stub and it took three ECOs to get VSS to the ring
+# (voltus.md "VSS straps stop at the VDD ring"). With the jumper already in
+# place and the first set pushed ASIC_PG_STRIPE_OFFSET um in from the core
+# edge (default 4), the jumper lands on the strap with room to spare and the
+# stripe set never meets it.
+set PG_STRIPE_OFFSET [config_env ASIC_PG_STRIPE_OFFSET 4]
+setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
+
+addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
+          -layer $PG_STRIPE_LAYER \
+          -direction vertical \
+          -width $PG_STRIPE_WIDTH \
+          -spacing $PG_STRIPE_SPACING \
+          -set_to_set_distance $PG_STRIPE_PITCH \
+          -start_from left -start_offset $PG_STRIPE_OFFSET
+
+pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH offset $PG_STRIPE_OFFSET"
 
 # ---------------------------------------------------------------------------
 # Follow pins
