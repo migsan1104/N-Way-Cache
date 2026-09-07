@@ -443,3 +443,55 @@ away). A stripe that is shorter than the area you asked for is the flag.
 attribute, `$yc(...)` parses as an array, and Innovus reads the whole script
 at `source` time so a patch needs a relaunch); a bare `innovus -execute
 "dbSchema sViaInst"` answers attribute questions in 20 s.
+
+**ECO v4 result (04:05, Voltus static on the v4 export, same setup as the
+pre-ECO run: ring as supply, 228 sources per net, setup_view, 100 C):**
+
+| | VDD worst drop | VSS worst drop | budget |
+|---|---|---|---|
+| pre-ECO (06_final, 00:13) | 28 mV | 60.8 mV | 52.8 mV |
+| ECO v2 (stubs) | 28 mV | 60.8 mV | |
+| **ECO v4 (L-links)** | **28 mV** | **30.3 mV** | |
+
+VSS average drop 37.5 mV -> 19.9 mV. The two rails now sit within 2 mV of
+each other, which is what identical geometry should give. Trap on the way
+to reading this: `analyze_rail` does not overwrite `voltus_rail.log` in an
+existing output directory (the stub run's 60.775 mV was still there after
+the v4 run); the numbers in the launcher's stdout (`logs/voltus19b8_sh.log`)
+and in `results.json` (04:05) are the v4 ones. Use a fresh `VOLTUS_TAG` per
+run, or read the shell log.
+
+**EM after v4 (04:17, `voltus_em_lef_post_vsseco/`, LEF limits at Tj 100 C):**
+VDD J/Jmax max 1.001 (one element, unchanged), VSS max 2.71 (was 4.02),
+average 0.057. The 4x bottom-ring vias are gone; every remaining VSS element
+over 1.0 is a **single-cut via4** where a 2 um met5 strap crosses a 2 um
+met4 shape (`VSS.rj.avg.rpt`, sorted by I/Ilimit):
+
+| location | what | count | I per cut |
+|---|---|---|---|
+| x 2882.6 | right strap end on its jumper | 45 | 2.4-3.2 mA |
+| x 21.1 | left strap on the VSS vertical stripe | 39 | 2.0-2.5 mA |
+| x 6.1 | left stub on the VSS ring | 29 | ~2 mA |
+| x 2893.7 | right jumper on the VSS ring | 15 | ~2 mA |
+
+Limit is 1.198 mA per via4 cut (2.49 mA/cut at 90 C x 0.481). The via4
+rule (cut 0.8, spacing 0.8, met5 enclosure 0.31) fits one cut across a
+2 um strap and about one cut per 1.6 um along it, so every strap-end
+crossing in this PDN is a one-cut connection and cannot carry the strap.
+Also 14 via3 at (21.1, y_link), the 1 um met3 leg on the stripe, at
+<= 1.29x. Two ways to read this: the ECO exposed a PDN sizing fact (2 um
+straps on 2 um stripes give one via4 cut per crossing; 4 um straps would
+give four), and for iter19b the cheap fix is longer overlaps at the strap
+ends only.
+
+**ECO v5** (`scripts/vss_jumper_eco5.tcl`, launched 04:22, tmux
+`vsseco19b5`, from `07_vssfix_v4ir.enc`): per strap, a met4 pad under the
+strap past the VDD stripe on the left (x 18.5-26.5, merging with the VSS
+stripe, ~5 cuts), a met4 pad under the last 8 um of the strap on the right,
+a 4 um tall met4 pad over each VSS ring at the strap y (2x2 cuts), and a
+2 um met3 pad over the stripe at y_link. Reroute loop as before; the gate
+adds a via4 cut audit from `sViaInst.cutRects` (>= 3 cuts at each strap-end
+pad, >= 2 at each ring pad). Voltus note: each run writes a new
+`<net>_100C_avg_<n>` subdirectory in the same output dir, so `avg_1` was
+the stub run and `avg_2` the v4 run; the earlier "does not overwrite" note
+above is that, not a stale log.
