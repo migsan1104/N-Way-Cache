@@ -129,3 +129,25 @@ rewrites `create_clock` in SDC copies under `$out`). Full story:
 `../WALKTHROUGH_2026-09-04.md` section 4. Also: Tempus drops to an
 interactive prompt on a script error under tmux - feed `< /dev/null` or
 send `exit`.
+
+## 2026-09-07 12:05 - SI signoff rerun on the iter19b VSS-ECO package (v7)
+
+`run_si_pass.sh` both ss corners, SIGNOFF_PERIOD=3.333, SIGNOFF_TAG_SUFFIX=_v7
+(`results/<19b>/tempus_ss_*_d1.5_si_v7/`). The seven VSS ECOs rerouted
+~450 signal nets (94 + 16 + 10 + 183 + 21 + 17 + 10 + 4 + 2 + windowed
+rip-ups) around the new PG shapes with TD/SI off; this is the check that
+they did not cost the 300 MHz signoff.
+
+| corner | metric | pre-ECO (00:05) | v7 |
+|---|---|---|---|
+| ss_n40C_1v76 | worst setup (reg2out) | +0.891 | +0.880 |
+| | reg2reg | +2.959 | +2.961 |
+| | hold | +0.004 | +0.004 |
+| ss_100C_1v60 | worst setup (reg2out) | +0.789 | +0.723 |
+| | reg2reg | +1.440 | +1.442 |
+| | hold | +0.004 | +0.004 |
+| both | violators | 0 | 0 |
+
+The reroutes cost 11 and 66 ps on the worst reg2out path; reg2reg and hold
+are unchanged. 300 MHz stays closed in SI signoff on the package that also
+passes IR (VSS 29 mV) and EM (VSS 1.010, VDD 1.001).
