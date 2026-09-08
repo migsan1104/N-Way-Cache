@@ -180,9 +180,52 @@ select -> cpu_resp_rdata - which a zero-skew model cannot close at 3.333 ns);
 in2reg (rst -> allocated_mem) captures at 10.584 ns against a 4.714 launch.
 The exported SDC also carries Innovus's update_io_latency source latency on
 clk (-7.33 ns setup / -2.97 hold); path reports do not show it applied to the
-launch/capture arrivals. Core reg2reg is unaffected (both ends propagated,
-CPPR). Innovus's own CTS report on 19b: latency 0.139 to 2.501 ns at the CTS
+launch/capture arrivals. ~~Core reg2reg is unaffected (both ends propagated,
+CPPR).~~ **WRONG, corrected 2026-09-07 17:30:** the source latency is applied
+to the launch clock only, in Tempus AND in Innovus, so every reg2reg setup
+path was 7.3 ns optimistic. Stripped rerun (`_v8_strip`, n40C): reg2reg
+-3.899, in2reg -3.599, reg2out +0.876, i.e. ~7.2 ns / ~138 MHz. Full write-up
+and the flow fix: `asic/PnR/innovus/CTS.md` §5 "The 7.331 ns gift". Innovus's own CTS report on 19b: latency 0.139 to 2.501 ns at the CTS
 corner (skew 2.36) - the tree is skewed at CTS already, x4 at signoff RC.
 Next: pessimistic what-if (ASIC_IO_VCLK_LATENCY = tree max, _EARLY = tree
 min, per corner), then decide between CTS rebalancing / boundary-register
 skew group and a registered Response_Unit output.
+
+## 2026-09-07 18:45 - HONEST signoff of the 19b v8 package: 9.1 ns (110 MHz) at ss_n40C_1v76
+
+After the source-latency finding (`asic/PnR/innovus/CTS.md` section 5 "The
+7.331 ns gift") every earlier number in this file from the route stage on is
+void. Re-signoff: `run_si_pass.sh <19b> ss_n40C_1v76:1.5` with
+`SIGNOFF_PERIOD` what-ifs, the exported clk source latency stripped (default
+now), reference-pin I/O model (`ASIC_IO_REF_PIN=inreg_valid_r_reg/CLK`),
+SI on, macro x1.5. n40C only by decision (the 100C corner with the macro
+derate is not a meaningful corner for this package); 100C stripped reg2reg at
+3.333 was -5.428 for the record.
+
+| period | tag | reg2reg | reg2out | in2reg (all) | in2reg (data) | hold | violators |
+|---|---|---|---|---|---|---|---|
+| 3.333 | `_v8_refpin_dbg2` | -3.899 | -0.625 | - | -1.542 | +0.004 | many |
+| 7.3 | `_v8_p7p3_refpin` | -0.867 | +3.271 | +1.358 | +2.046 | +0.004 | 30 |
+| **9.1** | **`_v8_p9p1_refpin`** | **+0.105** | +5.071 | +3.132 | +3.846 | +0.004 | **0** |
+
+The path that sets the period from 7.3 ns up is the SRAM read: the OpenRAM
+macro launches `dout1` on the falling edge (half-cycle path), 0.858 ns access
+(x1.5) + 3.6 ns of never-optimized logic into
+`COMPARE_SELECT_REPLACE_out_rdata_reg` (CTS.md section 5, "the other 250 MHz
+blocker"). Slack on that path moves 0.5 ns per 1 ns of period, so 9.0 ns
+would still close by ~0.05 ns; 9.1 is quoted for the 0.1 ns margin.
+**Quote: 19b v8 GDS, 110 MHz, SI signoff, ss_n40C_1v76, macro x1.5, 0
+violators, hold +0.004.** Post-layout SDF GLS at 7.3 ns is running as the
+simulation cross-check (it failed at 185 ns at 3.333 ns).
+
+**Correction to the 2026-09-06 "300 MHz misses are physical" list (added 2026-09-07 19:25).**
+The three I/O violations that motivated iter21's RTL changes (port -> way-replica
+fanout -0.457, rst tree -0.450, miss-FIFO -> cpu_resp_rdata -0.084) were measured
+with the one-sided clk source latency in place and a single-latency virtual I/O
+clock (CTS.md section 5). Internal paths received ~7.3 ns they did not have, port
+paths did not, so "only I/O fails" was the artefact's signature, not a finding.
+What survives an honest model: the registered reset is free and correct
+regardless; the response-data output path is 4.67 ns of logic on 19b, which does
+not fit 4.0 ns minus the 0.3 ns budget under any clock model, but part of that
+length is never-optimized repeater bloat, so whether the skid buffer is required
+at 250 MHz is decided by iter22's honest post-route number, not by the 09-06 list.

@@ -32,6 +32,61 @@
 set io_vclk_applied 0
 if {![info exists _vclk_out]} { set _vclk_out . }
 
+# ---------------------------------------------------------------------------
+# REFERENCE-PIN MODE (iter21, 2026-09-07). The virtual-clock latency below was
+# auto-measured from a report that prints ONE pin: on iter19b it returned the
+# max-skew figure (2.282 / 4.714 ns), while the boundary registers actually sit
+# anywhere from 2.35 ns (FIFO pointers, the reg2out launchers) to 11 ns (tag
+# arrays) at ss_100C - so reg2out and in2reg were both optimistic by ns.
+# Here the I/O budgets are referenced to the PROPAGATED clock arrival at one
+# boundary register's CLK pin (set_input_delay/-output_delay -reference_pin):
+# the external agent is modelled as clocked exactly like our boundary flops,
+# per corner, per stage, with nothing to measure. Honest only if the boundary
+# registers share one insertion delay - 04_cts.tcl's io_regs skew group.
+#   ASIC_IO_REF_PIN   auto (default): first existing of rst_r_reg/CLK,
+#                     inreg_valid_r_reg/CLK; a pin name; or "none" (= legacy
+#                     virtual clock below).
+#   ASIC_IO_REG2OUT_HOLD  1 = time reg2out hold too (default 0: deferred to
+#                     integration as before; the false path is kept).
+# ---------------------------------------------------------------------------
+set _ref [config_env ASIC_IO_REF_PIN auto]
+set _ref_pin ""
+if {$_ref eq "auto"} {
+    foreach _cand {rst_r_reg/CLK inreg_valid_r_reg/CLK} {
+        if {[catch {set _n [sizeof_collection [get_pins -quiet $_cand]]}]} { set _n 0 }
+        if {$_n > 0} { set _ref_pin $_cand; break }
+    }
+} elseif {$_ref ne "none" && $_ref ne ""} {
+    if {[catch {set _n [sizeof_collection [get_pins -quiet $_ref]]}]} { set _n 0 }
+    if {$_n > 0} { set _ref_pin $_ref } else { puts "IO_VCLK WARN: ASIC_IO_REF_PIN=$_ref not found - falling back to the virtual clock" }
+}
+if {$_ref_pin ne ""} {
+    set_interactive_constraint_modes [all_constraint_modes -active]
+    set _idly [config_env ASIC_IO_INPUT_DELAY  0.700]
+    set _odly [config_env ASIC_IO_OUTPUT_DELAY 0.300]
+    set _inports [remove_from_collection [all_inputs] [get_ports clk]]
+    # NOTE: the exported SDC's clk source latency (Innovus update_io_latency,
+    # -7.33 ns on iter19b) is removed by sta.tcl from its SDC copies; in
+    # Innovus this file runs before any such latency exists.
+    set _ok 1
+    if {[catch {set_input_delay  $_idly -clock clk -reference_pin [get_pins $_ref_pin] $_inports} _m]} { set _ok 0; puts "IO_VCLK WARN: set_input_delay -reference_pin failed ($_m)" }
+    if {$_ok && [catch {set_output_delay $_odly -clock clk -reference_pin [get_pins $_ref_pin] [all_outputs]} _m]} { set _ok 0; puts "IO_VCLK WARN: set_output_delay -reference_pin failed ($_m)" }
+    if {$_ok} {
+        if {![config_env ASIC_IO_REG2OUT_HOLD 0]} { set_false_path -hold -to [all_outputs] }
+        set io_vclk_applied 1
+        set _arr "n/a"
+        foreach _attr {clock_network_latency_max_rise latency_max_rise clock_arrival} {
+            if {![catch {set _v [get_property [get_pins $_ref_pin] $_attr]}] && $_v ne ""} { set _arr "$_attr=$_v"; break }
+        }
+        puts "IO_VCLK: reference-pin mode: I/O budgets (in $_idly / out $_odly) referenced to the propagated clk at $_ref_pin ($_arr); reg2out hold [expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred to integration"}]"
+        set _vf [open $_vclk_out/io_vclk.txt w]
+        puts $_vf "mode=reference_pin ref_pin=$_ref_pin arrival=$_arr input_delay=$_idly output_delay=$_odly reg2out_hold=[expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred"}]"
+        close $_vf
+        return
+    }
+    puts "IO_VCLK WARN: reference-pin mode unavailable in this tool - falling back to the virtual clock"
+}
+
 set _vlat  [config_env ASIC_IO_VCLK_LATENCY auto]
 set _vlate 0
 set _vearly 0

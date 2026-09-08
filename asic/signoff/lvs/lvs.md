@@ -226,3 +226,25 @@ gate = DRC 0, antenna 0, and `verifyConnectivity` unconnected terminals for
 VDD and VSS = 0. Permanent fix for 02_power.tcl: an explicit stripe pair at
 the right core edge (ASIC_PG_EDGE_STRIPES), since the pitch cannot be
 trusted to land one there.
+
+## 2026-09-07 19:20 - LVS bb on the v8 export (right-channel VDD/VSS stripes): floating rails FIXED
+
+`run_lvs_bb.sh` on `outputs/` from the 13:38 export of `07_vssfix.enc` (ECO v8),
+results in `results/<19b>/lvs_bb/`:
+
+| | layout | netlist | before (v7) |
+|---|---|---|---|
+| devices | 242,368 | 242,368 | +464 in layout |
+| nets | 246,540 | 246,476 | +300 in layout |
+
+The 300 isolated-well `<cell>_<n>/VPB` nets and the 464 extra devices are gone:
+the met4 stripe pair in the 24 um right channel connected the rails that had
+been floating. The remaining +64 nets are exactly 16 macros x 4
+`sram_1rw1r_32_256_8_sky130/proxywmask1[3:0]`: the port-1 write-mask pins that
+the netlist ties to gnd and that the macro GDS leaves as unconnected proxy pins
+("no matching pin" for `wmask1[0..3]`, the known artefact). Netgen still prints
+"Netlists do not match" because of those 64, so the honest statement is
+**LVS clean except the 64 tied-off wmask1 pins of the macro, which is a macro
+abstract issue, not a design connectivity issue.** To make netgen say "match":
+either add the four pins to the LEF/GDS tie in the layout, or exclude
+`wmask1` from the comparison with a netgen equate/ignore rule on the macro cell.

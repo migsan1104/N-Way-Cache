@@ -32,6 +32,19 @@ grep -ac "FE_" $R; grep -ac "CTS_" $R                                 # net clas
 hotspot + overflow): `python3 innovus/scripts/forecast_table.py` — run it any
 time; it reads the logs live, future iterations included.
 
+## Netlist names (settled 2026-09-08)
+
+| name | RTL | Genus run | used by |
+|---|---|---|---|
+| **E35** (E35abcde) | frozen baseline, `src/` before commit 7459057 | `20260828_151051_e35abcde_ss1v76_d1p5_tb16_sram` | iter14-iter20, 19b package, iter24a |
+| E36(b), E36(b') | victim-capture rewrite, rejected (iteration 8 autopsy) | `20260831_*` | never adopted |
+| **E37** | E35 + commit 7459057: `Skid_Buffer` on the CPU response port, `rst` registered once at the boundary (`rst_r`) | `20260907_145213_iter21_skid_rstr_e35abcde_ss1v76_d1p5_tb16_sram` | iter21, iter22/22b, iter23 quad screen, iter23q, iter24b |
+
+E37 synthesises to the same cell count as E35 (144,124 vs 142,766) but a different
+structure (8k more `sdfxtp` mux-flops, 5k more inverters, more x4/x6 drives) and
+places 39k optimizer buffers heavier on the ring (FLOORPLAN.md 4c). Whether that
+is the RTL or run-to-run Genus variance is open.
+
 ## The scoreboard — one iteration sequence, variable explicit
 
 Every row is an iteration of the SAME experiment: get the 16KB ASSOC=4 cache

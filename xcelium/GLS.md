@@ -275,3 +275,33 @@ after step 4, "... at 3.333 ns with timing checks, at both signoff corners".
   not the netlist. Next: reduced-traffic GLS build (Test1 with ~200 writes
   and reads is enough to reproduce) and step (2), SDF with timing checks on.
   Log: `logs/gls_plnosdf_sh.run1_slow_noerror.log`.
+- 2026-09-08 16:30 - THE 7.3 ns STALL IS A POWER-UP X ARTEFACT, not timing and not a
+  netlist bug. The SDF run launched 09-07 18:12 (`gls_p7p3`) sat 20 h at 99 % CPU
+  with no output: it was not slow (58 us of sim takes 16 s wall) and not oscillating
+  (an interrupted rerun had reached 666 us). `cpu_req_ready` went X at 50.610 us and
+  the testbench send loop (`while (!cpu_req_ready)`, `find_free_slot`, no timeout)
+  spun forever. Trace (windowed VCDs, `-access +r`): `COMPARE_SELECT_REPLACE_hit_c`
+  X across the capture edge at 50.5566 us -> way 3 allocates with X flags -> hit
+  FIFO wr/rd pointers X -> ready X. Discriminating runs, all on the 19b v8 netlist +
+  SDF: 9.1 ns MAX stalls at the SAME cycle (~6,933; 63.086 us); 9.1 ns MIN stalls
+  at a different cycle (115 us); 20 ns MAX never stalls (but shows the two early
+  "response to free slot" errors of the 10 ns run); `GLS_TIMING_CHECKS=1` at 7.3 ns
+  (123,432 $setuphold annotated) reports ZERO violations; post-synth netlist with
+  the UDP (non-FUNCTIONAL) models at zero delay runs clean; a no-X SRAM model
+  (deselected dout held, mem zeroed), SRAM DELAY 3 -> 0.3 ns, `-initreg0/-initmem0`,
+  `initial Q=0` inside the sky130 UDPs (Xcelium ignores it), and forcing the 216
+  refill_* control bits through reset ALL gave bit-identical results. What fixed it:
+  hold `Test_Complete.clk` low for 60 ns and `deposit` 0/1 on all 37,901 flop Q/Q_N
+  nets at 1 ns (list generated from `_pnr_sim.v`, needs `-access +rwc`): 0 X nets at
+  260 ns, Test1 writes + reads run clean to 250 us at 7.3 ns MAXIMUM.
+  Mechanism: Entry-29 reset-free arrays (word_valid/dirty/tag banks, RS fields,
+  refill_* regs) hold the simulator's t=0 X; RTL hides it (`if (X)` is false, and the
+  E29(m) comment relies on exactly that); UDP gate models propagate it; `pending &
+  ~grant`-style feedback keeps it forever; ~6,900 cycles later it reaches hit_c.
+  Silicon powers up random, not X, and `allocated=0` masks it - the design is fine.
+  Side finding: the OpenRAM sim model reads at negedge + DELAY (3 ns) = 6.65 ns
+  after the launch edge at 7.3 ns - set DELAY from the .lib access time before
+  trusting any read-path margin from GLS. Full suite launched 16:25 with the X-free
+  power-up at 7.3 and 9.1 ns MAX (`logs/xrun_gls_xfull73.log`, `xfull91`); recipe in
+  the session scratchpad (`gls_full_xinit.tcl`, `run_gls_xfull*.sh`) - to be folded
+  into `run_gls.sh` as `GLS_XINIT=1`.

@@ -18,7 +18,7 @@ BASE=${1:?usage: launch_from_knobs.sh <base_stamp> <new_stamp> <tmux_tag> [VAR=V
 NEW=${2:?new stamp}; TAG=${3:?tmux tag}; shift 3
 K=$INV/runs/$BASE/knobs.txt
 [ -r "$K" ] || { echo "no $K" >&2; exit 1; }
-[ -e "$INV/runs/$NEW" ] && { echo "runs/$NEW already exists" >&2; exit 1; }
+[ -e "$INV/runs/$NEW/logs" ] && { echo "runs/$NEW already has logs (a run)" >&2; exit 1; }   # a seeded checkpoints/ dir (cts_experiment.sh) is allowed
 tmux has-session -t "$TAG" 2>/dev/null && { echo "tmux session $TAG exists" >&2; exit 1; }
 mkdir -p "$INV/runs/$NEW/logs"
 L=$INV/runs/$NEW/launch.sh

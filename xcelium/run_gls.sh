@@ -59,7 +59,12 @@ TAG=${MODE}
 # RTL DUTs the wrapper keeps.
 grep -vE 'sram_1rw1r_32_256_8_sky130_sim\.v' filelist.f > logs/gls_filelist.f
 HP=(); [ -n "${GLS_HALF_PERIOD:-}" ] && HP=(+define+GLS_HALF_PERIOD=$GLS_HALF_PERIOD)
-echo "== GLS mode=$MODE netlist=$NET"; echo "== GLS: sdf ${SDF:-none} scope $SCOPE mtm ${GLS_MTM:-MAXIMUM} checks=${GLS_TIMING_CHECKS:-0} half_period=${GLS_HALF_PERIOD:-5}"
+# GLS_IO_LATENCY (ns): TB-side clock delayed by the signoff virtual-clock latency
+# (io_vclk.txt latency_late for the SDF corner) - see the Test_Complete.sv comment.
+[ -n "${GLS_IO_LATENCY:-}" ] && HP+=(+define+GLS_IO_LATENCY=$GLS_IO_LATENCY)
+# GLS_MEM_LATENCY (ns): RAM_ID alone on a clock delayed by this much (memory-port flops sit ~7.6 ns deep).
+[ -n "${GLS_MEM_LATENCY:-}" ] && HP+=(+define+GLS_MEM_LATENCY=$GLS_MEM_LATENCY)
+echo "== GLS mode=$MODE netlist=$NET"; echo "== GLS: sdf ${SDF:-none} scope $SCOPE mtm ${GLS_MTM:-MAXIMUM} checks=${GLS_TIMING_CHECKS:-0} half_period=${GLS_HALF_PERIOD:-5} io_latency=${GLS_IO_LATENCY:-0} mem_latency=${GLS_MEM_LATENCY:-0}"
 xrun -64bit -sv -timescale 1ns/1ps \
   +define+GLS "${MODEDEF[@]}" "${HP[@]}" "${TC[@]}" \
   -f logs/gls_filelist.f "$HERE/gls_lib/sram_1rw1r_32_256_8_sky130_gls.v" \

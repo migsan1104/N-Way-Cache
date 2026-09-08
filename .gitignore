@@ -136,3 +136,17 @@ asic/signoff/**/pm.ob
 asic/signoff/.stat/
 asic/signoff/work/
 asic/signoff/cellIDMap
+
+# Magic .ext debris from LVS runs whose cwd was asic/ or asic/PnR/innovus/
+# (2026-09-08: 750+ files); regenerable, the signoff scripts cd into work/
+asic/*.ext
+asic/PnR/innovus/*.ext
+# Innovus / Xcelium droppings when a tool is launched from the repo root or scripts/
+.stat/
+**/.stat/
+cellIDMap
+pm.ob
+/work/
+asic/PnR/innovus/scripts/work/
+xcelium/*.sdf.X
+xcelium/xrun.key

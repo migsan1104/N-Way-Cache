@@ -64,6 +64,15 @@ pnr_note "CHAIN io_vclk applied = $io_vclk_applied"
 catch {report_timing -early -max_paths 1 -path_type summary > [pnr_rpt chain hold_before_fix.rpt]}
 setOptMode -reset
 setOptMode -fixCap true -fixTran true -fixFanout true
+# setOptMode -reset restores usefulSkew=true (04_cts.tcl lesson, 2026-09-07); the
+# 24a stage-05 log showed -usefulSkew true / -usefulSkewCCOpt standard going into
+# the post-route opts. Re-apply the CTS knob so no delay cells enter clock branches here.
+if {![config_env ASIC_CTS_USEFUL_SKEW 0]} {
+    catch {setOptMode -usefulSkew false}
+    catch {setOptMode -usefulSkewCCOpt none}
+    catch {setAnalysisMode -usefulSkew false}
+    pnr_note "post-route opt: useful skew OFF re-applied after setOptMode -reset"
+}
 optDesign -postRoute -hold
 catch {report_timing -late -from [all_registers] -to [all_registers] -max_paths 1 -path_type summary > [pnr_rpt chain reg2reg_after_hold.rpt]}
 set prev 999999999

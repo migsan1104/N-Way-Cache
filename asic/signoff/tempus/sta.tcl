@@ -109,6 +109,17 @@ if {[info exists env(SIGNOFF_PERIOD)] && $env(SIGNOFF_PERIOD) ne ""} {
         set _f [open $_src r]; set _t [read $_f]; close $_f
         set _n [regsub -all -- {-period\s+[0-9.]+\s+-waveform\s+\{[0-9.]+\s+[0-9.]+\}} $_t \
                     [format {-period %.6f -waveform {0.000000 %.6f}} $_P $_H] _t]
+        # 2026-09-07: Innovus's update_io_latency leaves a NEGATIVE source
+        # latency on clk in the exported SDC (-7.33 ns setup / -2.97 hold on
+        # iter19b). It exists to centre IDEAL-referenced I/O constraints on
+        # the tree; our I/O model (virtual clock or reference pin) does not
+        # want it, and Tempus applied it to the LAUNCH clock only (full_clock
+        # report: launch "Source Insertion Delay -7.331", capture 0.000),
+        # which hands every path ~7.3 ns. Strip it unless told otherwise.
+        if {![info exists ::env(SIGNOFF_KEEP_CLK_SRC_LATENCY)] || $::env(SIGNOFF_KEEP_CLK_SRC_LATENCY) ne "1"} {
+            set _ns [regsub -all -line {^\s*set_clock_latency\s+-source\s[^\n]*\[get_ports\s*\{clk\}\][^\n]*\n} $_t {} _t]
+            puts "TEMPUS: $_v -> stripped $_ns clk source-latency lines (SIGNOFF_KEEP_CLK_SRC_LATENCY=1 to keep)"
+        }
         set _f [open $_dst w]; puts -nonewline $_f $_t; close $_f
         set $_v $_dst
         puts "TEMPUS WHAT-IF: $_v -> $_dst ($_n clock definitions rewritten to period $_P ns)"
@@ -184,5 +195,16 @@ report_timing -late -from $_regs -to $_outs -max_paths 20 > $out/reg2out.rpt
 report_timing -late -from $_ins  -to $_outs -max_paths 20 > $out/in2out.rpt
 report_timing -late -from $_ins  -to $_regs -max_paths 20 > $out/in2reg.rpt
 report_timing -late -from [remove_from_collection $_ins [get_ports rst]] -to $_regs -max_paths 20 > $out/in2reg_data.rpt
+# SIGNOFF_FULLCLOCK=1: the same worst paths with the clock network expanded
+# cell by cell (source latency, every buffer, derates), for reading exactly
+# what each clock end is made of. 2026-09-07: the reg2reg launch clock read
+# -1.324 ns "(Prop)" on iter19b - an exported-SDC source-latency artefact.
+if {[info exists ::env(SIGNOFF_FULLCLOCK)] && $::env(SIGNOFF_FULLCLOCK) eq "1"} {
+    report_timing -late -from $_regs -to $_regs -max_paths 1 -path_type full_clock > $out/reg2reg_fullclock.rpt
+    report_timing -late -from $_regs -to $_outs -max_paths 1 -path_type full_clock > $out/reg2out_fullclock.rpt
+    report_timing -late -from [remove_from_collection $_ins [get_ports rst]] -to $_regs -max_paths 1 -path_type full_clock > $out/in2reg_data_fullclock.rpt
+    catch {report_clocks > $out/clocks.rpt}
+    catch {report_clock_timing -type latency > $out/clock_latency5.rpt}
+}
 puts "TEMPUS: reports in $out"
 exit
