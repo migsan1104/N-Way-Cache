@@ -167,7 +167,15 @@ if {$_asic_max_cap ne "none"} {
 # 20 loads per driver is a starting value chosen against the drive strengths the
 # library actually offers (sky130_fd_sc_hd tops out at _16 buffers). It is not
 # tuned for QoR.
-set_max_fanout 20 [current_design]
+# ASIC_MAX_FANOUT knob (2026-09-08): default keeps 20; "none" removes the
+# rule (max_transition and the library per-pin max_capacitance then bound
+# every net); any other integer is a different blanket. Paired with
+# ASIC_MAX_CAP for the DRV A/B (optimizations.md E35/E37 2x2x2).
+set _asic_max_fanout 20
+if {[info exists ::env(ASIC_MAX_FANOUT)]} { set _asic_max_fanout $::env(ASIC_MAX_FANOUT) }
+if {$_asic_max_fanout ne "none"} {
+    set_max_fanout $_asic_max_fanout [current_design]
+}
 
 # ---------------------------------------------------------------------------
 # Timing exceptions

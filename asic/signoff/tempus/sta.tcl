@@ -99,16 +99,32 @@ set sdc_hold [file join $PNR_OUT_DIR ${RUN_TAG}_hold.sdc]
 # else changes (CTS, hold fixes and I/O budgets were built for the exported
 # period, so this is "the routed netlist meets/does not meet setup at P",
 # never an Fmax). io_vclk.tcl re-reads the period from the clk object.
-if {[info exists env(SIGNOFF_PERIOD)] && $env(SIGNOFF_PERIOD) ne ""} {
-    set _P [expr {double($env(SIGNOFF_PERIOD))}]
-    set _H [expr {$_P / 2.0}]
+# The SDC copies are also where the exported "set_false_path -hold -to
+# <outputs>" (io_vclk.tcl's deferral, written into the as-implemented SDC by
+# stage 06) is removed when ASIC_IO_REG2OUT_HOLD=1 - without that the knob
+# only stopped re-adding the exception and reg2out_hold.rpt came back
+# "unconstrained" (19b _v9, 2026-09-08).
+set _r2o_hold [expr {[info exists ::env(ASIC_IO_REG2OUT_HOLD)] && $::env(ASIC_IO_REG2OUT_HOLD) eq "1"}]
+set _whatif [expr {[info exists env(SIGNOFF_PERIOD)] && $env(SIGNOFF_PERIOD) ne ""}]
+if {$_whatif || $_r2o_hold} {
+    if {$_whatif} {
+        set _P [expr {double($env(SIGNOFF_PERIOD))}]
+        set _H [expr {$_P / 2.0}]
+    }
     foreach _v {sdc_asimpl sdc_hold} {
         set _src [set $_v]
         if {![file readable $_src]} { continue }
-        set _dst [file join $out "whatif_p${_P}_[file tail $_src]"]
+        set _dst [file join $out "[expr {$_whatif ? "whatif_p${_P}_" : "copy_"}][file tail $_src]"]
         set _f [open $_src r]; set _t [read $_f]; close $_f
-        set _n [regsub -all -- {-period\s+[0-9.]+\s+-waveform\s+\{[0-9.]+\s+[0-9.]+\}} $_t \
-                    [format {-period %.6f -waveform {0.000000 %.6f}} $_P $_H] _t]
+        set _n 0
+        if {$_whatif} {
+            set _n [regsub -all -- {-period\s+[0-9.]+\s+-waveform\s+\{[0-9.]+\s+[0-9.]+\}} $_t \
+                        [format {-period %.6f -waveform {0.000000 %.6f}} $_P $_H] _t]
+        }
+        if {$_r2o_hold} {
+            set _nf [regsub -all -line {^\s*set_false_path\s+-hold\s+-to\s+\[get_ports[^\n]*\n} $_t {} _t]
+            puts "TEMPUS: $_v -> stripped $_nf exported reg2out hold false-path line(s) (ASIC_IO_REG2OUT_HOLD=1)"
+        }
         # 2026-09-07: Innovus's update_io_latency leaves a NEGATIVE source
         # latency on clk in the exported SDC (-7.33 ns setup / -2.97 hold on
         # iter19b). It exists to centre IDEAL-referenced I/O constraints on
@@ -122,7 +138,7 @@ if {[info exists env(SIGNOFF_PERIOD)] && $env(SIGNOFF_PERIOD) ne ""} {
         }
         set _f [open $_dst w]; puts -nonewline $_f $_t; close $_f
         set $_v $_dst
-        puts "TEMPUS WHAT-IF: $_v -> $_dst ($_n clock definitions rewritten to period $_P ns)"
+        if {$_whatif} { puts "TEMPUS WHAT-IF: $_v -> $_dst ($_n clock definitions rewritten to period $_P ns)" }
     }
 }
 proc _mirror_source_latency {sdc from to} {
@@ -206,5 +222,71 @@ if {[info exists ::env(SIGNOFF_FULLCLOCK)] && $::env(SIGNOFF_FULLCLOCK) eq "1"} 
     catch {report_clocks > $out/clocks.rpt}
     catch {report_clock_timing -type latency > $out/clock_latency5.rpt}
 }
+# ---------------------------------------------------------------------------
+# I/O boundary census (2026-09-08). The reference-pin I/O model is honest only
+# if the boundary registers behind each port share one clock insertion delay
+# (io_vclk.tcl header). This lists, per port, the registers that launch it
+# (outputs) or capture it (inputs) on the worst paths, with the propagated
+# clock arrival at each register, then a min/max per port group (cpu_req,
+# cpu_resp, mem_req, mem_resp). SIGNOFF_IO_BOUNDARY=0 skips it. rst is left
+# out (50k flops). Never fatal: any failure is written into the report.
+# ---------------------------------------------------------------------------
+if {![info exists ::env(SIGNOFF_IO_BOUNDARY)] || $::env(SIGNOFF_IO_BOUNDARY) ne "0"} {
+    set _bf [open $out/io_boundary.rpt w]
+    puts $_bf "# port dir worst_slack n_paths flop_clk_arrival_min flop_clk_arrival_max flops (setup_view, late, worst 30 paths per port)"
+    array unset _grp
+    if {[catch {
+        set _ports_in  [remove_from_collection [all_inputs] [get_ports {clk rst}]]
+        set _ports_out [all_outputs]
+        foreach _dir {in out} {
+            # (not expr: a ternary turns the collection handle into an integer -> TCLCMD-923)
+            if {$_dir eq "in"} { set _coll $_ports_in } else { set _coll $_ports_out }
+            foreach _pn [lsort [get_object_name $_coll]] {
+                if {$_dir eq "in"} {
+                    set _paths [report_timing -late -from [get_ports $_pn] -to $_regs -max_paths 30 -nworst 1 -collection]
+                } else {
+                    set _paths [report_timing -late -from $_regs -to [get_ports $_pn] -max_paths 30 -nworst 1 -collection]
+                }
+                set _n 0; set _min 1e9; set _max -1e9; set _ws 1e9; array unset _seen
+                foreach_in_collection _pp $_paths {
+                    set _sl [get_property $_pp slack]
+                    if {$_sl < $_ws} { set _ws $_sl }
+                    if {$_dir eq "in"} {
+                        set _lat [get_property $_pp capturing_clock_latency]
+                        set _fl  [get_object_name [get_property $_pp capturing_point]]
+                    } else {
+                        set _lat [get_property $_pp launching_clock_latency]
+                        set _fl  [get_object_name [get_property $_pp launching_point]]
+                    }
+                    regsub {/[A-Z_]+$} $_fl {} _fl
+                    if {![string is double -strict $_lat]} continue
+                    incr _n
+                    if {$_lat < $_min} { set _min $_lat }
+                    if {$_lat > $_max} { set _max $_lat }
+                    set _seen($_fl) $_lat
+                }
+                if {!$_n} { puts $_bf "$_pn $_dir - 0 - - (no constrained paths)"; continue }
+                set _fls {}
+                foreach {_k _v} [array get _seen] { lappend _fls "$_k=[format %.3f $_v]" }
+                puts $_bf "$_pn $_dir [format %.3f $_ws] $_n [format %.3f $_min] [format %.3f $_max] [join [lsort $_fls] ,]"
+                regexp {^([a-z]+_[a-z]+)} $_pn -> _g
+                if {![info exists _grp($_g,min)] || $_min < $_grp($_g,min)} { set _grp($_g,min) $_min }
+                if {![info exists _grp($_g,max)] || $_max > $_grp($_g,max)} { set _grp($_g,max) $_max }
+            }
+        }
+        puts $_bf "#"
+        puts $_bf "# GROUP flop_clk_arrival_min flop_clk_arrival_max spread   (a group is honest under one reference pin only if spread is small)"
+        foreach _g {cpu_req cpu_resp mem_req mem_resp} {
+            if {[info exists _grp($_g,min)]} {
+                puts $_bf "GROUP $_g [format %.3f $_grp($_g,min)] [format %.3f $_grp($_g,max)] [format %.3f [expr {$_grp($_g,max)-$_grp($_g,min)}]]"
+            }
+        }
+    } _berr]} { puts $_bf "# io_boundary FAILED: $_berr" }
+    close $_bf
+    puts "TEMPUS: io_boundary.rpt written"
+}
+# reg2out hold (deferred to integration unless ASIC_IO_REG2OUT_HOLD=1; with the
+# false path in place this report is empty, which is the record that it was).
+catch {report_timing -early -from $_regs -to $_outs -max_paths 20 > $out/reg2out_hold.rpt}
 puts "TEMPUS: reports in $out"
 exit

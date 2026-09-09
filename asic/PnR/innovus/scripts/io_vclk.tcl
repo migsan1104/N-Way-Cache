@@ -48,6 +48,19 @@ if {![info exists _vclk_out]} { set _vclk_out . }
 #                     virtual clock below).
 #   ASIC_IO_REG2OUT_HOLD  1 = time reg2out hold too (default 0: deferred to
 #                     integration as before; the false path is kept).
+#
+# TWO-PORT MODE (2026-09-08). Finding: the two DUT ports live at different
+# clock depths (19b, n40C: response-side launchers 0.5..8.1 ns, memory-port
+# flops ~7.6 ns), so one reference pin flatters one port and punishes the
+# other. When ASIC_IO_REF_PIN_MEM is set, ports matching ASIC_IO_MEM_PORTS
+# are referenced to THAT pin and every other port to ASIC_IO_REF_PIN. It
+# only makes each port honest if that port's own boundary flops share one
+# insertion delay - sta.tcl's io_boundary.rpt is the check. Default off:
+# running flows keep the single-pin model.
+#   ASIC_IO_REF_PIN_MEM  "" (default, off) | auto (first existing of
+#                     *MSHR_REQ_ARBITER_mem_req_write_reg/CLK,
+#                     *mem_req_write_reg/CLK, *mem_req_valid_reg/CLK) | a pin
+#   ASIC_IO_MEM_PORTS   port glob for the memory side (default mem_*)
 # ---------------------------------------------------------------------------
 set _ref [config_env ASIC_IO_REF_PIN auto]
 set _ref_pin ""
@@ -60,17 +73,46 @@ if {$_ref eq "auto"} {
     if {[catch {set _n [sizeof_collection [get_pins -quiet $_ref]]}]} { set _n 0 }
     if {$_n > 0} { set _ref_pin $_ref } else { puts "IO_VCLK WARN: ASIC_IO_REF_PIN=$_ref not found - falling back to the virtual clock" }
 }
+# Second reference pin for the memory port (two-port mode, header above).
+set _ref_pin_mem ""
+set _ref_mem [config_env ASIC_IO_REF_PIN_MEM ""]
+if {$_ref_pin ne "" && $_ref_mem ne "" && $_ref_mem ne "none"} {
+    if {$_ref_mem eq "auto"} {
+        set _cands {*MSHR_REQ_ARBITER_mem_req_write_reg/CLK *mem_req_write_reg/CLK *mem_req_valid_reg/CLK}
+    } else {
+        set _cands [list $_ref_mem]
+    }
+    foreach _cand $_cands {
+        if {[catch {set _c [get_pins -quiet $_cand]}]} continue
+        if {[catch {set _n [sizeof_collection $_c]}] || $_n == 0} continue
+        set _ref_pin_mem [get_object_name [index_collection $_c 0]]
+        break
+    }
+    if {$_ref_pin_mem eq ""} { puts "IO_VCLK WARN: ASIC_IO_REF_PIN_MEM=$_ref_mem matched nothing - memory port stays on $_ref_pin" }
+}
 if {$_ref_pin ne ""} {
     set_interactive_constraint_modes [all_constraint_modes -active]
     set _idly [config_env ASIC_IO_INPUT_DELAY  0.700]
     set _odly [config_env ASIC_IO_OUTPUT_DELAY 0.300]
     set _inports [remove_from_collection [all_inputs] [get_ports clk]]
+    set _outports [all_outputs]
     # NOTE: the exported SDC's clk source latency (Innovus update_io_latency,
     # -7.33 ns on iter19b) is removed by sta.tcl from its SDC copies; in
     # Innovus this file runs before any such latency exists.
     set _ok 1
-    if {[catch {set_input_delay  $_idly -clock clk -reference_pin [get_pins $_ref_pin] $_inports} _m]} { set _ok 0; puts "IO_VCLK WARN: set_input_delay -reference_pin failed ($_m)" }
-    if {$_ok && [catch {set_output_delay $_odly -clock clk -reference_pin [get_pins $_ref_pin] [all_outputs]} _m]} { set _ok 0; puts "IO_VCLK WARN: set_output_delay -reference_pin failed ($_m)" }
+    set _mem_pat [config_env ASIC_IO_MEM_PORTS "mem_*"]
+    set _memin ""; set _memout ""
+    if {$_ref_pin_mem ne ""} {
+        set _memports [get_ports -quiet $_mem_pat]
+        set _memin  [remove_from_collection $_memports [all_outputs]]
+        set _memout [remove_from_collection $_memports [all_inputs]]
+        set _inports  [remove_from_collection $_inports  $_memports]
+        set _outports [remove_from_collection $_outports $_memports]
+        if {[catch {set_input_delay  $_idly -clock clk -reference_pin [get_pins $_ref_pin_mem] $_memin} _m]} { set _ok 0; puts "IO_VCLK WARN: set_input_delay -reference_pin (mem) failed ($_m)" }
+        if {$_ok && [catch {set_output_delay $_odly -clock clk -reference_pin [get_pins $_ref_pin_mem] $_memout} _m]} { set _ok 0; puts "IO_VCLK WARN: set_output_delay -reference_pin (mem) failed ($_m)" }
+    }
+    if {$_ok && [catch {set_input_delay  $_idly -clock clk -reference_pin [get_pins $_ref_pin] $_inports} _m]} { set _ok 0; puts "IO_VCLK WARN: set_input_delay -reference_pin failed ($_m)" }
+    if {$_ok && [catch {set_output_delay $_odly -clock clk -reference_pin [get_pins $_ref_pin] $_outports} _m]} { set _ok 0; puts "IO_VCLK WARN: set_output_delay -reference_pin failed ($_m)" }
     if {$_ok} {
         if {![config_env ASIC_IO_REG2OUT_HOLD 0]} { set_false_path -hold -to [all_outputs] }
         set io_vclk_applied 1
@@ -78,9 +120,11 @@ if {$_ref_pin ne ""} {
         foreach _attr {clock_network_latency_max_rise latency_max_rise clock_arrival} {
             if {![catch {set _v [get_property [get_pins $_ref_pin] $_attr]}] && $_v ne ""} { set _arr "$_attr=$_v"; break }
         }
-        puts "IO_VCLK: reference-pin mode: I/O budgets (in $_idly / out $_odly) referenced to the propagated clk at $_ref_pin ($_arr); reg2out hold [expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred to integration"}]"
+        set _memnote ""
+        if {$_ref_pin_mem ne ""} { set _memnote " memory-port ($_mem_pat: [sizeof_collection $_memin] in / [sizeof_collection $_memout] out) referenced to $_ref_pin_mem;" }
+        puts "IO_VCLK: reference-pin mode: I/O budgets (in $_idly / out $_odly) referenced to the propagated clk at $_ref_pin ($_arr);$_memnote reg2out hold [expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred to integration"}]"
         set _vf [open $_vclk_out/io_vclk.txt w]
-        puts $_vf "mode=reference_pin ref_pin=$_ref_pin arrival=$_arr input_delay=$_idly output_delay=$_odly reg2out_hold=[expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred"}]"
+        puts $_vf "mode=reference_pin ref_pin=$_ref_pin ref_pin_mem=[expr {$_ref_pin_mem eq "" ? "none" : $_ref_pin_mem}] mem_ports=[expr {$_ref_pin_mem eq "" ? "-" : $_mem_pat}] arrival=$_arr input_delay=$_idly output_delay=$_odly reg2out_hold=[expr {[config_env ASIC_IO_REG2OUT_HOLD 0] ? "timed" : "deferred"}]"
         close $_vf
         return
     }
