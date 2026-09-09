@@ -151,6 +151,23 @@ the next lever is a second exit: lift the corner blocks off the die edge
 (EDGE 40 -> ~250) at the cost of hub-band height, or put the array
 registers' region (`STRIP`) on the channel side only.
 
+**Correction (2026-09-08 evening).** Neither iter25 nor iter25b had the pin
+band. Both launched from the same knobs at 11:03/11:04 (the `ctsA` and
+`pinband` directory names differ, the knobs do not), and both read the
+floorplan file BEFORE the 11:08 edit that removed a stray `-unit MICRON` from
+the `editPin` call; Innovus rejected the call (IMPTCM-113, "-spacing required
+with -unit") and left every pin at its default place. So iter25/25b are a
+replicate pair of "channel 260, no band": 3,089 / 3,043 post-route DRC
+(iter23q 5,932), setup WNS -4.415 / -6.066, hold +0.098 / +0.081. Two
+readings follow: channel 260 is the whole DRC gain, and 1.6 ns of post-route
+setup WNS between identical runs is the run-to-run noise on this flow. The
+committed `editPin` (no `-unit`) was verified standalone on iter25's stage-01
+checkpoint (`runs/20260908_pinbandtest_scratch/logs/pinband_test.log`): all
+216 pins land inside the hub band, y 1113..1787, pitch chosen by the tool
+(`-spreadType range` ignores `-spacing`). The band is still untested in a
+flow; iter26/26b run with it OFF on purpose so their netlist comparison stays
+one-variable.
+
 ## 4c. iter21r: the iter21 ring placement does not route (2026-09-08 02:30)
 
 iter21r (iter21's 03_place + legacy CTS, 4.0 ns) finished stage 05 with
