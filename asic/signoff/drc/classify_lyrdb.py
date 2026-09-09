@@ -4,6 +4,7 @@ ring of the cache floorplans (fp_iter5..fp_iter17 geometry: 4 macros per side,
 MW 376.48 x MH 446.235, GAP 40, rows centred on the die).
 
     classify_lyrdb.py <drc.lyrdb> --die 2900 --edge 40 [--tol 1.0]
+    classify_lyrdb.py <drc.lyrdb> --die 2900 --edge 40 --def <run>/outputs/*_pnr.def   # any floorplan
 
 Prints: total items, items inside macro footprints (vendor GDS, foundry-
 waived bitcell patterns), items outside, and the outside items per rule
@@ -16,16 +17,26 @@ p = argparse.ArgumentParser()
 p.add_argument('lyrdb'); p.add_argument('--die', type=float, required=True)
 p.add_argument('--edge', type=float, required=True); p.add_argument('--tol', type=float, default=1.0)
 p.add_argument('--gap', type=float, default=40.0)
+p.add_argument('--def', dest='deff', default=None,
+               help='take the macro boxes from this exported DEF instead of the ring geometry '
+                    '(any floorplan, e.g. the quad; E/W orientations swap width and height). 2026-09-08')
 a = p.parse_args()
 MW, MH = 376.48, 446.235
-row = 4*MW + 3*a.gap; x0 = (a.die - row)/2.0
 boxes = []
-for b in range(4):
-    s = x0 + b*(MW + a.gap)
-    boxes.append((s, a.edge, s+MW, a.edge+MH))                      # bottom
-    boxes.append((s, a.die-a.edge-MH, s+MW, a.die-a.edge))          # top
-    boxes.append((a.edge, s, a.edge+MH, s+MW))                      # left
-    boxes.append((a.die-a.edge-MH, s, a.die-a.edge, s+MW))          # right
+if a.deff:
+    for m in re.finditer(r'sram_1rw1r_32_256_8_sky130 \+ (?:FIXED|PLACED) \( (\d+) (\d+) \) ([A-Z]+)', open(a.deff).read()):
+        x, y, o = int(m.group(1))/1000.0, int(m.group(2))/1000.0, m.group(3)
+        w, h = (MH, MW) if o in ('E', 'W', 'FE', 'FW') else (MW, MH)
+        boxes.append((x, y, x+w, y+h))
+    print(f"{len(boxes)} macro boxes from {a.deff}")
+else:
+    row = 4*MW + 3*a.gap; x0 = (a.die - row)/2.0
+    for b in range(4):
+        s = x0 + b*(MW + a.gap)
+        boxes.append((s, a.edge, s+MW, a.edge+MH))                      # bottom
+        boxes.append((s, a.die-a.edge-MH, s+MW, a.die-a.edge))          # top
+        boxes.append((a.edge, s, a.edge+MH, s+MW))                      # left
+        boxes.append((a.die-a.edge-MH, s, a.die-a.edge, s+MW))          # right
 t = a.tol
 def inside(x, y):
     return any(x1-t <= x <= x2+t and y1-t <= y <= y2+t for x1, y1, x2, y2 in boxes)
