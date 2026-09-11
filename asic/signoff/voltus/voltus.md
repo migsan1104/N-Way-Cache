@@ -594,3 +594,47 @@ Voltus static IR + LEF-limit EM on the v8 export (avg_6): VDD 28 mV / 1.001
 (same single via4), VSS 29.2 mV worst, 18.8 mV avg, EM 1.009 (was 1.010; same
 met3 L-link leg). The grid is unchanged by the channel stripes, as expected -
 they hang off the existing straps and rings. Logs: runs/<19b>/logs/voltus19b8_sh.log.
+
+## 2026-09-09 to 09-11 - iter26b (quad floorplan PDN): two EM ECOs, then clean
+
+First Voltus on the quad floorplan. `run_static_rail.sh` with the LEF EM
+limits (`em_models_lef.ict`, 100 C), static IR at the default activity, on
+each export. IR passed from the first run; EM did not.
+
+| export | VDD worst IR | VSS worst IR | VDD EM max (elements > 1) | VSS EM max (elements > 1) |
+|---|---|---|---|---|
+| final6 (pass 2) | 22 mV | 24.6 mV | 1.485 (21) | 3.95 (150) |
+| clkskew8 (pass 3, after `pg_westvia_eco` = west edge only) | 22 | 23.7 | 1.03 (3) | 3.31 (111) |
+| pgvia9 (pass 4, after `pg_eastnorth_eco` = east + north + west re-pad) | 22 | 22.5 | **0 over** | **0 over** |
+| **tagskew10 (pass 5, signed off)** | **22** | **22.6** | **0 over** | **0 over (max 0.981)** |
+
+Budget 52.8 mV (3 % of 1.76 V): both rails pass with 2x margin on every
+export. Total power at the Voltus default activity, tagskew10: 817 mW
+(internal 713, switching 104, leakage 0.15) - the same order as 19b's
+1086 mW at 4.0 ns.
+
+Every EM element was a `via4` where a horizontal met5 strap crosses a
+vertical met4 stripe or ring at a die edge: 1-cut vias (2 um strap on 2 um
+stripe, 0.8 um cut/space) carrying 1.6-4.7 mA against a 1.2 mA per-cut
+limit - the class voltus.md lesson 3 already named on 19b. Two ECOs on the
+routed database fixed it without a re-route of the design:
+
+- `scripts/pg_westvia_eco.tcl` (05_antenna_final6 -> 05_pgvia7): per strap
+  a 5 um met5 + met4 pad at the strap/stripe crossing on the west edge,
+  `editPowerVia` delete + add, 1 reroute pass for 56 signal shorts, DRC 0.
+- `scripts/pg_eastnorth_eco.tcl` (05_clkskew8 -> 05_pgvia9): the mirror on
+  the east edge, 5x5 um pads on all 49 stripe tops at the north ring, and an
+  8 um re-pad of the west VSS jumper; 3 reroute passes (85 -> 5 -> 2 -> 0
+  DRC), antenna 0, timing unchanged (-1.304 / +0.071 at the 4.0 SDC).
+
+Two corrections to the working notes, kept here because they change how the
+next PDN is checked: (1) the first classification "all west" was wrong -
+the pass-2 failures were west 77 + east 58 + north 15 on VSS, which is why
+one ECO was not enough; sort the `.rj.avg.rpt` by coordinate before
+scoping a fix. (2) The ECO scripts' own via-cut audit printed 0 because
+`sViaInst` has no `box` attribute; the trustworthy count is the ViaGen table
+Innovus prints after each `editPowerVia -add_vias` (VDD east 720, VSS east
+2175, VSS north 705, VSS west 1455 cuts on pgvia9). Voltus reads the
+exported DEF and SPEF, so checking an ECO costs an export; `scripts/
+export_tmp.sh` writes one from a checkpoint into a side directory without
+touching the chain's `outputs/`.

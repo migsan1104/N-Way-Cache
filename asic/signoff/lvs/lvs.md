@@ -248,3 +248,42 @@ the netlist ties to gnd and that the macro GDS leaves as unconnected proxy pins
 abstract issue, not a design connectivity issue.** To make netgen say "match":
 either add the four pins to the LEF/GDS tie in the layout, or exclude
 `wmask1` from the comparison with a netgen equate/ignore rule on the macro cell.
+
+## 2026-09-09 to 09-11 - iter26b (quad floorplan): LVS finds a placement bug, then five clean passes
+
+Five export passes of the same P&R run were compared, one per ECO step
+(`results/<26b>/lvs_bb/` holds the last; earlier passes are archived under
+`results/<26b>/pass<N>_*/lvs_bb/`). Same recipe as 19b: `run_lvs_bb.sh`,
+macros black-boxed from the LEF pins, netgen with the fill/tap ignore classes.
+
+| pass | checkpoint exported | devices layout = netlist | extra layout nets | verdict |
+|---|---|---|---|---|
+| 1 | `05_antenna_final5` | 18 device mismatches | 54 per side + 64 | **FAIL**: 10 antenna diodes sit ON TOP of the flops they protect |
+| 2 | `05_antenna_final6` (diodes re-placed) | 197,096 = 197,096 | +64 | clean |
+| 3 | `05_clkskew8` (+160 clock delay cells, 6 diodes) | 197,261 = 197,261 | +64 | clean |
+| 4 | `05_pgvia9` (+PG via pads, all edges) | 197,261 = 197,261 | +64 | clean |
+| 5 | `05_tagskew10` (+176 clock delay cells) - **the signed-off package** | **197,438 = 197,438** | +64 | clean |
+
+The +64 nets are the known macro-abstract artefact: 16 macros x 4
+`wmask1[3:0]` proxy pins that the netlist ties off and the vendor GDS leaves
+unconnected (19b v8 note above). netgen therefore still prints "Netlists do
+not match" on every clean pass; the honest reading is *LVS clean except the
+64 tied-off wmask1 pins*, exactly as on 19b.
+
+**What pass 1 caught.** `attachDiode` dropped the ten diodes at the pin of
+the flop and `refinePlace -eco -inst` answered "No instances to legalize"
+(IMPSP-2022), so they stayed overlapping their flops by 1.4 to 8 um. Innovus
+`verify_drc` = 0 and the antenna check = 0 on that checkpoint; the only
+Innovus tool that objected was `checkPlace` ("overlapping with other insts
+(20)"), whose report had been written but not read. LVS saw 18 device
+mismatches (each overlapping diode pair merged with its flop's devices) and
+54 mismatched nets per side, all named after those ten flops; KLayout saw
+38 `li.3` items at the same ten coordinates. Fix (`antenna_attach6.tcl`):
+explicit `placeInstance` into the nearest row gap for each diode, then
+`checkPlace` must report 0 overlaps before `ecoRoute`. A full-DEF overlap
+sweep found exactly those 10 pairs in 851,829 cells. Lesson: after any ECO
+that adds cells, gate on `checkPlace` overlaps, not only on DRC and antenna.
+
+Open item (CLEANUP.md): `run_lvs_bb.sh` still runs Magic in the caller's
+cwd, so every pass scattered ~670 `.ext` files into `asic/PnR/innovus/`;
+wrap the Magic call in `( cd "$OUT" && ... )`.

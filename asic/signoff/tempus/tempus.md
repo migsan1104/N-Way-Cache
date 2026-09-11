@@ -229,3 +229,95 @@ regardless; the response-data output path is 4.67 ns of logic on 19b, which does
 not fit 4.0 ns minus the 0.3 ns budget under any clock model, but part of that
 length is never-optimized repeater bloat, so whether the skid buffer is required
 at 250 MHz is decided by iter22's honest post-route number, not by the 09-06 list.
+
+## 2026-09-11 - iter26b SIGNED OFF: 188.7 MHz (5.3 ns), ss_n40C_1v76, SI, on the real export
+
+The package is `runs/<26b>/checkpoints/05_tagskew10.enc`, exported 2026-09-11
+01:48 as "pass 5" of the chain (`runs/<26b>/outputs/`, the GDS the README
+hero image renders). It is the iter26b route (E35 netlist, quad floorplan
+with 260 um way channels, ctsA tree, 4.0 ns P&R target) plus four ECOs on
+the routed database, in order: antenna diodes legalized (`05_antenna_final6`),
+PG via arrays on all edges (`05_pgvia7` / `05_pgvia9`, voltus.md), 160
+`clkdlybuf4s25_1` on the SRAM-read capture registers (`05_clkskew8`) and
+176 more on the tag-read registers `rtag_raw_r` / `refill_rd_tag_r`
+(`05_tagskew10`, plus 6 diodes). Tempus setup: `sta.tcl` with
+`SIGNOFF_PERIOD` what-ifs, SI on, Quantus SPEF, reference-pin I/O model
+(`inreg_valid_r_reg/CLK`, input delay 0.700, output 0.300), reg2out hold
+timed, exported clock source latency stripped, uncertainty 0.10 / 0.05,
+macro derate x1.5 late / x0.67 early. Results in
+`results/<26b>/tempus_si_p5p3_refpin_hold_tagskew10/` and `..._p5p5_...`.
+
+| period | reg2reg | reg2out | in2reg | hold | reg2out hold | violators |
+|---|---|---|---|---|---|---|
+| **5.3 ns (188.7 MHz)** | **+0.015** | +1.118 | +0.944 | +0.075 | +0.487 | **0** |
+| 5.5 ns (181.8 MHz) | +0.010 | +1.319 | +1.144 | +0.075 | +0.491 | 0 |
+
+Worst path at both periods: the OpenRAM half-cycle read, `GEN_WAYS[2]
+...g_bank[1].u_sram/dout1[11]` (launched by the falling edge, arrival 5.899
+at 5.3) into `COMPARE_SELECT_REPLACE_out_rdata_reg[20]`. The 5.3 slack being
+*larger* than the 5.5 slack on the same path is SI: crosstalk windows move
+with the period, so 10-15 ps here is noise, not margin. Quote 188.7 MHz
+with "closes by 15 ps"; 182 MHz (5.5) is the conservative headline, and the
+pgvia9 export (pass 4, no tag-skew ECO) independently closes 5.5 at +0.011
+with its own clean KLayout/LVS/Voltus, so 182 MHz is a fully proven fallback.
+
+### How the ECOs bought the last 0.6 ns (Tempus SI, real exports, same period rows)
+
+| export | 5.3 | 5.5 | 5.88 | 6.0 | 6.667 |
+|---|---|---|---|---|---|
+| final6 (diodes only, pass 2) | - | -0.179 | +0.002 | +0.017 | +0.236 |
+| clkskew8 (+160 SRAM-capture delay cells, pass 3) | - | +0.010 | +0.200 | +0.260 | - |
+| pgvia9 (+PG vias, pass 4) | -0.010 | +0.011 | +0.200 | +0.260 | - |
+| **tagskew10 (+176 tag-read delay cells, pass 5)** | **+0.015** | +0.010 | - | - | - |
+
+The 5.0 ns what-if on clkskew8 (-0.310, 61 violators) showed the next wall:
+once the SRAM path is skewed, the full-cycle tag-array read
+(`rindex_rep_r_reg -> rtag_raw_r_reg`, 3.78 ns of replica fanout) and
+`refill_set_id -> refill_rd_tag_r` take over. The tag-skew ECO borrows
+from those registers' downstream slack (+0.135 at 5.0 into the PLRU and
+`alloc_wen`) and is what turns pgvia9's -0.010 at 5.3 into +0.015. Below
+5.3 the honest fix is RTL (E39: register the macro output inside its valid
+window, +1 cycle hit latency), not another ECO.
+
+### Are setup and hold timed at the right corners? (asked 2026-09-11)
+
+Yes, checked on the pass-5 reports and log rather than the script:
+
+- Every setup report (`reg2reg.rpt`, `reg2out.rpt`, `in2reg.rpt`,
+  `setup.rpt`) says `Analysis View: setup_view` = delay corner `ss_corner`
+  = library set `ss_libs` (`sky130_fd_sc_hd__ss_n40C_1v76` + macro
+  `SS_1p8V_25C`) + RC corner `rc_slow` (100 C, R and C x1.10) with the
+  x1.5 *late* derate on the 16 macro instances.
+- Every hold report (`hold.rpt`, `reg2out_hold.rpt`) says `Analysis View:
+  hold_view` = `ff_corner` = `ff_libs` (`sky130_fd_sc_hd__ff_n40C_1v95` +
+  macro `FF_1p8V_25C`) + `rc_fast` (-40 C, R and C x0.90) with the x0.67
+  *early* derate. `set_analysis_view -setup {setup_view} -hold {hold_view}`
+  is in the log, and the `report_timing -early` calls are what write the
+  hold files.
+
+Two honest limits of that split. Both RC corners read the same Quantus
+SPEF (`*_pnr.spef`; no `_rc_fast.spef` was extracted), so the only RC
+spread between the corners is the +/-10 % scaling in `mmmc.tcl` - hold is
+timed with fast cells on slow-corner-derived wires scaled down 10 %, which
+flatters hold slightly. And hold is timed at the fast corner only; a full
+signoff would also time hold at `ss_corner` (cold, slow) where clock-tree
+insertion delay grows. On this tree (balanced, 3.6 ns insertion, 0.35 ns
+target skew) the +0.075 hold margin is the same on every export since the
+CTS fix, so neither limit changes the conclusion; both are listed so the
+next flow pass can close them (extract a second SPEF at -40 C; add
+`set_analysis_view -hold {hold_view setup_view}`). The 806 "nets missing in
+SPEF" the log reports are all `UNCONNECTED*` dangling outputs, no timing
+arcs.
+
+### Caveats carried on the 188 MHz number
+
+1. The macro timing is a x1.5 derate of the PDK's SS_1p8V_25C lib, not a
+   characterized ss_n40C_1v76 corner (MACROS.md); x2.0 would fail 5.3.
+2. No standard-cell OCV derate, only the 0.10 / 0.05 ns uncertainty.
+3. The capture registers now sample `dout1` ~0.6 ns after the macro's own
+   rising edge (0.3 before the skew ECO). The lib has no "dout invalid after
+   clk rises" arc and the GLS model holds dout, so neither STA nor GLS can
+   see a hold-after-rising-edge failure inside the OpenRAM sense path. This
+   is the one physical unknown on the package; E39 removes it.
+4. 15 ps of margin at 5.3 is inside SI noise; 5.5 / 182 MHz is proven on
+   two independent exports.

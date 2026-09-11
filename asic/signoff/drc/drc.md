@@ -177,3 +177,32 @@ FEOL section's smaller rule set on the same 2.5 M flat polygons. The
 waiver is under re-examination after the li1 finding (DRC.md "li1 under
 the macros"): the BEOL run must be repeated on the re-exported GDS from
 `07_li1fix.enc`.
+
+## 2026-09-09 to 09-11 - KLayout on iter26b (quad floorplan): five passes, all clean outside the macros
+
+`sky130A_mr.drc`, beol=true feol=false, 16 threads, ~4.5 h per pass, on
+each export of the iter26b run; classified with `classify_lyrdb.py --def`
+(macro boxes read from the exported DEF, so it works on the quad floorplan).
+Last pass in `results/<26b>/klayout_drc/`, earlier ones under
+`results/<26b>/pass<N>_*/klayout_drc/`.
+
+| pass | export | items | inside macros | outside | outside = |
+|---|---|---|---|---|---|
+| 1 | final5 | 24,220 | 24,173 | 47 | 4 via3.2 + 5 m3.2 + **38 li.3 at the 10 overlapping antenna diodes** (see lvs.md) |
+| 2 | final6 | 24,182 | 24,173 | 9 | 4 via3.2 + 5 m3.2 |
+| 3 | clkskew8 | 24,182 | 24,173 | 9 | same |
+| 4 | pgvia9 | 24,245 | 24,236 | 9 | same |
+| 5 | **tagskew10 (signed off)** | **24,249** | 24,240 | **9** | same |
+
+The nine are the standing artefact set of this flow: four `via3.2` items at
+cell-local (0, 0) inside the Innovus multi-cut via masters (not top-level
+routing) and five `m3.2` met3-spacing items sitting exactly on a macro box
+edge (x = 486 / 2412 um), where a routed met3 wire meets the vendor macro's
+own met3. None is within 3 um of an antenna diode. The ~24k in-macro items
+are the OpenRAM bitcell arrays against the periphery rule deck, the same
+class waived since the iter14 verdict (vendor GDS is golden).
+
+Not repeated on 26b: the FEOL pass. It was 0 items on iter16b and P&R adds no
+front-end geometry (fill/tap/decap/diode are library cells), so the iter16b
+result stands for the process; a 26b rerun would take 21 minutes if a
+reviewer wants it on the exact GDS.
