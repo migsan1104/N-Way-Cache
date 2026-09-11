@@ -3,6 +3,15 @@
 import Test_Complete_pkg::*;
 
 // Single testbench: runs associativity-major, one active DUT/RAM set at a time.
+// Gate-level simulation switch (2026-09-07): +define+GLS swaps the DUT
+// module for Cache_gls_wrap.sv (P&R netlist for the 16KB/ASSOC=4/macro DUT,
+// RTL for the rest) and GLS_HALF_PERIOD (ns) sets the clock; see
+// xcelium/run_gls.sh. Without GLS nothing changes.
+`ifdef GLS
+  `define TC_DUT_MODULE Cache_gls_wrap
+`else
+  `define TC_DUT_MODULE Cache
+`endif
 module Test_Complete #(
     parameter int CACHE_BYTES = 16384,
     parameter bit EN_SRAM_MACRO = 1'b1,
@@ -302,14 +311,59 @@ module Test_Complete #(
     endtask
 
 
+    // GLS I/O clock model (2026-09-08). Signoff (asic/signoff/tempus/sta.tcl via
+    // io_vclk.tcl) times every port against a virtual clock that carries the
+    // clock tree's own latency: the external agent is assumed to live at the
+    // cache's clock depth. This testbench IS that external agent, so in GLS it
+    // must sample DUT outputs and drive DUT inputs on a clock delayed by the
+    // same latency. Without it the memory-port outputs land within +-0.6 ns of
+    // the ideal edge at a 9.1 ns period and RAM_ID miscounts the burst beats
+    // (5 read beats for 4 requests -> refill shifted one word). +define+
+    // GLS_IO_LATENCY=<ns> (the latency_late in the signoff io_vclk.txt for the
+    // SDF corner) enables it: the DUT gets the free-running clk_dut, everything
+    // on the TB side keeps using clk, which becomes clk_dut delayed by that
+    // amount (transport delay - an inertial #delay longer than the half period
+    // would swallow the clock). Without the define nothing changes: the DUT and
+    // the TB share the one clk exactly as before.
+    logic clk_dut;
+`ifdef GLS_IO_LATENCY
+    `define TC_DUT_CLK clk_dut
+    always @(clk_dut) clk <= #(`GLS_IO_LATENCY) clk_dut;
+`else
+    `define TC_DUT_CLK clk
+    assign clk_dut = clk;
+`endif
+    // Second agent depth (2026-09-08 finding): the two DUT ports live at very
+    // different clock depths in the placed tree. Response-side outputs leave
+    // ~1.1 ns after the ideal edge (RESPONSE_UNIT flops, ~0.5 ns latency) while
+    // the memory-port outputs leave ~9.2 ns after it (MSHR_REQ_ARBITER flops,
+    // 7.6 ns latency + clk->q). No single external clock can sample both inside
+    // one 9.1 ns period, so RAM_ID gets its own clock: +define+GLS_MEM_LATENCY=
+    // <ns> delays clk_mem from clk_dut by that amount (transport delay again).
+    // Without the define RAM_ID stays on clk exactly as before.
+    logic clk_mem;
+`ifdef GLS_MEM_LATENCY
+    always @(clk_dut) clk_mem <= #(`GLS_MEM_LATENCY) clk_dut;
+`else
+    assign clk_mem = clk;
+`endif
+
     initial begin
+`ifdef GLS_IO_LATENCY
+        clk_dut = 1'b0;
+`else
         clk = 1'b0;
+`endif
         ram_init_file_path = resolve_ram_init_file();
         $display("Test_Complete loading init file: %s", ram_init_file_path);
         init_golden_mem();
     end
 
+`ifdef GLS_HALF_PERIOD
+    always #(`GLS_HALF_PERIOD) `TC_DUT_CLK = ~`TC_DUT_CLK;
+`else
     always #5 clk = ~clk;
+`endif
 
     genvar assoc_gen;
 
@@ -320,7 +374,7 @@ module Test_Complete #(
                                         (assoc_gen == ASSOC_IDX_4)  ? 4  :
                                         (assoc_gen == ASSOC_IDX_8)  ? 8  : 16;
 
-            Cache #(
+            `TC_DUT_MODULE #(
                 .CACHE_BYTES (CACHE_BYTES),
                 .EN_SRAM_MACRO (EN_SRAM_MACRO),
                 // Entry 21: measured 2026-08-23 and REJECTED on ASIC
@@ -331,7 +385,7 @@ module Test_Complete #(
                 .TAG_READ_ONEHOT (1'b0),
                 .ASSOC       (THIS_ASSOC)
             ) DUT (
-                .clk            (clk),
+                .clk            (`TC_DUT_CLK),
                 .rst            (rst),
 
                 .cpu_req_valid  (dut_cpu_req_valid[assoc_gen]),
@@ -367,7 +421,7 @@ module Test_Complete #(
                 .READ_LATENCY (RAM_READ_LATENCY),
                 .INIT_FILE    (RAM_INIT_FILE)
             ) MEM (
-                .clk          (clk),
+                .clk          (clk_mem),
                 .rst          (rst),
 
                 .req_valid    (dut_mem_req_valid[assoc_gen]),

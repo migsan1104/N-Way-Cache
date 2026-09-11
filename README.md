@@ -9,16 +9,19 @@ machinery across the bottom (steps 6–11). Sub-line valid bits let a write miss
 immediately, back-pressure exists at exactly one point, and four misses stay in flight with
 same-line waiters merged and responses returning out of order.*
 
-The same RTL, taken through the full ASIC flow (Genus synthesis + Innovus place-and-route on
-SKY130 HD with 16 OpenRAM SRAM macros) — rendered with KLayout from the actual GDSII stream the
-flow exports:
+The same RTL, taken through the full ASIC flow (Genus synthesis, Innovus place-and-route, Tempus /
+Voltus / KLayout / netgen signoff on SKY130 with 16 OpenRAM SRAM macros), rendered from the actual
+GDSII stream the flow exports:
 
-![16 KB 4-way cache GDSII, pre-signoff](asic/signoff/GDS11_Image/iter14_e35_armE_gds.png)
+![16 KB 4-way cache GDSII, signed off at 188 MHz](asic/signoff/GDS11_Image/Iter26b_SO.png)
 
-*The most recent routed layout (iteration 14): a 2.70 mm × 2.70 mm die, ~222k logic cells plus
-16 SRAM macros ringing the core. The sheet carries the Innovus route-stage numbers — DRC and
-antenna counts, setup/hold slack at both MMMC corners — ahead of Tempus/Quantus signoff, which is
-in progress.*
+*The signed-off layout (iteration 26b, 2026-09-11): a 2.90 mm × 2.90 mm die, ~197k logic cells
+plus 16 SRAM macros in four quadrant blocks with the shared miss-handling logic in the middle
+band. The sheet is the signoff record: 5.3 ns / 188.7 MHz in Tempus with signal integrity and
+extracted parasitics, 0 violating paths, route DRC 0, antenna 0, mask DRC clean outside the
+vendor macros, LVS device-exact, IR and EM clean, and the full regression passing in gate-level
+simulation at that clock. §4 explains every stage that produced it; the layout alone is
+`asic/signoff/GDS11_Image/Iter26b.png`.*
 
 ---
 
@@ -237,27 +240,180 @@ FPGA implementation will serve as an intermediate architectural evaluation step,
 
 ## 4. RTL-to-GDSII Flow
 
-Once the architecture has been verified and optimized, we will transition to a complete ASIC implementation flow. This phase will demonstrate the complete digital IC implementation process from synthesizable RTL through manufacturable layout. We will go through the whole RTL -> GDSII flow with the best design implemented on the FPGA in terms of PPA tradeoffs. 
+This is the part of the project that turns the verified, FPGA-characterized RTL into a
+manufacturable layout and then proves, with the same signoff tools a tapeout uses, that the
+layout works at a stated frequency. The whole chain runs on the UF ECE servers with Cadence Genus,
+Innovus, Quantus, Tempus and Voltus, plus KLayout and netgen for the physical checks the SkyWater
+PDK only supports in open-source tools. Every stage below has a longer, hands-on document in the
+repo; this section is the map.
 
-This flow will include:
+### 4.1 The result
 
-- Logic synthesis
-- Static Timing Analysis (STA)
-- Floorplanning
-- Placement
-- Clock Tree Synthesis (CTS)
-- Routing
-- Timing closure
-- Power analysis
-- Physical verification
-- GDSII generation
+| | Signed-off package (P&R iteration 26b, 2026-09-11) |
+|---|---|
+| Design | 16 KB, 4-way, non-blocking cache, 16 × `sram_1rw1r_32_256_8` OpenRAM macros (one per way and word bank) |
+| Process | SkyWater SKY130, `sky130_fd_sc_hd` standard cells, 5 routing layers |
+| Die | 2.90 × 2.90 mm (8.41 mm²); 4.74 mm² of cells and macros, 59 % density |
+| Cells | 196,962 logic + 160,931 physical (decap / tap / diode / tie) + 16 macros |
+| Clock | **5.3 ns = 188.7 MHz**, Tempus signoff STA, signal-integrity aware, `ss_n40C_1v76` corner, extracted parasitics |
+| Timing margin | reg2reg +0.015 ns, I/O paths > +0.9 ns, hold +0.075 ns, 0 violating paths (5.5 ns / 182 MHz closes on two independent exports) |
+| Physical verification | Innovus route DRC 0, antenna 0; KLayout mask DRC clean outside the vendor macros; LVS device-exact (197,438 = 197,438) |
+| Power integrity | Voltus static IR: 22 mV worst on both rails (budget 52.8 mV); electromigration 0 elements over limit; 817 mW at the tool's default activity |
+| Gate-level simulation | Full Test1–10 regression on the post-layout netlist with SDF delays at 5.3 ns: PASS, 221,500 requests, 0 data errors |
 
-### Logical synthesis results
+For scale, the first honest signoff of this design (iteration 19b, the ring floorplan, 2026-09-07)
+was 110 MHz. The floorplan change and four post-route ECOs described below took it to 188 MHz on
+the same RTL.
 
-Logic synthesis is run ahead of the physical flow so the architectural comparison can be repeated on
-a real standard-cell library rather than on FPGA primitives. Both tools target SKY130 HD at the
-typical corner (`tt_025C_1v80`, 1.80 V, 25 C) with a 2.000 ns clock, using the same RTL revision as
-the FPGA sweep. From `asic/`:
+### 4.2 The flow at a glance
+
+```mermaid
+flowchart LR
+    RTL[RTL<br/>src/] --> SYN[Logic synthesis<br/>Genus]
+    SYN --> FP[Floorplan<br/>16 macros, regions]
+    FP --> PG[Power grid<br/>rings, stripes]
+    PG --> PL[Placement<br/>+ pre-CTS opt]
+    PL --> CTS[Clock tree<br/>synthesis]
+    CTS --> RT[Routing<br/>+ DRC gate]
+    RT --> ECO[ECOs on the<br/>routed database]
+    ECO --> EX[Export<br/>GDS · DEF · SPEF · SDF · netlist]
+    EX --> STA[Tempus STA]
+    EX --> PV[KLayout DRC<br/>netgen LVS]
+    EX --> PI[Voltus IR / EM]
+    EX --> GLS[Gate-level sim<br/>Xcelium + SDF]
+```
+
+| Stage | Tool | What it does | Where to read more |
+|---|---|---|---|
+| Logic synthesis | Genus (DC as cross-check) | RTL → gate netlist on the SKY130 cell library, SRAM macros bound, first timing estimate | `asic/README.md`, `asic/MACROS.md` |
+| Floorplan | Innovus stage 01 | die size, where the 16 macros go, soft regions for each way's logic and the shared "hub" | `asic/PnR/innovus/FLOORPLAN.md`, `asic/PnR/DRC.md` |
+| Power grid | Innovus stage 02 | rings, stripes, straps, rail connection; validated later by Voltus | `asic/signoff/voltus/voltus.md` |
+| Placement | Innovus stage 03 | cells placed and pre-CTS timing optimization | `asic/PnR/DRC.md` (the density/congestion story) |
+| Clock tree | Innovus stage 04 | buffer tree so every flop sees the clock at nearly the same time | `asic/PnR/innovus/CTS.md` |
+| Routing | Innovus stage 05 | wires on five metal layers, then a `verify_drc` gate before any post-route optimization | `asic/PnR/DRC.md` |
+| ECOs | Innovus scripts | antenna diodes, PG via arrays, clock-skew delay cells, applied to the routed database | `asic/ECO.md`, `asic/PnR/innovus/scripts/` |
+| Export | Innovus stage 06 | fill, merged GDSII, DEF, Quantus parasitics (SPEF), SDF, netlists | `asic/signoff/WALKTHROUGH_2026-09-04.md` |
+| Signoff | Tempus, Voltus, KLayout, netgen, Xcelium | the independent proofs that the layout works | `asic/signoff/README.md` and the per-tool notes |
+
+### 4.3 Stage by stage
+
+**Logic synthesis.** Genus maps the RTL onto `sky130_fd_sc_hd` cells at the slow corner
+(`ss_n40C_1v76`) with the data banks bound to the OpenRAM macros. The frozen netlist for the
+signed-off package ("E35") is ~143k cells, 35k of them flops. One synthesis lesson that shaped
+everything after it: the vendored macro timing library claims a 0.65 ns access time, but a SPICE
+check of the macro shows its self-timed read needs most of a half clock period; we carry a ×1.5
+derate on every macro arc and treat the macro read as a half-cycle path. Details and the derate
+derivation: `asic/MACROS.md`. The Genus/DC associativity sweep is in §4.5.
+
+**Floorplan.** With 16 hard macros covering a third of the core, the floorplan decides the
+frequency and the routability before any other stage runs. Six placements were tried:
+
+![Floorplan history](asic/PnR/floorplans/floorplan_history.png)
+
+The lesson in that picture is a physical-design classic. Floorplans 1–3 could not be routed at
+all: they either blocked the macros' read buses with other macros or piled the shared logic
+into a jam the router could not clear. The ring (4) was the first routable floorplan, and the
+one that first passed every physical check, but it caps the clock: the shared miss-handling logic
+sits in the middle and its 128-bit refill bus has to reach three ways over 2.2–2.8 mm of wire,
+which costs 2–3 ns however it is driven. The two-column layout (5) shortens that reach but does
+not fit on a 2.9 mm die. The quadrant layout (6) gives each way a 2 × 2 macro block whose read
+ports face an interior standard-cell channel, puts the hub in a band across the middle, and cuts
+the worst hub-to-way reach to about 1 mm. Placement-stage worst slack went from -3.44 ns on the
+ring to -2.1 ns on the quad with nothing else changed, and after routing and ECOs it is the
+188 MHz package. Derivation of the die size and the placement numbers: `FLOORPLAN.md`.
+
+**Power grid.** Met5 horizontal straps, met4 vertical stripes, a ring, and the standard-cell
+rails. The grid was drawn in stage 02 and only *validated* at the end by Voltus, which is the wrong
+order and cost two ECOs: every place a 2 µm strap crossed a 2 µm stripe had a single via cut
+carrying 2–4× its electromigration limit. The fix was via pads at every crossing on all four die
+edges, applied on the routed database. The earlier ring package also had a whole column of
+standard-cell rows with no power connection at all, found by LVS rather than by the power tools.
+Both stories, with the numbers, are in `asic/signoff/voltus/voltus.md` and `lvs/lvs.md`.
+
+**Placement.** The way regions and the hub band are soft guides; the one hard rule that made the
+design routable is a 40 % partial placement blockage over the hub, which leaves room for wires
+where the shared logic converges. That one change took the route DRC count from 133,000 to
+2,900 on the ring (iteration 5 → 7), and the same rule carries into the quad. The methodology
+note in `asic/PnR/DRC.md` is the routing-DRC campaign: 26 iterations, each changing one variable,
+with an autopsy per run.
+
+**Clock tree synthesis.** Innovus CCOpt builds a buffered tree to ~35k sinks. On this design the
+tree is balanced at 3.6 ns insertion delay with 0.35 ns skew. The expensive lesson here was in the
+constraints, not the tree: for a week the flow exported a clock source latency of -7.3 ns from
+the CTS step and Tempus applied it to launch clocks only, so every internal path looked 7.3 ns
+better than it was. Finding and removing that is what turned the "300 MHz" of early September into
+the honest 110 MHz of iteration 19b, and it is written up in `CTS.md` §5 as the thing to check
+first on any flow that reports a number too good to be true.
+
+**Routing.** NanoRoute on five metal layers (li1 excluded), followed by a hard gate: the flow
+refuses to run post-route optimization unless `verify_drc` is near zero, because optimizing on
+top of an unroutable placement was measured to multiply the violations. Iteration 26b came out of
+the router at 7 violations and was legalized to 0 by hand-written rip-up-and-reroute scripts; the
+53 antenna violations were closed to 0 with a diode-attach recipe that replaces the tool's own
+antenna ECO (which wrecked the route). Antenna rules, why the router's fixer failed, and the
+recipe: `DRC.md` and `scripts/antenna_attach6.tcl`.
+
+**ECOs on the routed database.** Four engineering change orders, each verified with DRC,
+antenna, placement-overlap and timing checks before it was kept:
+
+| ECO | Script | What it fixed | Effect |
+|---|---|---|---|
+| Antenna diodes legalized | `antenna_attach6.tcl` | 10 diodes had been dropped on top of the flops they protect (caught by LVS and KLayout, not by DRC) | LVS clean |
+| PG via arrays, west edge | `pg_westvia_eco.tcl` | 1-cut vias at strap/stripe crossings over the EM limit | VSS EM 3.95× → 1.43× |
+| PG via arrays, east + north | `pg_eastnorth_eco.tcl` | the same class on the other edges | EM 0 elements over limit |
+| Clock-skew delay cells | `clk_skew_eco.tcl` ×2 | 160 delay buffers on the SRAM-read capture flops, then 176 on the tag-read flops: "useful skew" applied by hand to the two paths that set the period | 170 MHz → 182 MHz → 188.7 MHz |
+
+The clock-skew ECO is worth understanding: the macro launches its read data on the falling
+clock edge, so the capture flop has half a period minus the macro's access time to work with.
+Delaying only those capture flops' clock by 0.3 ns borrows time from the (slack-rich) path after
+them. It is the same trick a CTS tool calls useful skew; doing it as a surgical ECO on 336 flops
+kept the rest of the tree, and the hold margin, untouched.
+
+**Export.** Stage 06 adds fill cells, streams a merged GDSII (cell and macro layouts included,
+which matters: an unmerged GDS has nothing for DRC to check), writes the DEF, extracts parasitics
+with Quantus using a tech file built and validated in-house, and writes the SDF and two netlists
+(one for simulation, one with power pins for LVS).
+
+**Signoff.** Five independent proofs, each with its own note under `asic/signoff/`:
+
+- *Static timing (Tempus).* An independent timer with extracted parasitics and crosstalk analysis,
+  multi-corner: setup at the slow library corner with wires scaled +10 %, hold at the fast corner
+  with wires scaled -10 %. The I/O is modelled against a reference flop's clock arrival with the
+  input/output delay contract the SDC promises. 5.3 ns closes with 0 violators; the table and the
+  full list of caveats (macro derate, no on-chip-variation derate, the OpenRAM hold-after-edge
+  unknown) are in `tempus/tempus.md`.
+- *Mask DRC (KLayout).* The PDK's `sky130A_mr.drc` deck, back-end layers, on the merged GDS.
+  Nine items outside the macros, all known artefacts of via masters and macro edges. The
+  24k items inside the macros are the OpenRAM bitcell arrays against the periphery rules and are
+  the vendor's, not ours. Magic was tried first and retired after three self-contradicting runs.
+- *LVS (Magic + netgen).* Layout extracted with the macros as black boxes, compared against the
+  post-route netlist with power pins: device-count exact, and the only unmatched nets are the 64
+  write-mask pins the macro abstract leaves unconnected. LVS is also what found the overlapping
+  diodes and the floating power rails of the earlier package.
+- *Power integrity (Voltus).* Static IR drop and electromigration on the exported DEF and SPEF.
+- *Gate-level simulation (Xcelium).* The same self-checking testbench from §2 run on the
+  post-layout netlist with SDF back-annotation at the signoff period. It needed its own campaign
+  (`xcelium/GLS.md`): reset-free arrays hold the simulator's X forever unless power-up is modelled
+  explicitly, and the testbench had to learn the clock-tree insertion delay and the SDC input-delay
+  contract to drive the netlist honestly.
+
+### 4.4 What the number does and does not claim
+
+188.7 MHz is a signoff-quality number for this package with these caveats stated in the sheet:
+the macro corner is a ×1.5 derate of the PDK's typical-voltage library rather than a characterized
+cold-slow corner; standard cells carry clock uncertainty but no OCV derate; the SRAM-read capture
+flops sample 0.6 ns after the macro's own rising edge, and neither the library nor the simulation
+model can say whether the OpenRAM output holds that long (the honest fix is an RTL pipeline stage
+at the macro output, at +1 cycle of hit latency); and 15 ps of setup margin is inside
+signal-integrity noise, so 182 MHz (5.5 ns), which closes on two separate exports, is the safer
+figure to quote. Everything above is on the PLE-free, extracted, routed layout; nothing is an
+estimate.
+
+### 4.5 Logic synthesis PPA sweep
+
+Logic synthesis is also run standalone across associativities so the architectural comparison
+from §3 can be repeated on a real standard-cell library. Both tools target SKY130 HD; from
+`asic/`:
 
 ```bash
 ./run_genus.sh N        # Cadence Genus
@@ -265,30 +421,28 @@ the FPGA sweep. From `asic/`:
 ./sweep.sh -j 2         # several configurations
 ```
 
-Results land in `asic/PPA/<genus|dc>/assoc_N/`.
-
-Current status (16 KB cache, SKY130 HD, ss_100C_1v60, 3.500 ns target, physically-aware Genus +
-DC): the full five-associativity sweep at 16 KB is being re-measured on the current RTL (the
-project's capacity target moved from 4 KB to 16 KB with the SRAM-macro work — see `asic/MACROS.md`).
-Alongside the standard-cell sweep, the 16 KB ASSOC=4 configuration synthesizes with 16
-`sram_1rw1r_32_256_8` hard macros (`ASIC_SRAM_MACRO=1`, macro lib SS_1p8V_25C with a x2.0 derived
-timing derate).
-
-The tables are regenerated with `asic/collect_ppa.py`, which parses each tool's QoR, area, and
-power reports into a common column set, writes `asic/PPA/RESULTS.md`, and with `--png` renders the
-charts below:
-
-```bash
-./collect_ppa.py --markdown PPA/RESULTS.md --png ..
-```
-
-Current synthesis PPA visualization:
+Results land in `asic/PPA/<genus|dc>/assoc_N/` and are collected into `asic/PPA/RESULTS.md` by
+`asic/collect_ppa.py` (`--png` renders the charts). Synthesis numbers use placement-based wire
+estimates and are a floor; the post-P&R numbers in §4.1 are the ones that count.
 
 ![Cadence Genus synthesis PPA scaling](ASIC_Genus_Synthesis_PPA_16KB.png)
 
 ![Synopsys Design Compiler synthesis PPA scaling](ASIC_DC_Synthesis_PPA_16KB.png)
 
-The ASIC implementation phase will connect the architectural design decisions made earlier in the project to their physical consequences in timing, power, area, and layout complexity.
+### 4.6 Reproducing the signed-off package
+
+```bash
+source /apps/settings
+cd asic && ./run_genus.sh 4                                   # E35 netlist, ASSOC=4, macros bound
+cd PnR && ./run_v3.sh                                         # stages 00-05 with the iter26b knobs
+#   (ASIC_FLOORPLAN=floorplans/fp_iter23_quad.tcl ASIC_FP_WAY_CHANNEL=260 ASIC_MAX_FANOUT=32 ...,
+#    the exact set is recorded in the run's knobs.txt)
+innovus/scripts/winner_chain.sh <run_stamp>                   # hold fix -> antenna -> export -> KLayout + LVS + Tempus
+cd ../../xcelium && GLS_XINIT=1 GLS_HALF_PERIOD=2.65 GLS_IO_LATENCY=3.6 GLS_IN_DELAY=0.7 ./run_gls.sh postlayout
+```
+
+Every P&R run records its knobs in `knobs.txt`, and every signoff result is filed under the run's
+stamp in `asic/signoff/results/`, so a number can always be traced to the GDS it was measured on.
 
 ---
 

@@ -79,11 +79,94 @@ addRing -nets [list $PG_POWER_NET $PG_GROUND_NET] \
 
 pnr_note "core ring: ${PG_RING_WIDTH}um on $PG_RING_LAYER_H/$PG_RING_LAYER_V"
 
+
+# Horizontal straps (iter17, 2026-09-04). OFF unless ASIC_PG_STRIPE_H_LAYER is
+# set, so no other run changes. The vertical met4 stripes stop at the SRAM
+# macros (LEF OBS met1-met4), so the hub inside the macro ring is fed only
+# through the four corner gaps: Voltus static IR on iter16b = 119/121 mV vs a
+# 53 mV budget (voltus.md "First static IR result"). met5 is free over the
+# macros; horizontal met5 straps ring-to-ring cross them and stack down onto
+# the hub's met4 stripes. Pitch sized on iter16b's own DB with Voltus what-if
+# shapes: 120 um -> 65 mV, 60 um -> 47 mV (ITER17_PLAN.md section 3).
+set PG_STRIPE_H_LAYER [config_env ASIC_PG_STRIPE_H_LAYER {}]
+if {$PG_STRIPE_H_LAYER ne ""} {
+    set PG_STRIPE_H_WIDTH   [config_env ASIC_PG_STRIPE_H_WIDTH 2]
+    set PG_STRIPE_H_SPACING [config_env ASIC_PG_STRIPE_H_SPACING 2]
+    set PG_STRIPE_H_PITCH   [config_env ASIC_PG_STRIPE_H_PITCH 60]
+    addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
+              -layer $PG_STRIPE_H_LAYER \
+              -direction horizontal \
+              -width $PG_STRIPE_H_WIDTH \
+              -spacing $PG_STRIPE_H_SPACING \
+              -set_to_set_distance $PG_STRIPE_H_PITCH \
+              -start_from bottom
+    pnr_note "horizontal straps: $PG_STRIPE_H_LAYER width $PG_STRIPE_H_WIDTH pitch $PG_STRIPE_H_PITCH"
+}
+
+# Strap-to-ring jumpers (iter19b Voltus finding, 2026-09-07). addStripe stops a
+# horizontal strap at the FIRST ring it meets on its own layer, so the net whose
+# ring is the outer one (VSS: ring x 4.1-8.1, VDD ring x 10.1-14.1 inside it)
+# gets straps that end at the VDD ring (x 16.5..2883.3) and never touch the VSS
+# ring. VSS was then fed only from the top/bottom edges: 61 mV drop vs VDD's
+# 28 mV, VSS EM 4.0x the LEF limit (voltus.md "VSS straps stop at the VDD
+# ring"). One met4 jumper per strap end, under the inner ring, closes the gap;
+# placed here, before routing, NanoRoute simply routes around it (the same
+# jumpers as a post-route ECO on 19b collided with 94 pin-escape nets).
+set PG_STRAP_JUMPERS [config_env ASIC_PG_STRAP_JUMPERS 1]
+if {$PG_STRIPE_H_LAYER ne "" && $PG_STRAP_JUMPERS} {
+    set jl [config_env ASIC_PG_STRAP_JUMPER_LAYER met4]
+    setAddStripeMode -stacked_via_top_layer $PG_STRIPE_H_LAYER -stacked_via_bottom_layer $jl
+    set die [dbGet top.fPlan.box]; lassign [lindex $die 0] dx1 dy1 dx2 dy2
+    foreach pgnet [list $PG_POWER_NET $PG_GROUND_NET] {
+        set nobj [dbGet -p top.nets.name $pgnet]
+        set ringL ""; set ringR ""; set straps {}
+        foreach w [dbGet $nobj.sWires] {
+            set lay [dbGet $w.layer.name]
+            lassign [lindex [dbGet $w.box] 0] x1 y1 x2 y2
+            if {$lay eq $PG_RING_LAYER_V && ($y2 - $y1) > ($dy2 - $dy1) * 0.5} {
+                if {$x1 < ($dx1 + $dx2) / 2.0} { set ringL [list $x1 $x2] } else { set ringR [list $x1 $x2] }
+            } elseif {$lay eq $PG_STRIPE_H_LAYER && ($x2 - $x1) > ($dx2 - $dx1) * 0.5} {
+                lappend straps [list $x1 $y1 $x2 $y2]
+            }
+        }
+        if {$ringL eq "" || $ringR eq ""} { pnr_note "strap jumpers: $pgnet vertical ring not found - skipped"; continue }
+        set nj 0
+        foreach sb $straps {
+            lassign $sb sx1 sy1 sx2 sy2
+            set w [expr {$sy2 - $sy1}]
+            if {$sx1 > [lindex $ringL 1] + 0.01} {
+                addStripe -nets $pgnet -layer $jl -direction horizontal -width $w \
+                    -area [list [lindex $ringL 0] $sy1 [expr {$sx1 + 1.0}] $sy2] \
+                    -start_from bottom -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+                incr nj
+            }
+            if {$sx2 < [lindex $ringR 0] - 0.01} {
+                addStripe -nets $pgnet -layer $jl -direction horizontal -width $w \
+                    -area [list [expr {$sx2 - 1.0}] $sy1 [lindex $ringR 1] $sy2] \
+                    -start_from bottom -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+                incr nj
+            }
+        }
+        pnr_note "strap jumpers: $pgnet [llength $straps] straps, $nj $jl jumpers to the $PG_RING_LAYER_V ring"
+    }
+    setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
+}
+
 # ---------------------------------------------------------------------------
 # Stripes
 # ---------------------------------------------------------------------------
 # Pitch is a starting value. Too sparse shows up as IR drop; too dense eats
 # routing resource over the macros. Check the congestion map after 03_place.
+# ORDER (2026-09-07): the vertical stripes come AFTER the horizontal straps and
+# their strap-to-ring jumpers. On iter19b the first set sat at x 16.1-18.1
+# (0.1 um from the core edge) and blocked the met4 jumper that has to run from
+# the VSS ring (x 4.1-8.1) to the strap start (x 16.5): addStripe trimmed the
+# jumper to a stub and it took three ECOs to get VSS to the ring
+# (voltus.md "VSS straps stop at the VDD ring"). With the jumper already in
+# place and the first set pushed ASIC_PG_STRIPE_OFFSET um in from the core
+# edge (default 4), the jumper lands on the strap with room to spare and the
+# stripe set never meets it.
+set PG_STRIPE_OFFSET [config_env ASIC_PG_STRIPE_OFFSET 4]
 setAddStripeMode -stacked_via_top_layer met5 -stacked_via_bottom_layer met1
 
 addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
@@ -92,17 +175,52 @@ addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
           -width $PG_STRIPE_WIDTH \
           -spacing $PG_STRIPE_SPACING \
           -set_to_set_distance $PG_STRIPE_PITCH \
-          -start_from left
+          -start_from left -start_offset $PG_STRIPE_OFFSET
 
-pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH"
+pnr_note "stripes: $PG_STRIPE_LAYER width $PG_STRIPE_WIDTH pitch $PG_STRIPE_PITCH offset $PG_STRIPE_OFFSET"
+
+# Edge stripe pair (LVS finding, 2026-09-07, lvs.md "root cause"). The stripe
+# pitch decides where the LAST vertical set lands; on iter19b (die 2900,
+# pitch 60, start 17.1) it fell at x 2837/2841, under the right SRAM column,
+# where met4 is obstructed. The 24 um channel of standard-cell rows between
+# that macro column and the core edge then had no stripe at all, the rails
+# stop at the core edge short of the rings, and the met5 straps are parallel
+# to the rails: 288+289 floating VPWR/VGND rail segments, every cell in them
+# unpowered, caught only by LVS. This adds one VDD+VSS pair just inside the
+# right core edge regardless of pitch (the left edge gets the first set by
+# construction: start offset < channel width). Placed 5.5 um in from the
+# edge so it clears the endcaps' met1 and the strap-end jumper landing zone.
+set PG_EDGE_STRIPES [config_env ASIC_PG_EDGE_STRIPES 1]
+if {$PG_EDGE_STRIPES} {
+    lassign [lindex [dbGet top.fPlan.coreBox] 0] _cx1 _cy1 _cx2 _cy2
+    set _ex1 [expr {$_cx2 - 15.5}]
+    addStripe -nets [list $PG_POWER_NET $PG_GROUND_NET] \
+              -layer $PG_STRIPE_LAYER -direction vertical \
+              -width $PG_STRIPE_WIDTH -spacing $PG_STRIPE_SPACING \
+              -area [list $_ex1 $_cy1 [expr {$_ex1 + 2*$PG_STRIPE_WIDTH + $PG_STRIPE_SPACING + 0.5}] $_cy2] \
+              -start_from left -start_offset 0 -number_of_sets 1 -set_to_set_distance 1000
+    pnr_note "edge stripes: $PG_STRIPE_LAYER pair at x [expr {$_ex1}] (right core edge $_cx2)"
+}
 
 # ---------------------------------------------------------------------------
 # Follow pins
 # ---------------------------------------------------------------------------
 # Connects the standard-cell rows' VPWR/VGND rails to the ring and stripes.
+# li1 is NOT allowed for PG routing (2026-09-04 21:20 finding, DRC.md "li1
+# under the macros"): the SRAM LEF obstructs met1-met4 only, so sroute with an
+# unbounded layer change dropped to li1 and bridged the met1 rails ACROSS the
+# macro bodies on li1 (iter16b: 368 of 370 li1 special wires inside macro
+# footprints, up to 371 um long, on top of the macro's own li1 = VSS/VDD
+# shorts into the SRAM periphery that verify_drc cannot see). The LEF now also
+# carries an li1 OBS; this range is the belt to that suspender.
+set PG_SROUTE_LAYER_RANGE [config_env ASIC_PG_SROUTE_LAYER_RANGE {met1 met4}]
 sroute -nets [list $PG_POWER_NET $PG_GROUND_NET] \
        -connect { corePin padPin blockPin } \
-       -allowJogging 1 -allowLayerChange 1
+       -allowJogging 1 -allowLayerChange 1 \
+       -layerChangeRange $PG_SROUTE_LAYER_RANGE
+set _li1 [llength [dbGet -p2 top.nets.sWires.layer.name li1 -e]]
+if {$_li1 > 0} { pnr_fail "stage 02: $_li1 li1 special wires exist after sroute - PG on li1 is forbidden (see comment above)" }
+pnr_note "sroute layer range $PG_SROUTE_LAYER_RANGE; li1 special wires: $_li1"
 
 # ---------------------------------------------------------------------------
 # Checks

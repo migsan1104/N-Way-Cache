@@ -108,32 +108,48 @@ module Response_Unit #(
     assign choose_miss = !miss_fifo_empty;
     assign choose_hit  = miss_fifo_empty && !hit_fifo_empty;
 
-    assign cpu_resp_valid =
-        choose_miss || choose_hit;
+    // ------------------------------------------------------------
+    // iter21 experiment (2026-09-07): the CPU response port goes through
+    // a Skid_Buffer. Before, cpu_resp_{valid,hit,id,rdata} were the FIFO
+    // read pointers -> 8:1 FWFT RAM mux -> hit/miss select straight to the
+    // pins (4.67 ns at ss_100C_1v60, Tempus SI, iter19b) and cpu_resp_ready
+    // gated both FIFO pops in the same cycle (4.56 ns in, incl. hold
+    // padding). Now every output launches from the skid's output register
+    // and cpu_resp_ready only reaches the skid's own valid flops; the pop
+    // decision sees src_ready, a flop output.
+    // Cost: +1 cycle on every response. The hit FIFO's credit bound is
+    // unchanged (its capacity is unchanged; the skid only adds drain).
+    // ------------------------------------------------------------
+    logic                  src_valid;
+    logic                  src_ready;
+    logic                  src_fire;
+    logic [RESP_WIDTH-1:0] src_data;
+    logic [RESP_WIDTH-1:0] out_data;
 
-    assign cpu_resp_hit =
-        choose_miss
-        ? miss_fifo_rd_data[RESP_WIDTH-1]
-        : hit_fifo_rd_data [RESP_WIDTH-1];
+    assign src_valid = choose_miss || choose_hit;
+    assign src_data  = choose_miss ? miss_fifo_rd_data : hit_fifo_rd_data;
+    assign src_fire  = src_valid && src_ready;
 
-    assign cpu_resp_id =
-        choose_miss
-        ? miss_fifo_rd_data[DATA_WIDTH +: CPU_ID_WIDTH]
-        : hit_fifo_rd_data [DATA_WIDTH +: CPU_ID_WIDTH];
+    Skid_Buffer #(
+        .WIDTH(RESP_WIDTH)
+    ) RESP_SKID (
+        .clk       (clk),
+        .rst       (rst),
 
-    assign cpu_resp_rdata =
-        choose_miss
-        ? miss_fifo_rd_data[DATA_WIDTH-1:0]
-        : hit_fifo_rd_data [DATA_WIDTH-1:0];
+        .in_valid  (src_valid),
+        .in_ready  (src_ready),
+        .in_data   (src_data),
 
-    assign miss_fifo_rd_en =
-        cpu_resp_valid &&
-        cpu_resp_ready &&
-        choose_miss;
+        .out_valid (cpu_resp_valid),
+        .out_ready (cpu_resp_ready),
+        .out_data  (out_data)
+    );
 
-    assign hit_fifo_rd_en =
-        cpu_resp_valid &&
-        cpu_resp_ready &&
-        choose_hit;
- 
+    assign cpu_resp_hit   = out_data[RESP_WIDTH-1];
+    assign cpu_resp_id    = out_data[DATA_WIDTH +: CPU_ID_WIDTH];
+    assign cpu_resp_rdata = out_data[DATA_WIDTH-1:0];
+
+    assign miss_fifo_rd_en = src_fire && choose_miss;
+    assign hit_fifo_rd_en  = src_fire && choose_hit;
+
 endmodule

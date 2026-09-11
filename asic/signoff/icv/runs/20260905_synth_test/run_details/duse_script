@@ -1,0 +1,11 @@
+#!/bin/sh
+ulimit -c 0
+total=0
+pathsize=`/usr/bin/du -s --block-size=1 /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details | awk '{print $1}'`
+total=$(($total+$pathsize))
+group=0
+group=`/usr/bin/du -s --block-size=1 /dev/shm/ICV_tmp_miguel.sanchez1_487799 | awk '{print $1}'`
+echo $group > /dev/shm/ICV_tmp_miguel.sanchez1_487799/duse_group.tmp && \
+mv /dev/shm/ICV_tmp_miguel.sanchez1_487799/duse_group.tmp /dev/shm/ICV_tmp_miguel.sanchez1_487799/duse_group
+echo $total > /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details/duse_manager_res.tmp && \
+mv /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details/duse_manager_res.tmp /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/runs/20260905_synth_test/run_details/duse_manager_res

@@ -1,0 +1,18 @@
+{netlist inv_1.nt
+{version 2 1 0}
+/* ICV_Nettran: RHEL64 T-2022.03-SP3-4.8146030 2022/11/21 */
+/* Created:  9/05/2026   0:56   */
+/* Options: -sp sky130_fd_sc_hd__inv_1.cdl -outName inv_1.nt -equiv inv_1.equiv  */
+
+{net_global }
+{cell sky130_fd_sc_hd__inv_1
+{port A VGND VNB VPB VPWR Y}
+{inst MMIN1=nfet_01v8 {TYPE MOS} 
+{prop W=0.65 L=0.15 M=1 SA=0.265 SB=0.265 SD=0.28 TOPOGRAPHY=normal AREA=0.063 PERIM=1.14}
+{pin Y=DRN A=GATE VGND=SRC VNB=BULK}}
+{inst MMIP1=pfet_01v8_hvt {TYPE MOS} 
+{prop W=1 L=0.15 M=1 SA=0.265 SB=0.265 SD=0.28 TOPOGRAPHY=normal AREA=0.063 PERIM=1.14}
+{pin Y=DRN A=GATE VPWR=SRC VPB=BULK}}
+}
+
+}

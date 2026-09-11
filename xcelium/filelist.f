@@ -8,6 +8,7 @@
 ../src/Delay.sv
 ../src/Dispacher.sv
 ../src/FIFO_FWFT.sv
+../src/Skid_Buffer.sv
 ../src/FIFO_NF.sv
 ../src/Flag_Tag_Data_Array.sv
 ../src/MSHR_Entry.sv

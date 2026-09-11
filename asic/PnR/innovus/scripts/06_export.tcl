@@ -38,6 +38,28 @@ proc _step {label body} {
 }
 
 # ---------------------------------------------------------------------------
+# Global net connections, again
+# ---------------------------------------------------------------------------
+# 02_power.tcl's globalNetConnect ... -inst * only binds the instances that
+# exist when it runs. Every cell created after it - hold-fix FE_PHC cells,
+# resized cells, the fillers and decaps just inserted above - has no VPWR/
+# VGND/VPB/VNB assignment, and verifyConnectivity lists each of them as an
+# unconnected terminal (iter16b 2026-09-03: 1000+ VNB pins, all on FE_PHC*).
+# Exported as-is that is an LVS open on every hold cell's well tie. Same
+# block as 02_power.tcl; the variables come from innovus_config.tcl.
+_step globalNetConnect {
+    foreach pin $PG_CELL_POWER_PINS  { globalNetConnect $PG_POWER_NET  -type pgpin -pin $pin -inst * -override }
+    foreach pin $PG_CELL_GROUND_PINS { globalNetConnect $PG_GROUND_NET -type pgpin -pin $pin -inst * -override }
+    if {$SRAM_MACRO} {
+        foreach pin $PG_MACRO_POWER_PINS  { globalNetConnect $PG_POWER_NET  -type pgpin -pin $pin -inst * -override }
+        foreach pin $PG_MACRO_GROUND_PINS { globalNetConnect $PG_GROUND_NET -type pgpin -pin $pin -inst * -override }
+    }
+    globalNetConnect $PG_POWER_NET  -type tiehi -inst * -override
+    globalNetConnect $PG_GROUND_NET -type tielo -inst * -override
+    pnr_note "globalNetConnect re-applied to all instances (post-fill)"
+}
+
+# ---------------------------------------------------------------------------
 # Verification - the checks that decide whether this run counts
 # ---------------------------------------------------------------------------
 _step connectivity {verifyConnectivity -type all -noAntenna > [pnr_rpt signoff connectivity.rpt]}
@@ -87,11 +109,42 @@ _step report-summary {summaryReport -noHtml -outfile [pnr_rpt signoff summary.rp
 # ---------------------------------------------------------------------------
 _step netlist {saveNetlist [pnr_out ${RUN_TAG}_pnr.v]}
 
-# Netlist for gate-level simulation: physical-only cells carry no function and
-# break a simulator if left in.
-_step netlist-sim {saveNetlist -excludeLeafCell -physicalInsts [pnr_out ${RUN_TAG}_pnr_sim.v]}
+# Netlist for gate-level simulation. saveNetlist already omits physical-only
+# instances (filler/decap/tap) by default - verified on iter16b's export
+# (0 FILLER/DECAP/TAP in _pnr.v) - so the only difference from _pnr.v is the
+# absence of leaf-cell definitions (the sim binds the PDK's Verilog models).
+# "-physicalInsts" was never a saveNetlist option (IMPTCM-48 on every export
+# since armC); fixed 2026-09-04.
+_step netlist-sim {saveNetlist -excludeLeafCell [pnr_out ${RUN_TAG}_pnr_sim.v]}
 
-_step sdf {write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]}
+# Netlist for LVS (2026-09-05): the plain _pnr.v has NO power pins and no
+# physical instances, so netgen saw 1.4 M schematic nets vs 380 k in the
+# layout and "(no matching pin)" VPWR/VGND on every cell (iter16b lvs_bb,
+# 09-04). -includePowerGround puts VPWR/VGND/VPB/VNB on every instance and the
+# PG ports on the module; -includePhysicalInst adds the fill/decap/tap
+# instances the layout extraction sees. Used by signoff/lvs/run_lvs_bb.sh.
+_step netlist-lvs {saveNetlist -includePowerGround -includePhysicalInst [pnr_out ${RUN_TAG}_pnr_lvs.v]}
+
+# SDF with real min::max triplets: hold view (ff, -40 C) for min, setup view
+# (ss) for max. Plain write_sdf took the current view only - the iter19b SDF
+# (2026-09-07) was the fast corner in both columns (xcelium/GLS.md).
+_step sdf {
+    if {[catch {write_sdf -min_view hold_view -max_view setup_view [pnr_out ${RUN_TAG}_pnr.sdf]} _m]} {
+        puts "WARN: write_sdf -min_view/-max_view failed ($_m) - falling back to the current view"
+        write_sdf [pnr_out ${RUN_TAG}_pnr.sdf]
+    }
+}
+
+# Constraints AS IMPLEMENTED, one per analysis view (2026-09-01). This is the
+# standard signoff handoff artifact: it captures everything the flow changed
+# interactively after the source SDC was read - the 4.000 ns clock, the
+# propagated-clock switch, the post-CTS uncertainties - so signoff can either
+# consume it directly or diff it against the source-constraint replay
+# (signoff/tempus/sta.tcl does the latter; the first Tempus run signed off
+# ideal-clock precisely because this handoff did not exist).
+_step sdc-setup {write_sdc -view setup_view [pnr_out ${RUN_TAG}_setup.sdc]}
+_step sdc-hold  {write_sdc -view hold_view  [pnr_out ${RUN_TAG}_hold.sdc]}
+
 _step def {defOut -floorplan -netlist -routing [pnr_out ${RUN_TAG}_pnr.def]}
 
 # GDS. The stream-out map file is PDK-specific; if this errors, that is the

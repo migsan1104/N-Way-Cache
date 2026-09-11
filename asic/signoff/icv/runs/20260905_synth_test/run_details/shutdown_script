@@ -1,0 +1,11 @@
+#! /bin/sh
+
+echo $HOSTNAME | grep ece-lnx-10.ad.ufl.edu > /dev/null 2>&1 
+if [ $? == 0  ]
+then 
+kill 487799 
+else 
+ssh ece-lnx-10.ad.ufl.edu kill 487799 
+ sleep 10 
+ssh ece-lnx-10.ad.ufl.edu kill -9 487799 
+fi

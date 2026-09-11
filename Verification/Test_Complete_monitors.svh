@@ -176,7 +176,13 @@
     end
 
     // Plain always avoids fighting with clear_scoreboard() in tasks.
-    always @(posedge clk) begin
+    // Memory-port monitors sample on clk_mem: the clock RAM_ID uses. In RTL
+    // runs clk_mem is clk, so nothing changes; in GLS with GLS_MEM_LATENCY
+    // the memory-port outputs land ~9 ns after the ideal edge, and sampling
+    // them on the ideal clk double-/under-counted requests vs responses
+    // (io91e, 2026-09-08: Test3 "timed out draining memory traffic",
+    // mem_read_req_cycles 21654 vs mem_resp_count 19208, data_errors 0).
+    always @(posedge clk_mem) begin
         if (rst) begin
             mem_req_valid_cycles             = 0;
             mem_read_req_cycles              = 0;
@@ -230,7 +236,7 @@
         end
     end
 
-    always @(posedge clk) begin
+    always @(posedge clk_mem) begin
         if (rst) begin
             mem_resp_count = 0;
         end

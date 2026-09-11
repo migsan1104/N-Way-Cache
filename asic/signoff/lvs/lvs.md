@@ -57,3 +57,233 @@ stage-06 merged GDS (the export script merges since 2026-08-30).
 
 Not yet run on a full design. Order of work: fix the name map → rerun the
 macro-only shakedown until it passes → run on the v3 winner's merged GDS.
+
+## 2026-09-04/05 — first full black-box run on iter16b, and why it could not match
+
+Run: `run_lvs_bb.sh` inside the export chain, 18:24 magic extract (bb) ->
+19:11 spice (88 MB) -> netgen 19:12-00:55 (killed by hand). comp.out at
+22:55: "Circuit 1 contains 250939 devices, Circuit 2 contains 250938 devices"
+(cells, hierarchical compare — within one), but "380,580 nets vs 1,417,182
+nets" and `VPWR | (no matching pin)`, `VGND | (no matching pin)` on every
+cell class. Cause: `06_export.tcl`'s `_pnr.v` is written by a plain
+`saveNetlist`, which omits power/ground pins and physical instances; the
+layout side has VPWR/VGND/VPB/VNB on every cell, so netgen sees each
+implicit supply pin as its own unconnected net (250 k cells x 4). The
+decap/fill/tap cells were "flattened as unmatched subcells" for the same
+reason (absent from the Verilog). The 2026-08-28 "macro name mismatch" did
+NOT recur: the layout spice carries `sram_1rw1r_32_256_8_sky130` with 9
+devices inside the black box (expect ~0; look at those 9 next time).
+
+Fix (2026-09-05 01:00): `06_export.tcl` gains a `netlist-lvs` step —
+`saveNetlist -includePowerGround -includePhysicalInst` -> `*_pnr_lvs.v`;
+`winner_chain.sh` and `run_lvs_bb.sh` prefer `*_pnr_lvs.v` when it exists.
+The chain relaunched from `07_li1fix.enc` (li1 PG removed; tmux
+`chain_16b_li1`, log `logs/chain_li1_sh.log`) produces the first netlist
+that can match. Expected next failures, in order: the 9 in-macro devices,
+supply-net naming (VDD/VSS vs VPWR/VGND at the top level), then real
+opens/shorts if any.
+
+## 2026-09-05 evening: first full black-box compare, two setup defects found and fixed
+
+Run 2 on the li1-fixed export (`outputs/*_pnr_lvs.v`, saveNetlist
+-includePowerGround -includePhysicalInst): magic extraction of the whole
+design took **90 min** (not the 25 h of the armC attempt), netgen 30 min.
+Result: `Circuit 1 contains 250940 devices, Circuit 2 contains 250944` and
+**"Device classes ... are equivalent"**, then `Top level cell failed pin
+matching` and 256,094 vs 267,867 nets. Two causes, neither a layout error:
+
+1. **The GDS has no pin text.** `grep -a cpu_req_valid Cache_*.gds` = 0, so
+   magic's top cell had an empty port list (`.subckt Cache_... ` with no
+   ports) and every schematic port shows as "(no pin, node is <inst>)".
+   Fix: `def_pins_to_magic.py` reads the DEF PINS section (216 pins, layers
+   met1-met4, orientations N/E/S) and emits `box`/`label {name} center
+   <layer>`/`port make` for each; `run_lvs_bb.sh` sources it after `select
+   top cell`. Notes from the scratch test: bus names must be braced (Tcl
+   sees `[31]` as a command), and `port makeall` converted only the label
+   under the current box, so `port make` is issued per label. Verified on a
+   painted scratch cell: all 216 names appear as subckt ports.
+2. **Device-less physical cells.** The netlist instantiates fill_1 x4,
+   fill_2 x196,802, tapvpwrvgnd_1 x153,805; magic extracts them as empty
+   subcells and drops them, netgen keeps the Verilog stubs as classes ->
+   the 4-device difference (fill_1, fill_2, tap, and one diode_2 group).
+   Fix: `netgen_setup_bb.tcl` = PDK setup + `ignore class` for
+   fill_1/2/4/8 and tapvpwrvgnd_1 in both circuits. Decaps have real MOS
+   devices and matched (decap_12: 68,509 both sides).
+
+Still to explain after run 3: the diode_2 class 6 vs 7 (7 instances both
+sides; one layout pair parallel-merged?), and the net-count gap, which
+netgen had not reached yet. Run 2 artefacts: `lvs_bb/run2_nopins_20260905/`;
+the 19:42 misrun (top cell = first `module` = diode_2 stub):
+`lvs_bb/misrun_diode_20260905/`. Run 3 launched 22:50 (tmux `lvs_16b_li1`).
+
+### Run 3 (2026-09-06 01:50) - pins present, still "failed pin matching"; ROOT CAUSE = macro not black-boxed
+
+Devices 250,940 vs 250,941 (the ignore-class fix closed the 4-gap; the last one
+is a parallel-merged diode_2 pair), classes equivalent, nets 256,094 vs
+267,867, `Top level cell failed pin matching`. The DEF labels were placed
+correctly (KLayout probe: every label point sits on the pin's met and pin
+shape; the GDS *does* carry pin-purpose shapes on datatype 16, just no text),
+but the layout subckt had **200 ports, not 216**, 30 schematic ports showed
+"(no pin, node is FE_OFN...)" and 28 mem_req_addr/wdata bits cross-matched.
+
+The tell was in the layout spice: **every standard cell had one node on all
+four of VPWR/VGND/VPB/VNB, named `mem_resp_rdata[15]`** (981k instance
+lines touch it). Power and ground are one net in magic's view, and the 16
+missing ports (cpu_req_addr[2..6,17,26,27], cpu_req_valid, cpu_req_id[1],
+cpu_req_wdata[29], cpu_resp_rdata[30], mem_resp_rdata[12,13,25,30]) plus
+mem_resp_rdata[15] all sit on that blob. The macro subckt in the layout had
+**918 ports and the OpenRAM internals** (Xbank_0, Xcontrol_logic_*, Xdata_dff,
+...): `lef read` + `gds noduplicates true` did NOT keep the LEF abstract
+(magic only warned "cell ... already existed before reading GDS!"), and
+magic's extraction of the OpenRAM cells shorts vdd/gnd/signal terminals
+(816 "Ports X and Y are electrically shorted" warnings: gnd-gnd, vdd-S,
+D-vdd, A-G ...). Through 16 macros that merged VPWR+VGND and every net on
+a macro pin - which includes the top-level pins wired straight into the SRAM
+address/data ports (S0 drives `array_rindex` combinationally). Everything
+else in the pin report is cascade from that.
+
+Fix (run 4, launched 17:55 tmux `lvs_16b_bb4`): `blackbox_macros_gds.py`
+(KLayout) rewrites the GDS before magic - the macro cell is emptied, its
+old subcells pruned, and refilled with the LEF PIN rects on datatype 20 plus
+a pin-name text on datatype 16 (the sky130A magic tech reads `METnPIN` text
+as a *port*; datatype 5 would be a plain label). 123 pins, 5,331 rects, no
+two pins touch on a layer (checked), 445k OBS rects dropped. `run_lvs_bb.sh`
+now does this by default (`ASIC_LVS_BB_GDS=0` = old lef-read path) and no
+longer `lef read`s. Run 3 artefacts: `lvs_bb/run3_pins_20260905/`.
+
+## 2026-09-07 07:55 - first LVS bb on iter19b (v7 package, chain af19b8 run 5)
+
+`results/<19b>/lvs_bb/comp.out`: **Netlists do not match.** Device classes
+and cell pin lists equivalent; `wmask1[3:0]` "no matching pin" as before
+(tied in both netlists). The mismatch is a NEW class, not the 16b pin-matching
+one: layout 242,824 devices / 246,776 nets vs netlist 242,360 / 246,476, and
+exactly 300 layout nets with no match, every one of them `<cell>_<n>/VPB`:
+
+| instance class | count |
+|---|---|
+| sky130_fd_sc_hd__inv_8 | 79 |
+| sky130_fd_sc_hd__fill_2 | 60 |
+| sky130_fd_sc_hd__inv_2 | 15 |
+| sky130_fd_sc_hd__mux2_2 | 14 |
+| sky130_fd_sc_hd__inv_4 | 13 |
+| sky130_fd_sc_hd__inv_6 | 11 |
+
+Reading: magic extracted these instances' n-wells as nets of their own,
+i.e. their wells do not touch the tap/VPB well network in the GDS. Router
+antenna diodes are not the cause (167 `diode_2` in the LVS netlist, 166 in
+the DEF, matched). inv_8/inv_2/inv_4/inv_6 are the CTS inverter sizes and
+mux2_2 a datapath cell, so the suspects are instances that ended up in row
+positions without well continuity: cells moved by the antenna legalizer, or
+sitting at row ends / next to the ECO reroute areas. Next: take one instance
+name from comp.out, find it in the DEF (`COMPONENTS`), look at its
+neighbours and the nearest `tapvpwrvgnd` cell in the GDS, and check whether
+`verifyWellTap` (0 violations at export) uses a larger distance than the
+well continuity actually needs. Not attributable to the VSS ECOs without a
+pre-ECO LVS on 19b (none was run; the af19b7 chain was killed before LVS).
+
+### 12:40 - root cause: the right-side channel rows have no power connection
+
+Method: magic's top `.ext` (in the run dir, `extract do local`) gives each
+mismatched instance's placement (`use <cell> <inst> a b x d e y`, 1 unit =
+0.005 um: calibrated on the 16 SRAM macros against the DEF). All 237 mapped
+instances are at x 2865-2885, y 600-2260: the 24 um standard-cell channel
+between the right macro column (ends x 2860) and the core edge (2883.74).
+The nwell there is continuous (KLayout: one polygon per row pair across
+x 2867.9-2883.9, tap contacts at x 2875.6 and 2882.0 in every row), so this
+is not a well-continuity problem. The `merge` lines show what magic did:
+each isolated cell's VPB is merged with its own VPWR and with the
+neighbours' VPWR/VPB, as a tapped well should be, and the resulting cluster
+(that row pair's wells + VPWR rail segment) never reaches the global VPWR
+net. Magic named the cluster after a VPB pin; the real statement is that
+**the VPWR met1 rail of that row segment is floating**. VGND rails in the
+same rows are floating too but the p-substrate ties them to VGND through
+every tap, so netgen sees them as connected.
+
+Why they float, from the DEF: the channel rows are segments broken off by
+the macro (288 VDD + 289 VSS `FOLLOWPIN` rails at x 2868.1-2883.74); no
+vertical stripe crosses the channel (60 um pitch from x 17.1 puts the last
+set at 2837.1/2841.1, under the macro, where met4 is obstructed); the rails
+end at the core edge, 2 um short of the VDD ring (met5 x 2885.7) and 8 um
+short of the VSS ring; and the met5 horizontal straps run parallel to the
+rails, where ViaGen makes no vias. Zero PG via instances of either net in
+x 2860-2884, y 637-2263. The left channel is fed only because the first
+stripe set (x 16.1-22.1) happens to land inside it.
+
+Three tools had said so and were read past: Innovus `verifyConnectivity
+-type special` in every ECO log: "5000 Problem(s) (IMPVFC-96): Terminal(s)
+are not connected" (limit hit); Voltus `grid_weak_conn.txt`: 235 VDD and
+237 VSS met1 entries at x > 2860 ("the 472 right-edge met1 rail stubs",
+recorded 2026-09-07 00:50 as cosmetic); and the LVS mismatch itself.
+Consequence: every cell in those ~290 row segments (CTS inverters inv_8/
+inv_6/inv_4/inv_2, buf_2, nand2, mux2_2 among the fillers and decaps) has
+no VPWR. Silicon would not have worked. iter16b shares the floorplan.
+
+Fix (ECO v8, `scripts/vss_jumper_eco8.tcl`): a VDD+VSS met4 vertical pair in
+the channel (x 2868.6-2870.6 / 2872.6-2874.6, y 610-2305) with stacked vias
+met1..met5: orthogonal to every rail (via stacks down) and to the met5
+straps every 60 um (fed from above); reroute loop for the signal collisions;
+gate = DRC 0, antenna 0, and `verifyConnectivity` unconnected terminals for
+VDD and VSS = 0. Permanent fix for 02_power.tcl: an explicit stripe pair at
+the right core edge (ASIC_PG_EDGE_STRIPES), since the pitch cannot be
+trusted to land one there.
+
+## 2026-09-07 19:20 - LVS bb on the v8 export (right-channel VDD/VSS stripes): floating rails FIXED
+
+`run_lvs_bb.sh` on `outputs/` from the 13:38 export of `07_vssfix.enc` (ECO v8),
+results in `results/<19b>/lvs_bb/`:
+
+| | layout | netlist | before (v7) |
+|---|---|---|---|
+| devices | 242,368 | 242,368 | +464 in layout |
+| nets | 246,540 | 246,476 | +300 in layout |
+
+The 300 isolated-well `<cell>_<n>/VPB` nets and the 464 extra devices are gone:
+the met4 stripe pair in the 24 um right channel connected the rails that had
+been floating. The remaining +64 nets are exactly 16 macros x 4
+`sram_1rw1r_32_256_8_sky130/proxywmask1[3:0]`: the port-1 write-mask pins that
+the netlist ties to gnd and that the macro GDS leaves as unconnected proxy pins
+("no matching pin" for `wmask1[0..3]`, the known artefact). Netgen still prints
+"Netlists do not match" because of those 64, so the honest statement is
+**LVS clean except the 64 tied-off wmask1 pins of the macro, which is a macro
+abstract issue, not a design connectivity issue.** To make netgen say "match":
+either add the four pins to the LEF/GDS tie in the layout, or exclude
+`wmask1` from the comparison with a netgen equate/ignore rule on the macro cell.
+
+## 2026-09-09 to 09-11 - iter26b (quad floorplan): LVS finds a placement bug, then five clean passes
+
+Five export passes of the same P&R run were compared, one per ECO step
+(`results/<26b>/lvs_bb/` holds the last; earlier passes are archived under
+`results/<26b>/pass<N>_*/lvs_bb/`). Same recipe as 19b: `run_lvs_bb.sh`,
+macros black-boxed from the LEF pins, netgen with the fill/tap ignore classes.
+
+| pass | checkpoint exported | devices layout = netlist | extra layout nets | verdict |
+|---|---|---|---|---|
+| 1 | `05_antenna_final5` | 18 device mismatches | 54 per side + 64 | **FAIL**: 10 antenna diodes sit ON TOP of the flops they protect |
+| 2 | `05_antenna_final6` (diodes re-placed) | 197,096 = 197,096 | +64 | clean |
+| 3 | `05_clkskew8` (+160 clock delay cells, 6 diodes) | 197,261 = 197,261 | +64 | clean |
+| 4 | `05_pgvia9` (+PG via pads, all edges) | 197,261 = 197,261 | +64 | clean |
+| 5 | `05_tagskew10` (+176 clock delay cells) - **the signed-off package** | **197,438 = 197,438** | +64 | clean |
+
+The +64 nets are the known macro-abstract artefact: 16 macros x 4
+`wmask1[3:0]` proxy pins that the netlist ties off and the vendor GDS leaves
+unconnected (19b v8 note above). netgen therefore still prints "Netlists do
+not match" on every clean pass; the honest reading is *LVS clean except the
+64 tied-off wmask1 pins*, exactly as on 19b.
+
+**What pass 1 caught.** `attachDiode` dropped the ten diodes at the pin of
+the flop and `refinePlace -eco -inst` answered "No instances to legalize"
+(IMPSP-2022), so they stayed overlapping their flops by 1.4 to 8 um. Innovus
+`verify_drc` = 0 and the antenna check = 0 on that checkpoint; the only
+Innovus tool that objected was `checkPlace` ("overlapping with other insts
+(20)"), whose report had been written but not read. LVS saw 18 device
+mismatches (each overlapping diode pair merged with its flop's devices) and
+54 mismatched nets per side, all named after those ten flops; KLayout saw
+38 `li.3` items at the same ten coordinates. Fix (`antenna_attach6.tcl`):
+explicit `placeInstance` into the nearest row gap for each diode, then
+`checkPlace` must report 0 overlaps before `ecoRoute`. A full-DEF overlap
+sweep found exactly those 10 pairs in 851,829 cells. Lesson: after any ECO
+that adds cells, gate on `checkPlace` overlaps, not only on DRC and antenna.
+
+Open item (CLEANUP.md): `run_lvs_bb.sh` still runs Magic in the caller's
+cwd, so every pass scattered ~670 `.ext` files into `asic/PnR/innovus/`;
+wrap the Magic call in `( cd "$OUT" && ... )`.

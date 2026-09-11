@@ -107,9 +107,26 @@ pnr_note "DRC gate passed: $_drc violation markers <= $DRC_GATE"
 # post-route opt refuses to run without it).
 setOptMode -reset
 setOptMode -fixCap true -fixTran true -fixFanout true
+# setOptMode -reset restores usefulSkew=true (04_cts.tcl lesson, 2026-09-07); the
+# 24a stage-05 log showed -usefulSkew true / -usefulSkewCCOpt standard going into
+# the post-route opts. Re-apply the CTS knob so no delay cells enter clock branches here.
+if {![config_env ASIC_CTS_USEFUL_SKEW 0]} {
+    catch {setOptMode -usefulSkew false}
+    catch {setOptMode -usefulSkewCCOpt none}
+    catch {setAnalysisMode -usefulSkew false}
+    pnr_note "post-route opt: useful skew OFF re-applied after setOptMode -reset"
+}
 
 optDesign -postRoute
 saveDesign [pnr_ckpt 05_postroute_setup.enc]
+# iter21 (2026-09-07): re-assert the I/O timing model before the post-route
+# hold fix (same reason as in 04_cts.tcl; idempotent if it survived restore).
+if {[config_env ASIC_IO_MODEL_POSTCTS 1]} {
+    set _vclk_out [file dirname [pnr_rpt route io_vclk.txt]]
+    set io_vclk_applied 0
+    if {[catch {source [file join $_here io_vclk.tcl]} _msg]} { pnr_note "io_vclk.tcl failed post-route: $_msg" }
+    pnr_note "post-route I/O model applied = $io_vclk_applied (see reports/route/io_vclk.txt)"
+}
 optDesign -postRoute -hold
 
 # The deep census report is what asic/census.py parses - same grouping as

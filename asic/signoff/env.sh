@@ -35,5 +35,12 @@ else
     export SIGNOFF_RESULTS=$SIGNOFF_DIR/results/$SIGNOFF_PNR_STAMP
 fi
 
+# The flow scripts always live in the bare innovus tree - a run dir has no
+# scripts/ of its own (the 2026-08-31 Tempus chain died looking for one).
+# innovus_config.tcl resolves the run dir itself from ASIC_PNR_RUN_STAMP, so
+# export the signoff stamp through that channel too.
+export SIGNOFF_PNR_SCRIPTS=$REPO_ROOT/asic/PnR/innovus/scripts
+export ASIC_PNR_RUN_STAMP=$SIGNOFF_PNR_STAMP
+
 # QRC techfiles produced by quantus/run_techgen.sh (one per RC corner)
 export SKY130_QRC_TECH_DIR=$SIGNOFF_DIR/quantus/techfiles

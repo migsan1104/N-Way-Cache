@@ -1,0 +1,28 @@
+09/05/2026 00:44:39 (icv) Licensing related environment variables:
+
+  LM_LICENSE_FILE = "5280@ece-itop-licsvr.ece.ufl.edu:27000@licsvr.ece.ufl.edu:27002@licsvr.ece.ufl.edu:1717@ece-itop-licsvr.ece.ufl.edu:1055@ece-itop-licsvr.ece.ufl.edu:28001@licsvr.ece.ufl.edu"
+  SNPSLMD_LICENSE_FILE = "27020@ece-itop-licsvr.ece.ufl.edu"
+
+09/05/2026 00:44:39 License manager initialized. (Time=0:00:00)
+09/05/2026 00:44:39 Using license file: 27020@ece-itop-licsvr.ece.ufl.edu
+09/05/2026 00:44:39 (icv) Pre-Checking (ICValidator2-GeometryEngine/2022.03)
+09/05/2026 00:44:39 (icv)   ICValidator2-GeometryEngine license is installed. (Time=0:00:00)
+09/05/2026 00:44:44 Requesting (ICValidator-Manager/2022.03)
+09/05/2026 00:44:44   ICValidator-Manager/2022.03 license denied. (Time=0:00:00)
+09/05/2026 00:44:44 Requesting (ICValidator-Manager-2020/2022.03)
+09/05/2026 00:44:44   ICValidator-Manager-2020/2022.03 license denied. (Time=0:00:00)
+09/05/2026 00:44:44 No such feature exists.
+Feature:       ICValidator-Manager
+License path:  27020@ece-itop-licsvr.ece.ufl.edu:
+FlexNet Licensing error:-5,234
+SNPSLMD_LICENSE_FILE: 27020@ece-itop-licsvr.ece.ufl.edu
+LM_LICENSE_FILE: 5280@ece-itop-licsvr.ece.ufl.edu:27000@licsvr.ece.ufl.edu:27002@licsvr.ece.ufl.edu:1717@ece-itop-licsvr.ece.ufl.edu:1055@ece-itop-licsvr.ece.ufl.edu:28001@licsvr.ece.ufl.edu
+09/05/2026 00:44:44 No such feature exists.
+Feature:       ICValidator-Manager-2020
+License path:  27020@ece-itop-licsvr.ece.ufl.edu:
+FlexNet Licensing error:-5,234
+SNPSLMD_LICENSE_FILE: 27020@ece-itop-licsvr.ece.ufl.edu
+LM_LICENSE_FILE: 5280@ece-itop-licsvr.ece.ufl.edu:27000@licsvr.ece.ufl.edu:27002@licsvr.ece.ufl.edu:1717@ece-itop-licsvr.ece.ufl.edu:1055@ece-itop-licsvr.ece.ufl.edu:28001@licsvr.ece.ufl.edu
+09/05/2026 00:44:44 License denied!
+09/05/2026 00:44:44 (pydb_server) ICValidator2-GeometryEngine license is available.  (Cached)
+09/05/2026 00:44:44 License manager shutting down. (Time=0:00:00)

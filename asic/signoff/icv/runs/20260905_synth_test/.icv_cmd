@@ -1,0 +1,4 @@
+icv TOP GDSII 1 ../../tests/beol_test.gds ../../sky130_beol_min.rs -vue -i -host_init -f -c 
+schematic=UNSPECIFIED
+ICV_HOME_DIR=/apps/syn/icv
+ICV_INCLUDES=UNSET

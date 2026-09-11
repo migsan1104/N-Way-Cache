@@ -1,0 +1,5 @@
+equiv_options(
+  equiv_cells = {
+    { schematic_cell = "sky130_fd_sc_hd__inv_1", layout_cell = "sky130_fd_sc_hd__inv_1" }
+  }
+);

@@ -1,0 +1,31 @@
+[610001:2026-09-05 01:25:15.409] Starting service 'launcher' (Node ID=0, Host Name=ece-lnx-10)
+[610001:2026-09-05 01:25:15.410] Service Launcher starting
+[610001:2026-09-05 01:25:15.410] Starting service mapper
+[610001:2026-09-05 01:25:15.410] Started service mapper with PID 610002
+[610001:2026-09-05 01:25:15.410] Loading service mapper info
+[610001:2026-09-05 01:25:15.614] Starting services
+[610001:2026-09-05 01:25:15.614] Started service license_manager with PID 610009
+[610001:2026-09-05 01:25:15.614] Started service cluster with PID 610010
+[610001:2026-09-05 01:25:15.615] Started service hdb with PID 610011
+[610001:2026-09-05 01:25:15.616] Started service lock_manager with PID 610012
+[610001:2026-09-05 01:25:20.427] Received signal 15. Shutting down.
+[610001:2026-09-05 01:25:20.428] Shutting down service 'cluster'
+[610001:2026-09-05 01:25:20.428]     Closing die FD
+[610001:2026-09-05 01:25:20.428] Shutting down service 'hdb'
+[610001:2026-09-05 01:25:20.428]     Closing die FD
+[610001:2026-09-05 01:25:20.428] Shutting down service 'license_manager'
+[610001:2026-09-05 01:25:20.428]     Closing die FD
+[610001:2026-09-05 01:25:20.428] Shutting down service 'lock_manager'
+[610001:2026-09-05 01:25:20.428]     Closing die FD
+[610001:2026-09-05 01:25:20.428] Waiting for service shutdown
+[610001:2026-09-05 01:25:20.430] Service 'lock_manager' with PID 610012 exited with exit status 0
+[610001:2026-09-05 01:25:20.431] Service 'hdb' with PID 610011 exited with exit status 0
+[610001:2026-09-05 01:25:20.431] Service 'cluster' with PID 610010 exited with exit status 0
+[610001:2026-09-05 01:25:20.433] Service 'license_manager' with PID 610009 exited with exit status 0
+[610001:2026-09-05 01:25:20.433] Waited 0 seconds on services to shutdown
+[610001:2026-09-05 01:25:20.433] Shutting down service 'mapper'
+[610001:2026-09-05 01:25:20.434]     Sending SIGTERM to PID 610002
+[610001:2026-09-05 01:25:20.434] Waiting for service shutdown
+[610001:2026-09-05 01:25:20.442] Service 'mapper' with PID 610002 exited with exit status 0
+[610001:2026-09-05 01:25:20.442] Waited 0 seconds on services to shutdown
+[610001:2026-09-05 01:25:20.442] Service Launcher exiting

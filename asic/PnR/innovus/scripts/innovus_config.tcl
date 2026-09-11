@@ -191,7 +191,9 @@ set SRAM_MACRO_DERATE_EARLY [config_env ASIC_MACRO_DERATE_EARLY 0.5]
 # ---------------------------------------------------------------------------
 # Constraints
 # ---------------------------------------------------------------------------
-set PNR_SDC [file join $INNOVUS_DIR constraints pnr.sdc]
+# ASIC_PNR_SDC (optional) picks another constraints file, e.g.
+# constraints/pnr_3ns.sdc for the iter16c 3.0 ns run (2026-09-04).
+set PNR_SDC [config_env ASIC_PNR_SDC [file join $INNOVUS_DIR constraints pnr.sdc]]
 
 # ---------------------------------------------------------------------------
 # sky130 physical setup
@@ -223,7 +225,11 @@ set DECAP_CELLS   {sky130_fd_sc_hd__decap_12 sky130_fd_sc_hd__decap_8
 # Carried over from run_genus.tcl: the low-power-flow cells are excluded there
 # (level shifters, isolation, some double-height). Placement must honour the
 # same list or it will use cells synthesis deliberately refused.
-set PNR_DONT_USE_PATTERNS {sky130_fd_sc_hd__lpflow_*}
+# probe_*/probec_* (DFT current-probe cells) were missing here until
+# 2026-09-03: Genus/DC excluded them, but CTS useful-skew on iter16b picked
+# six probec_p_8 as delay cells, and their met1 OBS overlapping the rails
+# was 24 of the 35 residual verify_drc markers. Same list as synthesis now.
+set PNR_DONT_USE_PATTERNS {sky130_fd_sc_hd__lpflow_* sky130_fd_sc_hd__probe_* sky130_fd_sc_hd__probec_*}
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -267,6 +273,18 @@ proc pnr_rpt {stage name} {
 foreach _d [list $PNR_REPORT_DIR $PNR_CKPT_DIR $PNR_OUT_DIR \
                  $PNR_LOG_DIR $PNR_WORK_DIR] {
     file mkdir $_d
+}
+
+# Self-describing runs (2026-09-02, after arms B and C silently duplicated):
+# snapshot every ASIC_* launch knob into the run dir each time the config is
+# sourced. Append-mode with a timestamped header, so restarts and same-dir
+# arm scripts each leave their own record instead of overwriting history.
+if {![catch {open [file join $PNR_RUN_DIR knobs.txt] a} _kf]} {
+    puts $_kf "# [clock format [clock seconds] -format %Y-%m-%d_%H:%M:%S] pid [pid] script [info script]"
+    foreach _kv [lsort [array names ::env ASIC_*]] {
+        puts $_kf "$_kv=$::env($_kv)"
+    }
+    close $_kf
 }
 
 # Restore a previous stage's database, with the failure mode spelled out.

@@ -1,0 +1,28 @@
+
+                                 IC Validator 
+
+         Version T-2022.03-SP3-4 for linux64 - Nov 21, 2022 cl#8146030
+
+                    Copyright (c) 1996 - 2022 Synopsys, Inc.
+   This software and the associated documentation are proprietary to Synopsys,
+ Inc. This software may only be used in accordance with the terms and conditions
+ of a written license agreement with Synopsys, Inc. All other use, reproduction,
+   or distribution of this software is strictly prohibited.  Licensed Products
+     communicate with Synopsys servers for the purpose of providing software
+    updates, detecting software piracy and verifying that customers are using
+    Licensed Products in conformity with the applicable License Key for such
+  Licensed Products. Synopsys will use information gathered in connection with
+    this process to deliver software updates and pursue software pirates and
+                                   infringers.
+
+ Inclusivity & Diversity - Visit SolvNetPlus to read the "Synopsys Statement on
+            Inclusivity and Diversity" (Refer to article 000036315 at
+                        https://solvnetplus.synopsys.com)
+
+Called as: icv -cache-only -D BEOL_EXTRA ../../sky130_beol.rs
+
+- Parsing runset "../../sky130_beol.rs" ... 
+Cache-only mode
+Parsing finished
+Saved runset to cache: /home/UFAD/miguel.sanchez1/.icvrscache/0671a3a7e99ca05f3c5177381e4562cf-1CD20545-B0FB-43DD-BDD3-AA2534EC38AA-ece-lnx-10-505064.rscache
+IC Validator is done.

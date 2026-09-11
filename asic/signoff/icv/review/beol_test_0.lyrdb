@@ -1,0 +1,190 @@
+<?xml version="1.0" encoding="utf-8"?>
+<report-database>
+ <description>beol_test</description>
+ <original-file/>
+ <generator>drc: script='beol_test.drc'</generator>
+ <top-cell>TOP</top-cell>
+ <tags>
+ </tags>
+ <categories>
+  <category>
+   <name>m1.1</name>
+   <description>m1.1 : min. m1 width : 0.14um</description>
+   <categories>
+   </categories>
+  </category>
+  <category>
+   <name>m1.2</name>
+   <description>m1.2 : min. m1 spacing : 0.14um</description>
+   <categories>
+   </categories>
+  </category>
+  <category>
+   <name>m2.1</name>
+   <description>m2.1 : min. m2 width : 0.14um</description>
+   <categories>
+   </categories>
+  </category>
+  <category>
+   <name>m2.2</name>
+   <description>m2.2 : min. m2 spacing : 0.14um</description>
+   <categories>
+   </categories>
+  </category>
+ </categories>
+ <cells>
+  <cell>
+   <name>TOP</name>
+   <variant/>
+   <layout-name/>
+   <references>
+   </references>
+  </cell>
+ </cells>
+ <items>
+  <item>
+   <tags/>
+   <category>'m1.1'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (0,0;0,1)|(0.1,1;0.1,0)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (13.5,0.5;13.5,0.483)|(13.59,0.59;13.59,0.607)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (13.483,0.5;13.5,0.5)|(13.607,0.59;13.59,0.59)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (16.55,0.3;16.55,1)|(16.45,1;16.45,0.3)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (23.6,0;23.6,1)|(23.5,1;23.5,0)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (4.6,0;4.6,1)|(4.5,1;4.5,0)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m1.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (20.6,0;20.6,1)|(20.5,1;20.5,0)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m2.1'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (0,20;0,21)|(0.1,21;0.1,20)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m2.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (4.6,20;4.6,21)|(4.5,21;4.5,20)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m2.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (16.55,20.3;16.55,21)|(16.45,21;16.45,20.3)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m2.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (13.5,20.5;13.5,20.483)|(13.59,20.59;13.59,20.607)</value>
+   </values>
+  </item>
+  <item>
+   <tags/>
+   <category>'m2.2'</category>
+   <cell>TOP</cell>
+   <visited>false</visited>
+   <multiplicity>1</multiplicity>
+   <comment/>
+   <image/>
+   <values>
+    <value>edge-pair: (13.483,20.5;13.5,20.5)|(13.607,20.59;13.59,20.59)</value>
+   </values>
+  </item>
+ </items>
+</report-database>

@@ -1,0 +1,4 @@
+icv ../../lvs/sky130_lvs_min.rs -cache-only 
+schematic=UNSPECIFIED
+ICV_HOME_DIR=/apps/syn/icv
+ICV_INCLUDES=UNSET

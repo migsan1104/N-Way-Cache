@@ -142,7 +142,19 @@ set_max_transition 0.750 [current_design]
 # output load, so 0.100 pF sits well inside the characterized range and no delay
 # reported here comes from table extrapolation. It is deliberately conservative
 # rather than tuned.
-set_max_capacitance 0.100 [current_design]
+# ASIC_MAX_CAP knob (2026-09-08). Default keeps the campaign value above;
+# "none" removes the blanket limit so the library's per-pin max_capacitance
+# governs (ss_n40C_1v76: buf_4 0.35 pF, buf_12 0.87, clkinv_16 1.56); any other
+# number is a different blanket. Why: post-route on iter24a the 0.100 blanket
+# reported 4,369 real max_cap violators on nets whose drivers were rated 9-16x
+# higher, and the DRV fix (+3,228 buffers) doubled TNS before setup opt began.
+# Read through ::env so Genus, Innovus (via pnr.sdc) and Tempus all see the
+# same value; export it in the run's knobs. (dc_shell read_sdc not verified.)
+set _asic_max_cap 0.100
+if {[info exists ::env(ASIC_MAX_CAP)]} { set _asic_max_cap $::env(ASIC_MAX_CAP) }
+if {$_asic_max_cap ne "none"} {
+    set_max_capacitance $_asic_max_cap [current_design]
+}
 
 # Fanout. The library sets default_fanout_load to 1.0 but declares NO
 # default_max_fanout, so without this line fanout is completely unconstrained
@@ -155,7 +167,15 @@ set_max_capacitance 0.100 [current_design]
 # 20 loads per driver is a starting value chosen against the drive strengths the
 # library actually offers (sky130_fd_sc_hd tops out at _16 buffers). It is not
 # tuned for QoR.
-set_max_fanout 20 [current_design]
+# ASIC_MAX_FANOUT knob (2026-09-08): default keeps 20; "none" removes the
+# rule (max_transition and the library per-pin max_capacitance then bound
+# every net); any other integer is a different blanket. Paired with
+# ASIC_MAX_CAP for the DRV A/B (optimizations.md E35/E37 2x2x2).
+set _asic_max_fanout 20
+if {[info exists ::env(ASIC_MAX_FANOUT)]} { set _asic_max_fanout $::env(ASIC_MAX_FANOUT) }
+if {$_asic_max_fanout ne "none"} {
+    set_max_fanout $_asic_max_fanout [current_design]
+}
 
 # ---------------------------------------------------------------------------
 # Timing exceptions

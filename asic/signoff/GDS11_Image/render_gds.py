@@ -32,6 +32,16 @@ ap.add_argument("--levels", type=int, default=30)
 ap.add_argument("--gds", default=None, help="override GDS path")
 ap.add_argument("--derate", default="x1.5 late (setup) / x0.67 early (hold)",
                 help="macro derate note; v3-campaign default from run_v3.sh")
+# 2026-09-06: signed-off packages (iter16b) - override the route-stage inputs
+ap.add_argument("--drc-rpt", default=None, help="verify_drc report to count instead of reports/route/drc.rpt")
+ap.add_argument("--antenna", type=int, default=None, help="antenna violation count to print (final ECO result)")
+ap.add_argument("--signoff", default=None, help="text block for a SIGNOFF section (\\n separated); replaces the 'pending' banner")
+ap.add_argument("--pdf", action="store_true", help="also write <out>.pdf next to the png")
+ap.add_argument("--period", type=float, default=None, help="clock period (ns) to print; default golden.sdc's 3.5 (synthesis guardband) - P&R signs off at pnr.sdc's 4.0")
+# 2026-09-11: layout-only render (no sheet) for the README hero image, and a
+# configurable "where the sheet numbers came from" footer line
+ap.add_argument("--layout-only", action="store_true", help="no sheet: just the layout in its mm frame + provenance footer")
+ap.add_argument("--sheet-source", default=None, help="footer text naming the report dirs the sheet numbers were read from")
 a = ap.parse_args()
 run = os.path.abspath(a.run_dir)
 
@@ -59,7 +69,7 @@ if die_w is None:
 
 # ---- DRC breakdown ----
 drc = {}
-with open(f"{run}/reports/route/drc.rpt") as f:
+with open(a.drc_rpt or f"{run}/reports/route/drc.rpt") as f:
     for line in f:
         m = re.match(r"^([A-Za-z-]+):", line)
         if m:
@@ -78,6 +88,8 @@ for lf in sorted(glob.glob(f"{run}/logs/*.log*")):
         m = re.search(r"=\s*(\d+)", line)
         if m:
             ant = int(m.group(1))
+if a.antenna is not None:
+    ant = a.antenna
 
 
 def timing(summary_gz):
@@ -166,6 +178,8 @@ if os.path.exists(sdc):
     m = re.search(r"create_clock[^\n]*-period\s+([0-9.]+)", open(sdc).read())
     if m:
         period = float(m.group(1))
+if a.period:
+    period = a.period
 # two-corner MMMC: parse the actual stdcell corner names out of the run's logs
 ss_lib = ff_lib = None
 for lf in sorted(glob.glob(f"{run}/logs/innovus_v3b.log*")):
@@ -179,6 +193,50 @@ for lf in sorted(glob.glob(f"{run}/logs/innovus_v3b.log*")):
             ff_lib = tok.split("__")[1]
     if ss_lib and ff_lib:
         break
+
+import klayout  # for __version__ in title + footer
+import datetime, platform
+st = os.stat(gds)
+gds_date = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
+render_line = (f"Image rendered from that GDSII by KLayout {klayout.__version__} "
+               f"(headless LayoutView, {a.px}px, {a.levels} hierarchy levels) on "
+               f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} @ {platform.node()}")
+stream_line = (f"GDSII stream: {os.path.basename(gds)}  ({st.st_size/1e6:.0f} MB, written {gds_date})\n"
+               f"Layout written by Cadence Innovus 21.16-s078_1 (streamOut, stage 06 export) - "
+               f"P&R run {os.path.basename(run)}")
+
+if a.layout_only:
+    W, H = die_w / 1000.0, die_h / 1000.0  # mm
+    fig, ax = plt.subplots(figsize=(11.0, 12.2))
+    fig.subplots_adjust(left=0.07, right=0.98, top=0.90, bottom=0.10)
+    ax.imshow(im, extent=[0, W, 0, H], origin="upper", interpolation="nearest")
+    ax.set_xlim(-W * 0.04, W * 1.04); ax.set_ylim(-H * 0.10, H * 1.04)
+    ax.set_aspect("equal")
+    ticks = np.arange(0, W + 1e-9, 0.5)
+    ax.set_xticks(ticks); ax.set_yticks(ticks)
+    ax.set_xticklabels([f"{t:g}" for t in ticks], fontsize=10)
+    ax.set_yticklabels([f"{t:g}" for t in ticks], fontsize=10)
+    ax.set_xlabel("x (mm)", fontsize=11, labelpad=1); ax.set_ylabel("y (mm)", fontsize=11)
+    ax.grid(True, color="#888", alpha=0.25, lw=0.6, ls=":")
+    for sp in ax.spines.values():
+        sp.set_color("#888")
+    ax.add_patch(Rectangle((0, 0), W, H, fill=False, ec="#00e5ff", lw=1.6))
+    bar = 0.5
+    ax.plot([0, bar], [-H * 0.045, -H * 0.045], color="black", lw=5, solid_capstyle="butt")
+    ax.text(bar / 2, -H * 0.038, f"{bar:g} mm", ha="center", va="bottom", fontsize=11, fontweight="bold")
+    ax.text(W, -H * 0.036, f"die {W:.2f} mm x {H:.2f} mm  =  {W*H:.2f} mm$^2$",
+            ha="right", va="top", fontsize=13, fontweight="bold", color="#222")
+    title = a.title or os.path.basename(run)
+    fig.suptitle(f"{title}\nGDSII layout ({os.path.basename(gds)}) viewed in KLayout {klayout.__version__}",
+                 fontsize=12.5, fontweight="bold", x=0.07, y=0.985, ha="left", wrap=True)
+    fig.text(0.07, 0.012, stream_line + "\n" + render_line, ha="left", va="bottom",
+             fontsize=8.5, family="monospace", color="#555")
+    fig.savefig(a.out, dpi=170)
+    if a.pdf:
+        fig.savefig(os.path.splitext(a.out)[0] + ".pdf", dpi=170)
+    os.remove(tmp_png)
+    print(f"wrote {a.out}  (layout only, die={W:.2f}x{H:.2f}mm)")
+    sys.exit(0)
 
 # ---- compose: layout left, sheet panel right, provenance bottom ----
 W, H = die_w / 1000.0, die_h / 1000.0  # mm
@@ -224,11 +282,18 @@ def section(header, body, header_color=CYAN, body_color="white"):
               bbox=dict(boxstyle="round,pad=0.55", fc=DARK, ec="#3a4750", lw=1.0))
     y -= 0.0245 * n + 0.052
 
-side.text(0.02, 1.045, "PRE-SIGNOFF SHEET", transform=side.transAxes,
-          ha="left", va="top", fontsize=17, fontweight="bold", color="#0a0a0a")
-side.text(0.02, 1.012, "all numbers from Cadence Innovus 21.16 route-stage reports\n"
-          "(verify_drc / timeDesign -postRoute) - Tempus signoff pending",
-          transform=side.transAxes, ha="left", va="top", fontsize=9.5, color="#555")
+if a.signoff:
+    side.text(0.02, 1.045, "SIGNOFF SHEET", transform=side.transAxes,
+              ha="left", va="top", fontsize=17, fontweight="bold", color="#0a0a0a")
+    side.text(0.02, 1.012, "design/violation numbers from Cadence Innovus 21.16 reports;\n"
+              "timing from Cadence Tempus 23.14 (SI, Quantus RC) - see SIGNOFF",
+              transform=side.transAxes, ha="left", va="top", fontsize=9.5, color="#555")
+else:
+    side.text(0.02, 1.045, "PRE-SIGNOFF SHEET", transform=side.transAxes,
+              ha="left", va="top", fontsize=17, fontweight="bold", color="#0a0a0a")
+    side.text(0.02, 1.012, "all numbers from Cadence Innovus 21.16 route-stage reports\n"
+              "(verify_drc / timeDesign -postRoute) - Tempus signoff pending",
+              transform=side.transAxes, ha="left", va="top", fontsize=9.5, color="#555")
 y = 0.955
 
 des = [f"Die size      {W:.2f} x {H:.2f} mm  ({W*H:.2f} mm2)",
@@ -273,30 +338,30 @@ if period and setup:
         tl.append(f"reg2reg-implied Fmax ~ {fmax:.0f} MHz")
     except Exception:
         pass
-section("TIMING (post-route, no opt)", "\n".join(tl), header_color=AMBER)
+if a.signoff:
+    section("SIGNOFF (Tempus, SI, both corners)", a.signoff.replace("\\n", "\n"), header_color="#2e9e4f")
+else:
+    section("TIMING (post-route, no opt)", "\n".join(tl), header_color=AMBER)
 
-import klayout  # for __version__ in title + footer
 title = a.title or os.path.basename(run)
 fig.suptitle(f"{title}\nGDSII layout ({os.path.basename(gds)}) viewed in KLayout {klayout.__version__}",
              fontsize=16, fontweight="bold", x=0.05, y=0.985, ha="left")
 
 # ---- provenance footer: this is a render of the real GDSII, tool by tool ----
-import datetime, platform
-st = os.stat(gds)
-gds_date = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
 prov = (
-    f"GDSII stream: {os.path.basename(gds)}  ({st.st_size/1e6:.0f} MB, written {gds_date})\n"
-    f"Layout written by Cadence Innovus 21.16-s078_1 (streamOut, stage 06 export) - "
-    f"P&R run {os.path.basename(run)}\n"
-    f"Image rendered from that GDSII by KLayout {klayout.__version__} "
-    f"(headless LayoutView, {a.px}px, {a.levels} hierarchy levels) on "
-    f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} @ {platform.node()}\n"
-    f"Sheet numbers parsed verbatim from the run's Innovus reports "
-    f"(reports/route/drc.rpt, postroute*.summary, logs)"
+    stream_line + "\n" + render_line + "\n" +
+    (a.sheet_source if a.sheet_source else
+     (f"Sheet numbers: Innovus reports ({os.path.relpath(a.drc_rpt, run) if a.drc_rpt else 'reports/route/drc.rpt'}, summary.rpt, antenna ECO) "
+      f"+ Tempus 23.14 signoff reports (asic/signoff/results/<run>/tempus_*_si_li1/)"
+      if a.signoff else
+      f"Sheet numbers parsed verbatim from the run's Innovus reports "
+      f"(reports/route/drc.rpt, postroute*.summary, logs)"))
 )
 fig.text(0.05, 0.012, prov, ha="left", va="bottom", fontsize=9,
          family="monospace", color="#555")
 
 fig.savefig(a.out, dpi=170)
+if a.pdf:
+    fig.savefig(os.path.splitext(a.out)[0] + ".pdf", dpi=170)
 os.remove(tmp_png)
 print(f"wrote {a.out}  (drc={drc_total}, antenna={ant}, die={W:.2f}x{H:.2f}mm)")

@@ -1,0 +1,19 @@
+<dp.log begin>
+Runset Checksum Section
+***********************
+
+sky130_lvs_min.rs : 1a78c5ebf1b2a60e40d0f988cfaf3343 : /ecel/UFAD/miguel.sanchez1/Cache/asic/signoff/icv/lvs/sky130_lvs_min.rs
+runset : 2a02cccb84f9ebc073405def665f4234
+
+End Runset Checksum Section
+***************************
+
+<dp.log end>
+<dp.log begin>
+FTW N/A
+<dp.log end>
+<dp.log begin>
+skipped fill-opt because no known fill command was scanned
+<dp.log end>
+../../sky130_lvs_min.rs:146: warning: ICV LVS device settings currently use overwrite mode. Use command line option '-D ICV_ENABLE_DEVICE_SETTING_APPEND_MODE' or runset instruction '#define ICV_ENABLE_DEVICE_SETTING_APPEND_MODE' to enable LVS device setting append mode in this release.
+../../sky130_lvs_min.rs:146: warning: Some LVS reports change since 2019.12 release. Set environment variable 'ICV_REVERT_LVS_REPORT_IN_IDENTICAL_STRING' to see old LVS reports.

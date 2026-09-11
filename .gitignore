@@ -50,6 +50,13 @@ default.svf
 *.pvl
 *.syn
 *.svf
+# *.pvl above is a Design Compiler intermediate; Pegasus rule decks share the
+# extension and ARE source
+!asic/signoff/pegasus/decks/*.pvl
+
+# Magic extraction debris - a signoff run with cwd at the repo root scatters
+# per-cell .ext files here (regenerable; the LVS scripts now cd first)
+/*.ext
 
 *.sdc.gz
 *.v.gz
@@ -116,3 +123,34 @@ openflex/PPA/*/archive/
 openflex/PPA/snapshot_*/
 asic/PnR/innovus/.timing_file_*
 asic/signoff/quantus/validate/out_*/
+# Voltus debris and regenerable power-grid views (2026-09-04): run_pgv.sh
+# rebuilds pgv/ in ~1 min (techonly); pm.ob/.stat/cellIDMap/work are tool
+# scratch written next to the launch directory.
+asic/signoff/voltus/pgv/
+asic/signoff/voltus/work/
+asic/signoff/voltus/.stat/
+asic/signoff/voltus/cellIDMap
+asic/signoff/**/pm.ob
+
+# Voltus/Innovus scratch under signoff/ (2026-09-05)
+asic/signoff/.stat/
+asic/signoff/work/
+asic/signoff/cellIDMap
+
+# Magic .ext debris from LVS runs whose cwd was asic/ or asic/PnR/innovus/
+# (2026-09-08: 750+ files); regenerable, the signoff scripts cd into work/
+asic/*.ext
+asic/PnR/innovus/*.ext
+# Innovus / Xcelium droppings when a tool is launched from the repo root or scripts/
+.stat/
+**/.stat/
+cellIDMap
+pm.ob
+/work/
+asic/PnR/innovus/scripts/work/
+asic/work/
+xcelium/*.sdf.X
+xcelium/xrun.key
+
+# Personal interview prep notes - never pushed
+interview/

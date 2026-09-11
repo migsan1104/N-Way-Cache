@@ -254,6 +254,16 @@ the same run. The macro sim model is listed in the VERIFICATION file lists only
 (`xcelium/filelist.f`, `openflex/Cache_verification.yml`) — never in the timing or ASIC lists,
 which bind the real macro views.
 
+**Signed-off ASIC package (2026-09-11):** P&R run
+`asic/PnR/innovus/runs/20260908_iter26b_quad2_ch260_e35fo32_ctsA_p4000_1v76`, checkpoint
+`05_tagskew10.enc` (E35 netlist, quad floorplan `fp_iter23_quad.tcl` with `ASIC_FP_WAY_CHANNEL=260`,
+plus antenna, PG-via and two clock-skew ECOs). Tempus SI 5.3 ns / 188.7 MHz at ss_n40C_1v76, 0
+violators; DRC/LVS/IR/EM clean; GLS PASS at 5.3 ns. The 182 MHz fallback is the pass-4 (`05_pgvia9`)
+export. Per-check notes: `asic/signoff/{tempus,lvs,drc,voltus}/*.md`, `xcelium/GLS.md`; sheet
+`asic/signoff/GDS11_Image/Iter26b_SO.png` (rendered by `render_gds.py` in that directory); floorplan
+history figure `asic/PnR/floorplans/floorplan_history.png` (`draw_floorplan_history.py`). README §4
+is the flow walkthrough. Everything under `asic/signoff/results/` is gitignored and keyed by run stamp.
+
 ## Repo hygiene
 
 Working branch is `my-local-backup`; `main` is the PR target. A lot of tool output is tracked or
