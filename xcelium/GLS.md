@@ -305,3 +305,44 @@ after step 4, "... at 3.333 ns with timing checks, at both signoff corners".
   power-up at 7.3 and 9.1 ns MAX (`logs/xrun_gls_xfull73.log`, `xfull91`); recipe in
   the session scratchpad (`gls_full_xinit.tcl`, `run_gls_xfull*.sh`) - to be folded
   into `run_gls.sh` as `GLS_XINIT=1`.
+- 2026-09-08 17:00 to 22:40 - 19b I/O clock model and full passes (details in the
+  session notes; summary): `GLS_IO_LATENCY` / `GLS_MEM_LATENCY` two-clock contract
+  in `Test_Complete.sv`, memory-port monitors on `clk_mem`, io91e / io91f = FULL
+  PASS at 9.1 ns MAX on the 19b post-layout SDF, 221,500 requests, 0 data errors.
+- 2026-09-09 13:50 to 15:50 - iter26b (E35, quad ch260, ctsA, no cap blanket) GLS at
+  6.0 ns = the 167 MHz Tempus quote: FULL PASS twice, 0 data errors, 0 drain
+  timeouts (`logs/xrun_gls_x26b_p6p0.log`, `..._in07.log`). Recipe is now in the
+  repo: `GLS_XINIT=1` in `run_gls.sh` runs `gls_xinit_gen.py` on the run's own
+  `_pnr_sim.v` (P&R renames flop Q nets `FE_OFN*`, so a list from another run
+  deposits nothing - the 19b list would have been silent), uses
+  `gls_lib/sram_1rw1r_32_256_8_sky130_gls_nox.v` + `gls_lib/primitives_init0.v`,
+  and passes `-access +rwc -tcl -input logs/gls_xinit_<tag>.tcl`. 36,934 deposits,
+  0 errors, 108 refill forces. Two lessons from this run:
+  (1) escaped Verilog names must keep their terminating space (`\a.b[3] `) or xmsim
+  rejects them (PVLEND); the first generator stripped it and 2,091 scalar escaped
+  nets - the allocated/dirty/word_valid arrays, the very X sources - were silently
+  skipped. Deposit errors are now counted and printed.
+  (2) `current_cycle()` in `Test_Complete_helpers.svh` was `$time/10`, so every GLS
+  latency print was scaled by 10/period: 26b read "2.93 cycles" at 6.0 ns, 19b
+  "4.44" at 9.1 ns, post-synth "4.88" at 10 ns - all the same 4.88 real cycles.
+  Fixed under `GLS_HALF_PERIOD` (RTL path unchanged).
+  Clocking: the 26b tree is balanced (ref pin 3.607, mem-port flops 3.61-3.64), so
+  one TB clock delayed by `GLS_IO_LATENCY=3.6` serves both ports; no
+  `GLS_MEM_LATENCY`. `GLS_IN_DELAY=0.7` (new, `Cache_gls_wrap.sv`) applies the SDC
+  0.700 ns input-delay contract; without it the TB drives 37 ps before the I/O
+  registers' clock, which happened to capture correctly but is a race, not a test.
+  Caveats unchanged: timing checks off, SRAM model DELAY 0.3 (the SRAM half-cycle
+  read path that limits 5.5 ns is NOT exercised by GLS - Tempus owns it), MAXIMUM
+  SDF from the P&R corners, no OCV.
+- 2026-09-10 23:36 to 09-11 00:20 - iter26b **signoff GLS at 5.3 ns: FULL PASS**
+  (`logs/xrun_gls_x26b_tag10_p5p3.log`). Post-layout netlist + SDF (MAXIMUM)
+  exported from `05_tagskew10.enc` (`runs/<26b>_tagskew10x/outputs`, the same
+  netlist the pass-5 signoff export carries), `GLS_XINIT=1 GLS_HALF_PERIOD=2.65
+  GLS_IO_LATENCY=3.6 GLS_IN_DELAY=0.7`: Test1-10 PASSED, 221,500 requests, 0 data
+  errors, hit read latency 4.88 cycles, X-init clean (all deposits, 0 errors),
+  13 min wall. This is the simulation cross-check of the 188.7 MHz Tempus
+  signoff (asic/signoff/tempus/tempus.md, 2026-09-11). The two clock-delay ECOs
+  (160 SRAM-capture + 176 tag-read `clkdlybuf4s25_1`) are in this netlist and
+  SDF. Caveats as before: `+notimingchecks`; the SRAM model's DELAY 0.3 ns and
+  no-X variant mean the macro half-cycle read - the path that sets the period -
+  is Tempus's, not GLS's; MAXIMUM SDF from the P&R corners, no OCV.

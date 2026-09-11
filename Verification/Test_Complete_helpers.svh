@@ -54,7 +54,15 @@ function automatic string test_status_line(input int test_id, input int assoc_id
 
 function automatic longint unsigned current_cycle;
         begin
+            // Cycle = time / clock period. The RTL regression clock is 10 ns;
+            // under GLS_HALF_PERIOD the period is 2*half. Before 2026-09-09 this
+            // was always /10, so every GLS latency print was scaled by
+            // 10/period (iter26b at 6.0 ns read "2.93 cycles" = 4.88 real).
+`ifdef GLS_HALF_PERIOD
+            current_cycle = longint'($realtime / (2.0 * `GLS_HALF_PERIOD));
+`else
             current_cycle = longint'($time / 10);
+`endif
         end
     endfunction
 

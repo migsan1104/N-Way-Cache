@@ -6,6 +6,11 @@
 #        postsynth = the Genus mapped netlist the run was built from
 #        (knobs.txt ASIC_NETLIST), +define+FUNCTIONAL cell models, no SDF.
 # Knobs: GLS_HALF_PERIOD (ns, default 5 = the TB's 10 ns clock),
+#        GLS_XINIT=1 for the X-initialisation recipe (gls_xinit_gen.py: clock
+#        held low 60 ns, deposit on every flop, refill flops forced 120 ns) plus
+#        the no-X SRAM model and 'initial Q=0' UDPs - needed for any post-layout
+#        run of the E29+ reset-free arrays (GLS.md, 19b io91f full PASS),
+#        GLS_TAG=<name> to name the log/lib dir (default = the mode),
 #        GLS_TIMING_CHECKS=1 to enable $setup/$hold checks (default off: the
 #        TB drives inputs at the clock edge with no input delay, so checks on
 #        port-fed flops fire regardless of design correctness - see the
@@ -53,7 +58,7 @@ else
   SDFARGS=(+define+GLS_SDF_FILE="\"$SDF\"" +define+GLS_SDF_MTM="\"${GLS_MTM:-MAXIMUM}\"" -sdf_verbose)
 fi
 TC=(); [ "${GLS_TIMING_CHECKS:-0}" = "1" ] || TC=(+notimingchecks)
-TAG=${MODE}
+TAG=${GLS_TAG:-$MODE}
 # GLS filelist = the RTL filelist minus the plain macro model; the gls_lib copy
 # (with the netlists' wmask1 port) replaces it. Cache.sv & co. stay for the four
 # RTL DUTs the wrapper keeps.
@@ -64,14 +69,24 @@ HP=(); [ -n "${GLS_HALF_PERIOD:-}" ] && HP=(+define+GLS_HALF_PERIOD=$GLS_HALF_PE
 [ -n "${GLS_IO_LATENCY:-}" ] && HP+=(+define+GLS_IO_LATENCY=$GLS_IO_LATENCY)
 # GLS_MEM_LATENCY (ns): RAM_ID alone on a clock delayed by this much (memory-port flops sit ~7.6 ns deep).
 [ -n "${GLS_MEM_LATENCY:-}" ] && HP+=(+define+GLS_MEM_LATENCY=$GLS_MEM_LATENCY)
-echo "== GLS mode=$MODE netlist=$NET"; echo "== GLS: sdf ${SDF:-none} scope $SCOPE mtm ${GLS_MTM:-MAXIMUM} checks=${GLS_TIMING_CHECKS:-0} half_period=${GLS_HALF_PERIOD:-5} io_latency=${GLS_IO_LATENCY:-0} mem_latency=${GLS_MEM_LATENCY:-0}"
+# GLS_IN_DELAY (ns): DUT inputs delayed after the TB edge by the SDC input-delay contract (Cache_gls_wrap.sv).
+[ -n "${GLS_IN_DELAY:-}" ] && HP+=(+define+GLS_IN_DELAY=$GLS_IN_DELAY)
+# X-init (GLS.md): the deposit list comes from THIS run's netlist - P&R renames
+# flop output nets (FE_OFN*), a list from another run deposits nothing.
+SRAMLIB=$HERE/gls_lib/sram_1rw1r_32_256_8_sky130_gls.v; PRIMS=$PDKV/primitives.v; XI=()
+if [ "${GLS_XINIT:-0}" = "1" ]; then
+  SRAMLIB=$HERE/gls_lib/sram_1rw1r_32_256_8_sky130_gls_nox.v; PRIMS=$HERE/gls_lib/primitives_init0.v
+  python3 "$HERE/gls_xinit_gen.py" "$NET" "$SCOPE" "logs/gls_xinit_$TAG.tcl" || exit 1
+  XI=(-access +rwc -tcl -input "logs/gls_xinit_$TAG.tcl" -gateloopwarn)
+fi
+echo "== GLS mode=$MODE tag=$TAG netlist=$NET"; echo "== GLS: sdf ${SDF:-none} scope $SCOPE mtm ${GLS_MTM:-MAXIMUM} checks=${GLS_TIMING_CHECKS:-0} half_period=${GLS_HALF_PERIOD:-5} io_latency=${GLS_IO_LATENCY:-0} mem_latency=${GLS_MEM_LATENCY:-0} in_delay=${GLS_IN_DELAY:-0} xinit=${GLS_XINIT:-0}"
 xrun -64bit -sv -timescale 1ns/1ps \
   +define+GLS "${MODEDEF[@]}" "${HP[@]}" "${TC[@]}" \
-  -f logs/gls_filelist.f "$HERE/gls_lib/sram_1rw1r_32_256_8_sky130_gls.v" \
-  "$PDKV/primitives.v" "$GLSLIB" \
+  -f logs/gls_filelist.f "$SRAMLIB" \
+  "$PRIMS" "$GLSLIB" \
   "$NET" ../Verification/Cache_gls_wrap.sv \
   "${SDFARGS[@]}" \
-  -top Test_Complete \
+  -top Test_Complete "${XI[@]}" \
   -defparam "Test_Complete.ASSOC=4" \
   -defparam "Test_Complete.CPU_REQ_VALID_PROBABILITY=$CPU_REQ_PROB" \
   -defparam "Test_Complete.CPU_RESP_READY_PROBABILITY=$CPU_RESP_PROB" \
