@@ -49,7 +49,7 @@ foreach w {0 1 2 3} { addInstToInstGroup way$w "GEN_WAYS\[$w\]*" }
 # hub guide = the centre square the wedges leave
 set h0 [expr {$lo + $D}] ; set h1 [expr {$hi - $D}]
 createInstGroup hub -guide $h0 $h0 $h1 $h1
-foreach pat {COMPARE_SELECT_REPLACE_* RESPONSE_UNIT_* MSHR_* ADDR_DECODE_* REPLACEMENT_* inreg_*} {
+foreach pat {COMPARE_SELECT_REPLACE_* RESPONSE_UNIT* MSHR_* ADDR_DECODE_* REPLACEMENT_* inreg_*} {
     addInstToInstGroup hub $pat
 }
 

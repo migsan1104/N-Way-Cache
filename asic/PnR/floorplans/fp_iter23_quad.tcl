@@ -80,7 +80,7 @@ set HUB_X_INSET [config_env ASIC_FP_HUB_X_INSET 600.0]
 set h0x $HUB_X_INSET ; set h1x [expr {$DIE_W - $HUB_X_INSET}]
 set h0y $y1B ; set h1y $y0T
 createInstGroup hub -guide $h0x $h0y $h1x $h1y
-foreach pat {COMPARE_SELECT_REPLACE_* RESPONSE_UNIT_* MSHR_* ADDR_DECODE_* REPLACEMENT_* inreg_*} {
+foreach pat {COMPARE_SELECT_REPLACE_* RESPONSE_UNIT* MSHR_* ADDR_DECODE_* REPLACEMENT_* inreg_*} {
     addInstToInstGroup hub $pat
 }
 # same 40% partial blockage over the hub as fp_iter7/16 (G7b), one variable

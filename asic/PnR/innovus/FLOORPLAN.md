@@ -25,6 +25,69 @@ The ring was chosen for routability (DRC.md: iter5..iter16b), and it did get
 the design through DRC, LVS, IR and EM. It was never evaluated for timing
 with an honest timer, because none existed until today.
 
+## 1a. Where the die size comes from (written 2026-09-08 23:55)
+
+The die is chosen by us, not by the tool. Stage 01 (`scripts/01_floorplan.tcl`)
+would size the core from a utilisation target (`ASIC_FP_UTIL`, default
+`FP_ROW_DENSITY` = 0.65, the value Genus used for its physical estimate), but a
+floorplan file replaces that path entirely, and both `fp_iter16.tcl` and
+`fp_iter23_quad.tcl` hard-code `ASIC_FP_DIE` = 2900 um with the macros at fixed
+coordinates. The number dates from the routability fight (DRC.md, iter5..iter16b)
+and was never re-derived; this section is the derivation, after the fact, from
+measured runs.
+
+| item | area | share |
+|---|---|---|
+| die 2900 x 2900, core margin 16 -> core 2868 x 2868 | 8.41 / 8.23 mm2 | |
+| 16 x `sram_1rw1r_32_256_8` (376.48 x 446.235 um) | 2.69 mm2 | 32.7 % of core |
+| standard cells, E37 fo32 (iter26 `reports/place/checkplace.rpt`) | 2.06 mm2 | 40.5 % of free sites |
+| standard cells, E35 fo20 (iter19b) | 2.54 mm2 | 50.0 % of free sites |
+| placement blockages (hub partial blockage, halos) | 0.73 mm2 | |
+| chip density incl. macros (iter26) | | 59.0 % |
+
+Three facts fix the number:
+
+1. **The macro geometry sets the floor.** On the quad, a way block is two
+   R90/R270 macros plus the channel, 2 x 446.2 + 260 = 1152 um wide and
+   2 x 376.5 + 40 = 793 um tall. Two blocks per side plus the 40 um edge
+   clearance is 2385 um, so no square die below ~2400 um holds the quad at
+   all; the ring has the same floor from a different direction (four banks in
+   a row along one edge: 4 x 376.5 + 3 x 40 + 2 x 40 = 1706 um, plus the
+   opposite way's row and the centre).
+2. **The hub band sets the rest.** Everything shared (`COMPARE_SELECT_REPLACE`,
+   `RESPONSE_UNIT`, `MSHR_*`, `ADDR_DECODE`, `REPLACEMENT`, the boundary
+   registers) is ~0.83 mm2 of cells that must sit between the way blocks. At
+   2900 the band between the top and bottom blocks is 2900 - 2 x 793 - 80 =
+   1234 um tall, 3.5 mm2 of sites for 0.83 mm2 of cells.
+3. **Routability, not area, has been the binding constraint.** sky130 gives this
+   flow five signal layers (met1..met5, li1 excluded). The ring at 50 % cell
+   density routed with 13 % H overflow and ~3,000 post-route DRC on E37; the
+   quad at 41 % sits at 1.7 % overflow and routes E35 to 105. Raising density
+   is what the DRC history says not to do.
+
+Cross-check against the tool: auto-sizing at 0.65 on the 4.75 mm2 of macros
+plus cells would give a ~7.3 mm2 core, i.e. a ~2700 um square, within 7 % of
+2900, and without channels for the macro geometry. So the hard-coded die is
+close to what Innovus would have picked, and the extra 7 % is what the ring and
+quad spend on channels and the hub band.
+
+Is it too big? Not by utilisation: 59 % total density on a macro-dominated
+block with a five-layer stack is ordinary. By timing it is worth a sweep, after
+the 9/14 signoff: the quad geometry would fit a 2600 um die (hub band 934 um,
+2.35 mm2 of sites for the 0.83 mm2 hub), 20 % less silicon, with shorter
+hub-to-way and boundary wires (the long nets are where single small drivers
+show 1.5-2.2 ns). CORRECTION (23:20, same night): it DOES bear on the wall. The 19b Tempus
+worst path at 7.3 ns (`tempus_..._v8_p7p3_refpin/reg2reg.rpt`, path 1:
+`u_sram/dout1[11] -> COMPARE_SELECT_REPLACE_out_rdata_reg[20]`) spends 3.585 ns
+after the macro in 24 stages, of which 16 are repeaters on two nets
+(`rline_raw_116`, `n_288227`) and only 7 are the way-select mux itself;
+roughly 2.4 ns of the 3.6 is distance from the macro corner to the hub. A
+smaller die shortens exactly that. It still pushes density toward the overflow
+the ring showed, which is the risk the iter26i/j pair measures. One-variable experiment: `ASIC_FP_DIE=2600` on the
+quad with the E35 netlist (the one that routes); the quad file scales from that
+knob. When quoting area, quote both: 4.74 mm2 is the Genus/Innovus cell area,
+8.41 mm2 is the silicon.
+
 ## 2. What the honest placement shows
 
 iter21 (4.0 ns target, source latency off, reference-pin I/O), placement
@@ -167,6 +230,78 @@ checkpoint (`runs/20260908_pinbandtest_scratch/logs/pinband_test.log`): all
 (`-spreadType range` ignores `-spacing`). The band is still untested in a
 flow; iter26/26b run with it OFF on purpose so their netlist comparison stays
 one-variable.
+
+**Correction to the correction (2026-09-08 23:50, from the run logs).** The
+paragraph above is wrong about iter25b. Its `logs/flow.log` line 556 shows the
+FIXED call, `editPin ... -side LEFT -layer 4 -spreadType range -start {16
+1112.96} -end {16 1787.04} -fixOverlap 1` with no `-unit`, followed by
+"Successfully spread [216] pins". iter25's log at the same line has the old
+call and the IMPTCM-113 rejection. iter25b launched 11:04 but its stage 01
+sourced the floorplan file after the 11:08 edit (stage 00 reads the netlist
+first), so **iter25 = channel 260 without the band, iter25b = channel 260 with
+the band**. They are not a replicate pair, and the "1.6 ns run-to-run noise"
+reading has no support: the flow's noise is unmeasured until a true replicate
+pair is run. What the pair does say, n = 1 each side: the band is DRC-neutral
+(3,043 with vs 3,089 without) and came with 1.65 ns worse post-route setup WNS
+(-6.066 vs -4.415), which may be the band's cost or may be noise. Commit
+c427c62's message carries the wrong reading; this paragraph supersedes it.
+iter26's exclusion of the band stands, now for a different reason: it did not
+help DRC and might cost timing.
+
+**iter26 2x2 DRV table (2026-09-08 23:06).** All four are E-netlist x cap-rule on
+the same quad floorplan (channel 260, no pin band, ctsA, 4.000 ns, ss 1v76),
+fanout 32 everywhere (Genus 2x2x2 showed fo32 is the sweet spot). Each run's
+Genus netlist was synthesized under the same DRV rules that P&R applies
+(`golden.sdc` reads `ASIC_MAX_CAP` / `ASIC_MAX_FANOUT`, so Genus, Innovus and
+Tempus see one value):
+
+| run | netlist | ASIC_MAX_CAP | ASIC_MAX_FANOUT | Genus run |
+|---|---|---|---|---|
+| iter26  | E37 (skid + rst_r, current src) | none (library per-pin) | 32 | `20260908_e37_nocap_fo32` |
+| iter26b | E35 (Aug netlist, `Cache_e35` worktree) | none | 32 | `20260908_e35_nocap_fo32` (Cache_e35) |
+| iter26c | E37 | 0.100 (campaign blanket) | 32 | `20260908_e37_cap0p1_fo32` |
+| iter26d | E35 | 0.100 | 32 | `20260908_e35_cap0p1_fo32` (Cache_e35) |
+
+Rows answer "does the cap blanket matter post-route" (26 vs 26c, 26b vs 26d);
+columns answer "does E37 beat E35" (26 vs 26b, 26c vs 26d). iter25/25b
+(E37, cap 0.100, fo20) is the fo20 reference outside the table. iter26b
+aborted at CTS 22:20 (the boundary skew-group patterns `*rst_r_reg*` and
+`*RESP_SKID_*` do not exist in E35; iter24a had `ASIC_CTS_IO_SINK_OPTIONAL=1`
+but iter26b was generated from iter25's E37 knobs and lost it). Its
+`03_place` checkpoint is intact; iter26d carries the knob. Relaunch iter26b
+from stage 04 with `ASIC_PNR_FROM=04 ASIC_CTS_IO_SINK_OPTIONAL=1` to fill
+its cell.
+
+**Extension (23:30, user: "iter26e-h same as a-d at a relaxed clock, then i,j
+on the smaller die").** iter26b was resumed from its `03_place` checkpoint at
+23:08 (stage 04 on, `ASIC_CTS_IO_SINK_OPTIONAL=1`; `launch.stage00.sh` is the
+original launch line). Six more runs, all quad channel 260, no pin band, ctsA:
+
+| run | base | one variable vs base |
+|---|---|---|
+| iter26e | iter26  (E37 nocap fo32) | period 7.000 ns (`constraints/pnr_7ns.sdc`) |
+| iter26f | iter26b (E35 nocap fo32) | period 7.000 ns |
+| iter26g | iter26c (E37 cap 0.1 fo32) | period 7.000 ns |
+| iter26h | iter26d (E35 cap 0.1 fo32) | period 7.000 ns |
+| iter26i | iter26c (E37 cap 0.1 fo32) | die 2600 (`ASIC_FP_DIE=2600 ASIC_FP_WAY_STRIP=200 ASIC_FP_HUB_X_INSET=450`) |
+| iter26j | iter26d (E35 cap 0.1 fo32) | die 2600 (same three knobs) |
+
+Why 7.0 ns and not 5.0: iter24b (E37 quad, 5.0 ns) ended post-route at
+reg2reg -3.862 with 4,881 DRC, i.e. the same ~8.9 ns wall as the 4.0 ns runs,
+so 5.0 is still unreachable and the optimizer behaves as at 4.0. 19b misses 7.3
+by 0.867 ns on the SRAM path; 7.0 is the first target within the optimizer's
+reach, and the question e-h answer is whether optDesign can pull ~1 ns out of
+the macro-to-hub segment when it is not spread over 12k violators. Compare each
+against its base at the SAME signoff period in Tempus (what-if 7.3 / 9.1), not
+by P&R WNS.
+
+Why those three die knobs together: the strip and hub inset are absolute
+offsets, so at 2600 with the 2900 values the way0/way3 (and way2/way1)
+regions overlap by 305 um. Two stage-01 dry runs (`fp2600*_scratch`, deleted)
+set the choice: strip 100 gave the way regions TU 74.6 % (the two-column
+floorplan died at 78 %), strip 200 gives 62.3 % (2900: 56.3 %) with a 185 um
+region overlap and a 534 um hub band (2900: 714). The die is the variable; the
+offsets are its geometric consequence. Core utilisation 67.0 % vs 53.7 %.
 
 ## 4c. iter21r: the iter21 ring placement does not route (2026-09-08 02:30)
 
