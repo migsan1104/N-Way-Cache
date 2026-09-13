@@ -412,22 +412,38 @@ estimate.
 ### 4.5 Logic synthesis PPA sweep
 
 Logic synthesis is also run standalone across associativities so the architectural comparison
-from §3 can be repeated on a real standard-cell library. Both tools target SKY130 HD; from
-`asic/`:
+from §3 can be repeated on a real standard-cell library. The sweep below is uniform: every row
+is the 16 KB cache at the signoff recipe of the P&R netlist (`ss_n40C_1v76`, 3.500 ns target,
+tag banks 16 deep, fanout limit 32) with flop data banks, so the rows are comparable to each
+other; the SRAM-macro row is the ASSOC=4 build that went to P&R. From `asic/`:
 
 ```bash
-./run_genus.sh N        # Cadence Genus
-./run_dc.sh N           # Synopsys Design Compiler
-./sweep.sh -j 2         # several configurations
+./run_genus.sh N                       # Cadence Genus, one associativity
+./sweep_corner2.sh -j 5                # the five flop-bank rows below (~6 h wall, 5 licences)
+./collect_ppa.py --tool genus --cache-kb 16 --corner ss_n40C_1v76 --png ..   # table + chart
 ```
 
-Results land in `asic/PPA/<genus|dc>/assoc_N/` and are collected into `asic/PPA/RESULTS.md` by
-`asic/collect_ppa.py` (`--png` renders the charts). Synthesis numbers use placement-based wire
-estimates and are a floor; the post-P&R numbers in §4.1 are the ones that count.
+| Associativity (ways) | Data banks | WNS @ 3.5 ns (ns) | Fmax (MHz) | Hit latency (ns) | Cell area (mm²) | Cells | Flops | Power (W) |
+| ---: | :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | flops | -0.405 | 256.1 | 16.5 | 6.70 | 629,889 | 162,633 | 2.176 |
+| 2 | flops | -0.242 | 267.2 | 15.7 | 6.45 | 538,155 | 164,558 | 2.154 |
+| 4 | flops | -0.316 | 262.0 | 15.8 | 6.39 | 533,093 | 166,569 | 2.146 |
+| 4 | **16 SRAM macros** | **-0.049** | **281.8** | **14.7** | **4.20** | **135,816** | **35,280** | **0.795** |
+| 8 | flops | -0.224 | 268.6 | 15.4 | 6.67 | 579,006 | 169,182 | 2.194 |
+| 16 | flops | -0.128 | 275.6 | 15.0 | 6.58 | 546,584 | 173,179 | 2.275 |
+
+Two things differ from the FPGA sweep in §3. First, ASIC Fmax is nearly flat in associativity
+(256 to 276 MHz, an 8 % spread against 21 % on the FPGA): on every flop-bank row the worst path
+is the same one, the registered set index fanning out to the per-way tag/flag array read
+(`rindex_rep_r -> rline_raw_r`), a sets-to-one flop mux. Doubling the ways halves the sets per
+way, so that mux shrinks, but the way-select and PLRU logic widen by the same factor and the
+two nearly cancel; only at 16 ways does the worst path move to the PLRU update. Second, the
+macros are worth -34 % cell area and -63 % power at ASSOC=4 but only +8 % Fmax, because the wall
+is the tag read, which stays in flops. The Design Compiler sweep was run at 4 KB only
+(`asic/PPA/RESULTS.md`). Synthesis numbers use placement-based wire estimates and are a floor;
+the post-P&R numbers in §4.1 are the ones that count.
 
 ![Cadence Genus synthesis PPA scaling](ASIC_Genus_Synthesis_PPA_16KB.png)
-
-![Synopsys Design Compiler synthesis PPA scaling](ASIC_DC_Synthesis_PPA_16KB.png)
 
 ### 4.6 Reproducing the signed-off package
 

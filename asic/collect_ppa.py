@@ -400,6 +400,11 @@ def main():
     ap.add_argument("--markdown", help="also write the tables to this file")
     ap.add_argument("--png", metavar="DIR",
                     help="also render each tool's table into DIR as a PNG")
+    ap.add_argument("--cache-kb", type=int, metavar="KB",
+                    help="keep only rows at this capacity (e.g. 16)")
+    ap.add_argument("--corner", metavar="LIB",
+                    help="keep only rows synthesised at this signoff corner "
+                         "(e.g. ss_n40C_1v76); rows without a recorded corner are dropped")
     args = ap.parse_args()
 
     ppa_root = args.ppa_root or os.path.join(
@@ -410,6 +415,13 @@ def main():
     charts = []
     for tool in tools:
         rows = collect(ppa_root, tool)
+        if args.cache_kb is not None:
+            rows = [r for r in rows if r.get("cache_bytes") == args.cache_kb * 1024]
+        if args.corner:
+            rows = [r for r in rows if r.get("corner") == args.corner]
+        if not rows:
+            print(f"WARNING: no {tool} rows left after filtering", file=sys.stderr)
+            continue
         blocks.append(markdown(tool, rows))
         if args.png and rows:
             sizes = {r.get("cache_bytes") for r in rows} - {None}
