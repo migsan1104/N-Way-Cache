@@ -42,8 +42,33 @@ ap.add_argument("--period", type=float, default=None, help="clock period (ns) to
 # configurable "where the sheet numbers came from" footer line
 ap.add_argument("--layout-only", action="store_true", help="no sheet: just the layout in its mm frame + provenance footer")
 ap.add_argument("--sheet-source", default=None, help="footer text naming the report dirs the sheet numbers were read from")
+ap.add_argument("--lang", default="en", choices=["en", "es"], help="sheet language (labels only; numbers unchanged)")
 a = ap.parse_args()
 run = os.path.abspath(a.run_dir)
+
+# fixed strings of the sheet, per language (2026-09-11: Spanish for family)
+_L = {
+ "en": dict(sheet="SIGNOFF SHEET", presheet="PRE-SIGNOFF SHEET",
+   sub_so="design/violation numbers from Cadence Innovus 21.16 reports;\ntiming from Cadence Tempus 23.14 (SI, Quantus RC) - see SIGNOFF",
+   sub_pre="all numbers from Cadence Innovus 21.16 route-stage reports\n(verify_drc / timeDesign -postRoute) - Tempus signoff pending",
+   design="DESIGN", die="Die size     ", proc="Process      ", proc_v="SKY130 HD std cells", cells="Std cells    ",
+   logic="logic", phys="decap/tap/diode/tie", macros="SRAM macros  ", macros_v="x 32x256 (16 KB cache, 4-way)",
+   clock="Clock target ", viol="VIOLATIONS", drc="Route DRC markers     ", ant="Antenna violations    ",
+   tot="TOTAL violations      ", so_hdr="SIGNOFF (Tempus, SI, both corners)", tim_hdr="TIMING (post-route, no opt)",
+   layout="GDSII layout", viewed="viewed in KLayout", diebar="die", stream="GDSII stream", written="written",
+   layout_by="Layout written by Cadence Innovus 21.16-s078_1 (streamOut, stage 06 export) - P&R run",
+   rendered="Image rendered from that GDSII by KLayout", on="on"),
+ "es": dict(sheet="HOJA DE APROBACI\u00d3N", presheet="HOJA PREVIA A LA APROBACI\u00d3N",
+   sub_so="cifras de dise\u00f1o y violaciones de los informes de Cadence Innovus 21.16;\ntiempos de Cadence Tempus 23.14 (SI, Quantus RC), ver APROBACI\u00d3N",
+   sub_pre="cifras de los informes de ruteo de Cadence Innovus 21.16\n(verify_drc / timeDesign -postRoute), aprobaci\u00f3n Tempus pendiente",
+   design="DISE\u00d1O", die="Tama\u00f1o chip  ", proc="Proceso      ", proc_v="SKY130 HD celdas est\u00e1ndar", cells="Celdas       ",
+   logic="l\u00f3gicas", phys="f\u00edsicas (decap/tap/diodo)", macros="Macros SRAM  ", macros_v="x 32x256 (cach\u00e9 16 KB, 4 v\u00edas)",
+   clock="Reloj        ", viol="VIOLACIONES", drc="Marcadores DRC de ruteo ", ant="Violaciones de antena   ",
+   tot="TOTAL de violaciones    ", so_hdr="APROBACI\u00d3N (Tempus, SI, ambas esquinas)", tim_hdr="TIEMPOS (post ruteo, sin opt)",
+   layout="Dise\u00f1o f\u00edsico GDSII", viewed="visto en KLayout", diebar="chip", stream="Archivo GDSII", written="escrito el",
+   layout_by="Dise\u00f1o f\u00edsico generado por Cadence Innovus 21.16-s078_1 (streamOut, etapa 06) - corrida P&R",
+   rendered="Imagen generada a partir de ese GDSII con KLayout", on="el"),
+}[a.lang]
 
 
 def one(pattern):
@@ -198,12 +223,11 @@ import klayout  # for __version__ in title + footer
 import datetime, platform
 st = os.stat(gds)
 gds_date = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M")
-render_line = (f"Image rendered from that GDSII by KLayout {klayout.__version__} "
-               f"(headless LayoutView, {a.px}px, {a.levels} hierarchy levels) on "
+render_line = (f"{_L['rendered']} {klayout.__version__} "
+               f"(headless LayoutView, {a.px}px, {a.levels} hierarchy levels) {_L['on']} "
                f"{datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} @ {platform.node()}")
-stream_line = (f"GDSII stream: {os.path.basename(gds)}  ({st.st_size/1e6:.0f} MB, written {gds_date})\n"
-               f"Layout written by Cadence Innovus 21.16-s078_1 (streamOut, stage 06 export) - "
-               f"P&R run {os.path.basename(run)}")
+stream_line = (f"{_L['stream']}: {os.path.basename(gds)}  ({st.st_size/1e6:.0f} MB, {_L['written']} {gds_date})\n"
+               f"{_L['layout_by']} {os.path.basename(run)}")
 
 if a.layout_only:
     W, H = die_w / 1000.0, die_h / 1000.0  # mm
@@ -224,10 +248,10 @@ if a.layout_only:
     bar = 0.5
     ax.plot([0, bar], [-H * 0.045, -H * 0.045], color="black", lw=5, solid_capstyle="butt")
     ax.text(bar / 2, -H * 0.038, f"{bar:g} mm", ha="center", va="bottom", fontsize=11, fontweight="bold")
-    ax.text(W, -H * 0.036, f"die {W:.2f} mm x {H:.2f} mm  =  {W*H:.2f} mm$^2$",
+    ax.text(W, -H * 0.036, f"{_L['diebar']} {W:.2f} mm x {H:.2f} mm  =  {W*H:.2f} mm$^2$",
             ha="right", va="top", fontsize=13, fontweight="bold", color="#222")
     title = a.title or os.path.basename(run)
-    fig.suptitle(f"{title}\nGDSII layout ({os.path.basename(gds)}) viewed in KLayout {klayout.__version__}",
+    fig.suptitle(f"{title}\n{_L['layout']} ({os.path.basename(gds)}) {_L['viewed']} {klayout.__version__}",
                  fontsize=12.5, fontweight="bold", x=0.07, y=0.985, ha="left", wrap=True)
     fig.text(0.07, 0.012, stream_line + "\n" + render_line, ha="left", va="bottom",
              fontsize=8.5, family="monospace", color="#555")
@@ -265,7 +289,7 @@ bar = 0.5
 ax.plot([0, bar], [-H * 0.045, -H * 0.045], color="black", lw=5, solid_capstyle="butt")
 ax.text(bar / 2, -H * 0.038, f"{bar:g} mm", ha="center", va="bottom",
         fontsize=11, fontweight="bold")
-ax.text(W, -H * 0.036, f"die {W:.2f} mm x {H:.2f} mm  =  {W*H:.2f} mm$^2$",
+ax.text(W, -H * 0.036, f"{_L['diebar']} {W:.2f} mm x {H:.2f} mm  =  {W*H:.2f} mm$^2$",
         ha="right", va="top", fontsize=13, fontweight="bold", color="#222")
 
 # ---- sheet: stacked sections on the right ----
@@ -283,44 +307,42 @@ def section(header, body, header_color=CYAN, body_color="white"):
     y -= 0.0245 * n + 0.052
 
 if a.signoff:
-    side.text(0.02, 1.045, "SIGNOFF SHEET", transform=side.transAxes,
+    side.text(0.02, 1.045, _L["sheet"], transform=side.transAxes,
               ha="left", va="top", fontsize=17, fontweight="bold", color="#0a0a0a")
-    side.text(0.02, 1.012, "design/violation numbers from Cadence Innovus 21.16 reports;\n"
-              "timing from Cadence Tempus 23.14 (SI, Quantus RC) - see SIGNOFF",
+    side.text(0.02, 1.012, _L["sub_so"],
               transform=side.transAxes, ha="left", va="top", fontsize=9.5, color="#555")
 else:
-    side.text(0.02, 1.045, "PRE-SIGNOFF SHEET", transform=side.transAxes,
+    side.text(0.02, 1.045, _L["presheet"], transform=side.transAxes,
               ha="left", va="top", fontsize=17, fontweight="bold", color="#0a0a0a")
-    side.text(0.02, 1.012, "all numbers from Cadence Innovus 21.16 route-stage reports\n"
-              "(verify_drc / timeDesign -postRoute) - Tempus signoff pending",
+    side.text(0.02, 1.012, _L["sub_pre"],
               transform=side.transAxes, ha="left", va="top", fontsize=9.5, color="#555")
 y = 0.955
 
-des = [f"Die size      {W:.2f} x {H:.2f} mm  ({W*H:.2f} mm2)",
-       "Process       SKY130 HD std cells"]
+des = [f"{_L['die']} {W:.2f} x {H:.2f} mm  ({W*H:.2f} mm2)",
+       f"{_L['proc']} {_L['proc_v']}"]
 if stdcells:
     if physcells:
-        des.append(f"Std cells     {stdcells-physcells:,} logic")
-        des.append(f"              +{physcells:,} decap/tap/diode/tie")
+        des.append(f"{_L['cells']} {stdcells-physcells:,} {_L['logic']}")
+        des.append(f"{' '*len(_L['cells'])} +{physcells:,} {_L['phys']}")
     else:
-        des.append(f"Std cells     {stdcells:,}")
-des.append(f"SRAM macros   {macros if macros else 16} x 32x256 (16 KB cache, 4-way)")
+        des.append(f"{_L['cells']} {stdcells:,}")
+des.append(f"{_L['macros']} {macros if macros else 16} {_L['macros_v']}")
 if period:
-    des.append(f"Clock target  {period:.3f} ns  ({1000.0/period:.0f} MHz)")
+    des.append(f"{_L['clock']} {period:.3f} ns  ({1000.0/period:.0f} MHz)")
 if ss_lib and ff_lib:
     des.append(f"Setup corner  {ss_lib} + RC slow (+10%)")
     des.append(f"Hold corner   {ff_lib} + RC fast (-10%)")
     des.append(f"Macro derate  {a.derate}")
-section("DESIGN", "\n".join(des))
+section(_L["design"], "\n".join(des))
 
 tot = drc_total + (ant or 0)
-dl = [f"Route DRC markers      {drc_total:>7,}"]
+dl = [f"{_L['drc']}{drc_total:>7,}"]
 dl += [f"  {k:<19s}  {v:>7,}" for k, v in sorted(drc.items(), key=lambda kv: -kv[1])]
-dl.append(f"Antenna violations     {(ant if ant is not None else 0):>7,}"
+dl.append(f"{_L['ant']}{(ant if ant is not None else 0):>7,}"
           + ("" if ant is not None else " (n/a)"))
 dl.append("-" * 30)
-dl.append(f"TOTAL violations       {tot:>7,}")
-section("VIOLATIONS", "\n".join(dl), header_color=RED)
+dl.append(f"{_L['tot']}{tot:>7,}")
+section(_L["viol"], "\n".join(dl), header_color=RED)
 
 tl = ["             WNS(ns)   TNS(ns)   paths"]
 if setup:
@@ -339,12 +361,12 @@ if period and setup:
     except Exception:
         pass
 if a.signoff:
-    section("SIGNOFF (Tempus, SI, both corners)", a.signoff.replace("\\n", "\n"), header_color="#2e9e4f")
+    section(_L["so_hdr"], a.signoff.replace("\\n", "\n"), header_color="#2e9e4f")
 else:
-    section("TIMING (post-route, no opt)", "\n".join(tl), header_color=AMBER)
+    section(_L["tim_hdr"], "\n".join(tl), header_color=AMBER)
 
 title = a.title or os.path.basename(run)
-fig.suptitle(f"{title}\nGDSII layout ({os.path.basename(gds)}) viewed in KLayout {klayout.__version__}",
+fig.suptitle(f"{title}\n{_L['layout']} ({os.path.basename(gds)}) {_L['viewed']} {klayout.__version__}",
              fontsize=16, fontweight="bold", x=0.05, y=0.985, ha="left")
 
 # ---- provenance footer: this is a render of the real GDSII, tool by tool ----
