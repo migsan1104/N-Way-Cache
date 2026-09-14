@@ -337,12 +337,12 @@ def make_png(tool, rows, path, cache_kb):
     bg, fg, grid = "#0d1526", "#ffffff", "#2b3a52"
     hdr, best_bg = "#16233b", "#1b2a45"
 
-    cols = ["Associativity\n(ways)", "Data\nBanks", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
-            "Hit Latency\n(ns)", "Cell Area\n(um^2)", "Cells", "Sequential\nCells",
+    cols = ["Associativity\n(ways)", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
+            "Cell Area\n(um^2)", "Cells", "Sequential\nCells",
             "Total Power\n(W)", "Violating\nPaths"]
-    cells = [[f"{r['assoc']}", banks_label(r),
+    cells = [[f"{r['assoc']}",
               fmt(r.get("period"), ".3f"), fmt(r.get("slack"), ".3f"),
-              fmt(r.get("fmax"), ".1f"), fmt(hit_latency_ns(r), ".1f"),
+              fmt(r.get("fmax"), ".1f"),
               fmt(r.get("area"), ",.0f"),
               fmt(r.get("cells"), ","), fmt(r.get("seq"), ","),
               fmt(r.get("total_power"), ".3f"), fmt(r.get("violating"), ",")]
@@ -367,7 +367,7 @@ def make_png(tool, rows, path, cache_kb):
     corners = " + ".join(sorted({r.get("corner") or "?" for r in rows}))
     fig.text(0.035, 0.875,
              f"SKY130 HD  |  {corners} setup corner{target}"
-             "  |  hit latency = TB-measured cycles x achieved period",
+             "  |  Fmax = 1 / (target - WNS)",
              ha="left", va="top", color=fg, fontsize=17, fontweight="bold")
     fig.add_artist(plt.Line2D([0.035, 0.975], [0.828, 0.828], color=grid, lw=1.2))
 
