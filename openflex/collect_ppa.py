@@ -130,10 +130,10 @@ def make_png(rows, path, cache_kb):
     hdr = "#16233b"
 
     cols = ["Associativity\n(ways)", "Fmax\n(MHz)", "LUTs\n(Used)", "LUTRAM\n(Used)",
-            "BRAM\n(Used)", "FFs/REGs\n(Used)",
+            "FFs/REGs\n(Used)",
             "Dynamic Power\n(W)", "Static Power\n(W)", "Total Power\n(W)"]
     cells = [[f"{r['assoc']}", f"{r['fmax']:.1f}", f"{r['lut']:,}", f"{r['lutram']:,}",
-              f"{r['bram']:,}", f"{r['reg']:,}",
+              f"{r['reg']:,}",
               f"{r.get('dynamic', 0):.3f}", f"{r.get('static', 0):.3f}",
               f"{r.get('total', 0):.3f}"] for r in rows]
 
