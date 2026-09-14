@@ -338,13 +338,12 @@ def make_png(tool, rows, path, cache_kb):
     hdr, best_bg = "#16233b", "#1b2a45"
 
     cols = ["Associativity\n(ways)", "Target\n(ns)", "WNS\n(ns)", "Fmax\n(MHz)",
-            "Cell Area\n(um^2)", "Sequential\nCells",
+            "Cell Area\n(um^2)",
             "Total Power\n(W)", "Violating\nPaths"]
     cells = [[f"{r['assoc']}",
               fmt(r.get("period"), ".3f"), fmt(r.get("slack"), ".3f"),
               fmt(r.get("fmax"), ".1f"),
               fmt(r.get("area"), ",.0f"),
-              fmt(r.get("seq"), ","),
               fmt(r.get("total_power"), ".3f"), fmt(r.get("violating"), ",")]
              for r in rows]
 
